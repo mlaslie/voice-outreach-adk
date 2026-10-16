@@ -1,0 +1,4 @@
+# Copy to config/environments/demo.yaml (gitignored); select with VOA_ENV=demo.
+log_level: INFO
+debug:
+  enabled: false

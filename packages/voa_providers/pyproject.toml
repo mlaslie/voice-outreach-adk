@@ -1,0 +1,20 @@
+[project]
+name = "voa-providers"
+version = "0.0.1"
+description = "Telephony and SMS provider interfaces and adapters (Twilio, browser softphone, fake)"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "voa-core",
+    "audioop-lts>=0.2.1,<1",
+    "twilio>=9.12,<10",
+]
+
+[tool.uv.sources]
+voa-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/voa_providers"]

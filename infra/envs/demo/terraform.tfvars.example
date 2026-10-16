@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars (gitignored).
+project_id         = "your-gcp-project-id"
+region             = "us-central1"
+firestore_location = "nam5"
+name_prefix        = "voa"
+
+# Optional budget alert (needs billing.budgets.create on the billing account).
+# billing_account_id = "XXXXXX-XXXXXX-XXXXXX"
+# monthly_budget_usd = 200
+
+# Throwaway test projects only: allows terraform destroy to remove data.
+# protect_data = false

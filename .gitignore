@@ -1,0 +1,69 @@
+# ---------------------------------------------------------------------------
+# Identifying values are DATA, not code. Only *.example files are committed.
+# See docs/PLAN.md §14 and scripts/pii_scan.py.
+# ---------------------------------------------------------------------------
+
+# Site / environment / seed config (org names, phone numbers, project ids)
+config/site.yaml
+config/environments/*.yaml
+!config/environments/*.example.yaml
+config/providers/*.yaml
+!config/providers/*.example.yaml
+config/seed/*
+!config/seed/*.example.yaml
+config/pii-denylist.txt
+
+# Terraform: real variables and state never leave the machine
+infra/envs/*/terraform.tfvars
+infra/envs/*/backend.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+.terraform/
+crash.log
+crash.*.log
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+service-account*.json
+credentials*.json
+
+# Rendered audio and spike output (may contain org names or real speech)
+*.wav
+*.ulaw
+*.pcm
+spikes/**/out/
+docs/spikes/raw/
+
+# Branding assets from real organizations
+ui/public/brand/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.next/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Claude Code local settings
+.claude/settings.local.json

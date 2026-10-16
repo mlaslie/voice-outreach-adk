@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Spike Softphone</title>
+<style>
+  :root { --bg:#fff; --fg:#1b1f24; --muted:#5b6470; --accent:#1a73e8; --line:#e3e6ea; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#14171a; --fg:#e8eaed; --muted:#9aa0a6; --accent:#8ab4f8; --line:#2a2f35; } }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:24px 16px; }
+  button { font:inherit; padding:10px 18px; border-radius:8px; border:1px solid var(--line); background:var(--accent); color:#fff; cursor:pointer; }
+  button[disabled] { opacity:.5; cursor:default; }
+  #status { color:var(--muted); margin-left:12px; }
+  #log { margin-top:20px; border-top:1px solid var(--line); padding-top:12px; font:13px/1.5 ui-monospace, monospace; white-space:pre-wrap; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Voice spike softphone</h1>
+  <p>Talks to the same agent and bridge as a phone call. Test patient: <b>Jordan Rivera</b>, date of birth <b>March 15, 1950</b> (fictional).</p>
+  <button id="call">Start call</button> <button id="hang" disabled>Hang up</button><span id="status">idle</span>
+  <div id="log"></div>
+</main>
+<script>
+const IN_RATE = 16000, OUT_RATE = 24000;
+let ws, micCtx, outCtx, micStream, node, playHead = 0, sources = [];
+const $ = (id) => document.getElementById(id);
+const log = (m) => { $('log').textContent += m + '\n'; };
+const status = (s) => { $('status').textContent = s; };
+
+const workletSrc = `
+class Cap extends AudioWorkletProcessor {
+  constructor() { super(); this.buf = []; }
+  process(inputs) {
+    const ch = inputs[0][0]; if (!ch) return true;
+    for (const s of ch) this.buf.push(Math.max(-1, Math.min(1, s)));
+    if (this.buf.length >= 640) {            // 40 ms at 16 kHz
+      const pcm = new Int16Array(this.buf.length);
+      this.buf.forEach((s, i) => pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff);
+      this.port.postMessage(pcm.buffer, [pcm.buffer]); this.buf = [];
+    }
+    return true;
+  }
+}
+registerProcessor('cap', Cap);`;
+
+function playPcm(buf) {
+  const pcm = new Int16Array(buf), f = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) f[i] = pcm[i] / 0x8000;
+  const ab = outCtx.createBuffer(1, f.length, OUT_RATE); ab.copyToChannel(f, 0);
+  const src = outCtx.createBufferSource(); src.buffer = ab; src.connect(outCtx.destination);
+  playHead = Math.max(playHead, outCtx.currentTime); src.start(playHead); playHead += ab.duration;
+  sources.push(src); src.onended = () => { sources = sources.filter(s => s !== src); };
+}
+
+async function start() {
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+  micCtx = new AudioContext({ sampleRate: IN_RATE });
+  outCtx = new AudioContext({ sampleRate: OUT_RATE });
+  await micCtx.audioWorklet.addModule(URL.createObjectURL(new Blob([workletSrc], { type: 'application/javascript' })));
+  node = new AudioWorkletNode(micCtx, 'cap');
+  micCtx.createMediaStreamSource(micStream).connect(node);
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/browser/media');
+  ws.binaryType = 'arraybuffer';
+  ws.onopen = () => { ws.send(JSON.stringify({ event: 'start', params: {} })); status('connected'); log('call started');
+                      node.port.onmessage = (e) => { if (ws.readyState === 1) ws.send(e.data); }; };
+  ws.onmessage = (e) => {
+    if (typeof e.data !== 'string') { playPcm(e.data); return; }
+    const m = JSON.parse(e.data);
+    if (m.event === 'clear') { sources.forEach(s => { try { s.stop(); } catch {} }); sources = []; playHead = 0; log('barge-in: playback cleared'); }
+    if (m.event === 'mark') { const wait = Math.max(0, playHead - outCtx.currentTime) * 1000;
+                              setTimeout(() => ws.readyState === 1 && ws.send(JSON.stringify({ event: 'mark', name: m.name })), wait); }
+  };
+  ws.onclose = () => { status('ended'); log('call ended'); stop(false); };
+  $('call').disabled = true; $('hang').disabled = false;
+}
+
+function stop(sendStop = true) {
+  if (sendStop && ws && ws.readyState === 1) ws.send(JSON.stringify({ event: 'stop' }));
+  micStream && micStream.getTracks().forEach(t => t.stop());
+  micCtx && micCtx.close(); micCtx = null;
+  $('call').disabled = false; $('hang').disabled = true;
+}
+
+$('call').onclick = () => start().catch(e => { log('error: ' + e.message); status('error'); });
+$('hang').onclick = () => stop(true);
+</script>
+</body>
+</html>

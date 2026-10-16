@@ -1,0 +1,45 @@
+# Install once per clone:  uv run pre-commit install
+# Every commit then runs the PII scan, gitleaks, ruff and terraform fmt.
+repos:
+  - repo: local
+    hooks:
+      - id: pii-scan
+        name: PII scan (denylist + generic patterns)
+        entry: uv run python scripts/pii_scan.py
+        language: system
+        pass_filenames: true
+        stages: [pre-commit, pre-push]
+      - id: no-identifying-config
+        name: Block gitignored config files from being force-added
+        entry: "identifying config must stay local; commit the .example twin instead"
+        language: fail
+        files: ^(config/site\.yaml|config/environments/(?!.*\.example\.yaml$).*\.yaml|config/providers/(?!.*\.example\.yaml$).*\.yaml|config/seed/(?!.*\.example\.yaml$).*|config/pii-denylist\.txt|infra/envs/.*/terraform\.tfvars|.*\.tfstate.*)$
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=1024"]
+      - id: check-merge-conflict
+      - id: check-yaml
+        args: ["--allow-multiple-documents"]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.109.2
+    hooks:
+      - id: terraform_fmt

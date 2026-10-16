@@ -1,0 +1,14 @@
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/out
+**/node_modules
+.git
+infra
+docs
+config/*
+!config/app.yaml
+*.wav
+*.ulaw
+.env*

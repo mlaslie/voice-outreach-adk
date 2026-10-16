@@ -1,0 +1,48 @@
+[project]
+name = "voice-outreach-custom-adk"
+version = "0.0.1"
+description = "Outbound voice and SMS outreach on Google ADK + Gemini Live (workspace root)"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "voa-core",
+    "voa-providers",
+    "voa-agents",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<9",
+    "pytest-asyncio>=1.2,<2",
+    "ruff>=0.14,<1",
+    "pre-commit>=4.3,<5",
+    "httpx>=0.28,<1",
+]
+
+[tool.uv.workspace]
+members = ["packages/*", "spikes/voice"]
+
+[tool.uv.sources]
+voa-core = { workspace = true }
+voa-providers = { workspace = true }
+voa-agents = { workspace = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["packages", "spikes", "scripts/tests"]
+addopts = "-q"
+markers = [
+    "live: calls real Google Cloud APIs (needs ADC and a configured project); skipped unless VOA_RUN_LIVE=1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC"]
+ignore = ["S101"]  # assert is fine in tests
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**" = ["S603", "S607"]   # git invoked with fixed arguments
+"spikes/**" = ["ASYNC110"]        # spike harness polls playout state
+"**/tests/**" = ["S105", "S106"]

@@ -1,0 +1,41 @@
+# Base configuration. Committed: contains NO identifying values.
+# Org names, project ids, phone numbers and account ids belong in the
+# gitignored files described in config/README.md.
+
+env: dev
+log_level: INFO
+
+gcp:
+  # Overridden by config/site.yaml or VOA__GCP__PROJECT_ID.
+  project_id: set-in-site-yaml
+  region: us-central1
+
+models:
+  live: gemini-3.8-live          # Vertex GA. Do not use gemini-live-2.5-flash-native-audio (retires 2026-12-13).
+  live_location: us-central1     # Live models are regional only; "global" fails.
+  text: gemini-3.8-flash
+  text_location: global
+  tts: gemini-2.5-flash-tts
+  tts_location: us-central1
+
+voice:
+  voice_name: Aoede
+  language_code: en-US
+  custom_vocabulary: []
+  session_resumption: true
+  max_call_seconds: 900
+
+site:
+  org_name: Acme Health
+  support_email: support@example.org
+  timezone: America/New_York
+
+telephony:
+  voice_provider: browser        # twilio | browser | fake
+  sms_provider: fake             # twilio | fake
+  public_base_url: ""
+
+debug:
+  enabled: false
+  log_tool_args: false
+  save_audio: false

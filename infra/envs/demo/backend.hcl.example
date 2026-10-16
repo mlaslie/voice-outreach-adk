@@ -1,0 +1,3 @@
+# Copy to backend.hcl (gitignored). Created by scripts/bootstrap/00-state-bucket.sh.
+bucket = "your-gcp-project-id-tfstate"
+prefix = "voice-outreach/demo"

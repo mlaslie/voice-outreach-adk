@@ -1,0 +1,12 @@
+# Copy to config/site.yaml (gitignored) and fill in. Identifying values live here.
+gcp:
+  project_id: your-gcp-project-id
+  region: us-central1
+site:
+  org_name: Acme Health
+  support_email: support@example.org
+  timezone: America/New_York
+telephony:
+  voice_provider: twilio          # twilio | browser | fake
+  sms_provider: fake
+  public_base_url: https://voa-gateway-xxxxxxxx.us-central1.run.app

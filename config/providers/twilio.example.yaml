@@ -1,0 +1,12 @@
+# Copy to config/providers/twilio.yaml (gitignored).
+# Credentials are Secret Manager references, never literal values.
+account_sid: secret://twilio-account-sid        # AC... (primary account)
+api_key_sid: secret://twilio-api-key-sid        # SK... (used for REST calls)
+api_key_secret: secret://twilio-api-key-secret
+auth_token: secret://twilio-auth-token          # used ONLY to validate webhook signatures
+from_number: "+12025550100"                     # fictional; use your Twilio number
+amd:
+  enabled: true
+  mode: DetectMessageEnd                        # Enable | DetectMessageEnd
+  timeout_s: 55
+  speech_end_threshold_ms: 1000

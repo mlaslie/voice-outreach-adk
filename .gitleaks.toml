@@ -1,0 +1,18 @@
+# gitleaks: default rules plus Twilio-specific ones.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "twilio-api-key-sid"
+description = "Twilio API key SID"
+regex = '''\bSK[0-9a-f]{32}\b'''
+
+[[rules]]
+id = "twilio-account-sid"
+description = "Twilio account SID"
+regex = '''\bAC[0-9a-f]{32}\b'''
+
+[allowlist]
+description = "Placeholder SIDs"
+regexes = ['''(AC|SK)0{32}''']
+paths = ['''uv\.lock''']

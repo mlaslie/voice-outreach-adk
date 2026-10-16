@@ -1,0 +1,6 @@
+# Copy to config/pii-denylist.txt (gitignored). One literal per line, case-insensitive.
+# scripts/pii_scan.py fails if any of these appear in a tracked file.
+# Put REAL identifying values here: org names, project ids/numbers, real phone
+# numbers (digits only is enough), personal emails, home directory paths.
+example-real-org-name
+123456789012

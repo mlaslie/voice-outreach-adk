@@ -1,0 +1,9 @@
+# Copy to config/seed/allowlist.yaml (gitignored). Seeds the outbound allowlist and
+# SMS consent for the registered test numbers. Fictional values shown.
+numbers:
+  - phone: "+12025550101"
+    label: tester-1
+    sms_consent: true
+  - phone: "+12025550102"
+    label: tester-2
+    sms_consent: true
