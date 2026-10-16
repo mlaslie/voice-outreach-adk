@@ -160,7 +160,10 @@ class TwilioMediaSession:
         if self._closed or not self.stream_id:
             return
         async with self._send_lock:
-            await self._ws.send_text(json.dumps({**payload, "streamSid": self.stream_id}))
+            try:
+                await self._ws.send_text(json.dumps({**payload, "streamSid": self.stream_id}))
+            except Exception:  # caller hung up mid-send: the call is over, not an error
+                self._closed = True
 
     async def send_audio(self, data: bytes) -> None:
         for chunk in frames(data, FRAME_BYTES):
@@ -180,5 +183,5 @@ class TwilioMediaSession:
         self._closed = True
         try:
             await self._ws.close()
-        except RuntimeError:
-            pass  # already closed by the peer
+        except Exception:  # noqa: S110 - already closed by the peer
+            pass

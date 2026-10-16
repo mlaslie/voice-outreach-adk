@@ -76,3 +76,16 @@ async def test_fake_mark_waits_for_playout_and_clear_echoes_marks():
     await m.mark("b")
     await m.clear()
     assert await asyncio.wait_for(frames.__anext__(), 0.2) == MarkAck("b")
+
+
+async def test_send_after_disconnect_closes_quietly():
+    from voa_providers.browser import BrowserMediaSession
+
+    class Gone:
+        async def send_bytes(self, data):
+            raise RuntimeError("client disconnected")
+
+    s = BrowserMediaSession(Gone())
+    await s.send_audio(b"\x00" * 10)  # must not raise
+    await s.send_audio(b"\x00" * 10)
+    assert s._closed

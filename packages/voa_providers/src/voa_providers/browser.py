@@ -58,15 +58,20 @@ class BrowserMediaSession:
                 yield StreamStop("stop")
                 return
 
+    async def _guarded(self, send, payload) -> None:
+        if self._closed:
+            return
+        async with self._lock:
+            try:
+                await send(payload)
+            except Exception:  # peer went away mid-send: the call is over, not an error
+                self._closed = True
+
     async def send_audio(self, data: bytes) -> None:
-        if not self._closed:
-            async with self._lock:
-                await self._ws.send_bytes(data)
+        await self._guarded(self._ws.send_bytes, data)
 
     async def _send_json(self, payload: dict[str, Any]) -> None:
-        if not self._closed:
-            async with self._lock:
-                await self._ws.send_text(json.dumps(payload))
+        await self._guarded(self._ws.send_text, json.dumps(payload))
 
     async def mark(self, name: str) -> None:
         await self._send_json({"event": "mark", "name": name})
@@ -79,5 +84,5 @@ class BrowserMediaSession:
             self._closed = True
             try:
                 await self._ws.close()
-            except RuntimeError:
+            except Exception:  # noqa: S110 - peer already gone; closing is best-effort
                 pass

@@ -422,6 +422,8 @@ voice-outreach-custom-adk/
 
 Phases 3/4 and 5 can run in parallel once phase 2's domain models settle.
 
+**Phase 0 status (16 Oct 2026).** The voice spike passed 6 of 6 simulated-patient scenarios on `gemini-3.8-live` once two code-side guards were added: auto-hangup after the report, and an exit gate while a question is unanswered. Skills work under `run_live` at about +0.4 s per load, and Gemini-TTS renders mu-law clips. Results and open items are in [`spikes/voice.md`](spikes/voice.md). The Terraform plan is clean (72 resources) and not yet applied. A real PSTN call is still to do.
+
 ---
 
 ## 11. Risks, concerns and open questions
