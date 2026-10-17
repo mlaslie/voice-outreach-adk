@@ -123,3 +123,9 @@ variable "static_allowlist" {
   type        = string
   default     = ""
 }
+
+variable "operators" {
+  description = "People who may impersonate the dashboard SA (local UI dev, e2e tests), e.g. [\"user:you@example.org\"]. Identifying: tfvars only."
+  type        = list(string)
+  default     = []
+}

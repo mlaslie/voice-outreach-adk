@@ -48,9 +48,22 @@ def tts16k(client, model: str, text: str) -> bytes:
 
 async def main() -> int:
     cfg = load_config()
-    gateway = sys.argv[1] if len(sys.argv) > 1 else cfg.services.gateway_url
-    assert gateway, "pass the gateway URL or set services.gateway_url"
+    arg = sys.argv[1] if len(sys.argv) > 1 else cfg.services.gateway_url
+    assert arg, "pass the gateway URL, or a softphone URL minted by POST /api/test-call"
     store = FirestoreStore(cfg.gcp.project_id)
+    if "token=" in arg:
+        # Minted by the API: the patient is already staged under the token's call id.
+        token = arg.split("token=", 1)[1]
+        call_id = token.split(".")[0]
+        base = arg.split("/softphone", 1)[0]
+        url = base.replace("https://", "wss://") + f"/softphone/media?token={token}"
+    else:
+        call_id, url = await _stage_and_sign(store, cfg, arg)
+    await _converse(store, cfg, call_id, url)
+    return await _verify(store, call_id)
+
+
+async def _stage_and_sign(store, cfg, gateway: str) -> tuple[str, str]:
     call_id = "browser_" + uuid.uuid4().hex[:16]
     await store.set(
         "pending_calls",
@@ -67,7 +80,10 @@ async def main() -> int:
     exp = str(int(time.time()) + 300)
     sig = hmac.new(key.encode(), f"{call_id}.{exp}".encode(), hashlib.sha256).hexdigest()
     url = gateway.replace("https://", "wss://") + f"/softphone/media?token={call_id}.{exp}.{sig}"
+    return call_id, url
 
+
+async def _converse(store, cfg, call_id: str, url: str) -> None:
     tts = genai.Client(
         enterprise=True, project=cfg.gcp.project_id, location=cfg.models.tts_location
     )
@@ -113,6 +129,9 @@ async def main() -> int:
             with contextlib.suppress(Exception):
                 await ws.send(json.dumps({"event": "stop"}))
     print(f"first agent audio after {first_audio:.2f}s")
+
+
+async def _verify(store, call_id: str) -> int:
     await asyncio.sleep(4)  # let the gateway persist
     events = (await store.get("call_events", call_id) or {}).get("timeline", [])
     turns_doc = (await store.get("transcripts", call_id) or {}).get("turns", [])

@@ -19,6 +19,8 @@ locals {
     VOA__SERVICES__GATEWAY_URL             = local.gateway_url
     VOA__SERVICES__API_URL                 = local.api_url
     VOA__SERVICES__TASKS_INVOKER_SA        = module.sa.emails["${local.p}-tasks-invoker"]
+    VOA__SERVICES__UI_SA                   = module.sa.emails["${local.p}-ui"]
+    VOA__DIALING__ALLOWLIST                = var.static_allowlist
     VOA__SERVICES__RECORDINGS_BUCKET       = module.recordings.name
     VOA__SERVICES__PROMPTS_BUCKET          = module.prompts.name
     VOA__TELEPHONY__VOICE_PROVIDER         = "twilio"
@@ -147,4 +149,13 @@ resource "google_cloud_scheduler_job" "dispatch_due" {
     }
   }
   depends_on = [module.services]
+}
+
+# Operators can mint ID tokens as the dashboard SA to exercise the private API
+# exactly as the dashboard does (local UI development, deployed e2e tests).
+resource "google_service_account_iam_member" "operators_impersonate_ui" {
+  for_each           = toset(var.operators)
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${module.sa.emails["${local.p}-ui"]}"
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = each.value
 }
