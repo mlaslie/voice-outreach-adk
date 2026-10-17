@@ -115,6 +115,26 @@ class DialingConfig(_Strict):
     call_timeout_s: int = Field(default=600, ge=60)  # a call "in flight" longer than this is stale
 
 
+class SmsConfig(_Strict):
+    """SMS follow-up after a missed call (F7) and the questionnaire by text (F9)."""
+
+    enabled: bool = True
+    dry_run: bool = True  # log instead of sending until the copy/number/campaign are confirmed
+    from_number: str = ""  # identifying: env/tfvars only
+    voice_number: str = ""  # shown in copy ("call us at ...")
+    invite_delay_s: int = Field(default=60, ge=0)
+    invite_cooldown_h: int = Field(default=24, ge=0)
+    session_ttl_h: int = Field(default=48, ge=1)
+    max_messages_per_session: int = Field(default=40, ge=1)
+    max_sms_per_hour: int = Field(default=100, ge=0)
+    quiet_start_hour: int = Field(default=8, ge=0, le=23)
+    quiet_end_hour: int = Field(default=20, ge=1, le=24)
+    max_schedule_days: int = Field(default=14, ge=1)
+    survey_enabled: bool = False  # option 3; register the copy with the carrier first
+    reply_to_compliance_keywords: bool = False  # False when the provider answers STOP/HELP itself
+    llm_fallback: bool = True  # Gemini interprets free text the parsers could not (never decides)
+
+
 class SoftphoneConfig(_Strict):
     """Browser softphone into the gateway. Off in deployed environments unless a
     token secret is configured (tokens are minted by the API behind IAP)."""
@@ -140,6 +160,7 @@ class AppConfig(_Strict):
     services: ServicesConfig = ServicesConfig()
     softphone: SoftphoneConfig = SoftphoneConfig()
     dialing: DialingConfig = DialingConfig()
+    sms: SmsConfig = SmsConfig()
     debug: DebugConfig = DebugConfig()
     # Provider-specific blocks are validated by the provider adapter itself.
     providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
