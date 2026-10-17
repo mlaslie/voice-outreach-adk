@@ -60,3 +60,15 @@ def test_denylist_is_case_insensitive_and_masked():
     findings = list(pii_scan.scan_text("a.md", "Welcome to Contoso Clinic", ["contoso clinic"]))
     assert [f.rule for f in findings] == ["denylist"]
     assert "contoso" not in findings[0].sample.lower()
+
+
+def test_binary_files_are_not_silently_skipped(tmp_path, monkeypatch):
+    import zipfile
+
+    monkeypatch.setattr(pii_scan, "ROOT", tmp_path)
+    plan = tmp_path / "tfplan"
+    with zipfile.ZipFile(plan, "w") as z:
+        z.writestr("tfplan", 'project_id = "contoso-prod-1234"')
+    (tmp_path / "blob.bin").write_bytes(b"\x00\xff\xfe\x00")
+    rules_found = {f.rule for f in pii_scan.scan_paths(["tfplan", "blob.bin"], ["contoso-prod"])}
+    assert "denylist" in rules_found and "unscannable-binary" in rules_found

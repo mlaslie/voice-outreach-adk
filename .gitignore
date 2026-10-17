@@ -19,6 +19,8 @@ infra/envs/*/backend.hcl
 *.tfstate
 *.tfstate.*
 *.tfplan
+tfplan
+**/tfplan
 .terraform/
 crash.log
 crash.*.log

@@ -131,6 +131,22 @@ def scan_text(path: str, text: str, denylist: Iterable[str]) -> Iterator[Finding
                     yield Finding(path, lineno, rule, _mask(m.group(0)))
 
 
+def _scan_binary(rel: str, path: Path, denylist: list[str]) -> list[Finding]:
+    """Binary files can hide anything (a Terraform plan is a zip full of variable
+    values). Zip archives are opened and scanned; any other unreadable binary that
+    is not a known media type is a finding in itself."""
+    import zipfile
+
+    if zipfile.is_zipfile(path):
+        out: list[Finding] = []
+        with zipfile.ZipFile(path) as z:
+            for name in z.namelist():
+                data = z.read(name).decode("utf-8", errors="replace")
+                out += scan_text(f"{rel}!{name}", data, denylist)
+        return out or [Finding(rel, 0, "archive-committed", "")]
+    return [Finding(rel, 0, "unscannable-binary", "")]
+
+
 def _git(*args: str) -> list[str]:
     out = subprocess.run(
         ["git", *args], cwd=ROOT, check=True, capture_output=True, text=True
@@ -152,6 +168,7 @@ def scan_paths(paths: Iterable[str], denylist: list[str]) -> list[Finding]:
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
+            findings += _scan_binary(rel, path, denylist)
             continue
         findings += scan_text(rel, text, denylist)
     return findings

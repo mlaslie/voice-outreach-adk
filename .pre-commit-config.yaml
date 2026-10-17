@@ -13,7 +13,7 @@ repos:
         name: Block gitignored config files from being force-added
         entry: "identifying config must stay local; commit the .example twin instead"
         language: fail
-        files: ^(config/site\.yaml|config/environments/(?!.*\.example\.yaml$).*\.yaml|config/providers/(?!.*\.example\.yaml$).*\.yaml|config/seed/(?!.*\.example\.yaml$).*|config/pii-denylist\.txt|infra/envs/.*/terraform\.tfvars|.*\.tfstate.*)$
+        files: ^(config/site\.yaml|config/environments/(?!.*\.example\.yaml$).*\.yaml|config/providers/(?!.*\.example\.yaml$).*\.yaml|config/seed/(?!.*\.example\.yaml$).*|config/pii-denylist\.txt|infra/envs/.*/terraform\.tfvars|infra/envs/.*/backend\.hcl|.*\.tfstate.*|(.*/)?tfplan|.*\.tfplan)$
 
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
