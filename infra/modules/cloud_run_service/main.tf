@@ -111,7 +111,9 @@ resource "google_cloud_run_v2_service" "this" {
 }
 
 resource "google_cloud_run_v2_service_iam_member" "invokers" {
-  for_each = toset(var.invokers)
+  # Index keys: known at plan time even when a member's email is not (e.g. a
+  # service agent created in the same apply).
+  for_each = { for i, m in var.invokers : tostring(i) => m }
   project  = var.project_id
   location = var.region
   name     = google_cloud_run_v2_service.this.name
