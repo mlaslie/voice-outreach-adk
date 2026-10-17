@@ -9,6 +9,7 @@ infra
 docs
 config/*
 !config/app.yaml
+!config/campaigns
 *.wav
 *.ulaw
 .env*
