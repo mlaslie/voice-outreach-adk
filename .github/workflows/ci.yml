@@ -48,3 +48,25 @@ jobs:
       - run: terraform fmt -check -recursive ../..
       - run: terraform init -backend=false
       - run: terraform validate
+
+  ui:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    env:
+      NEXT_PUBLIC_ORG_NAME: Acme Health
+      NEXT_PUBLIC_SUPPORT_EMAIL: support@example.org
+      NEXT_PUBLIC_PRIVACY_URL: https://example.org/privacy
+      NEXT_PUBLIC_TERMS_URL: https://example.org/terms
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - run: npx vitest run
+      - run: npx tsc --noEmit
+      - run: npm run build
