@@ -65,8 +65,10 @@ resource "google_cloud_run_v2_service" "this" {
   deletion_protection = false
   iap_enabled         = var.iap
   launch_stage        = var.iap ? "BETA" : null
-  # Public services still require a binding below; this only removes the default 403 page.
-  invoker_iam_disabled = false
+  # Public services skip the invoker IAM check instead of granting allUsers: org
+  # policies with domain-restricted sharing forbid allUsers bindings. Every route on
+  # the public service authenticates its caller itself (Twilio signatures, tokens).
+  invoker_iam_disabled = var.public
 
   template {
     service_account                  = var.service_account
@@ -93,28 +95,19 @@ resource "google_cloud_run_v2_service" "this" {
       }
       startup_probe {
         http_get {
-          path = "/healthz"
+          path = "/health"
         }
         period_seconds    = 2
         failure_threshold = 30
       }
       liveness_probe {
         http_get {
-          path = "/healthz"
+          path = "/health"
         }
         period_seconds = 30
       }
     }
   }
-}
-
-resource "google_cloud_run_v2_service_iam_member" "public" {
-  count    = var.public ? 1 : 0
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.this.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
 }
 
 resource "google_cloud_run_v2_service_iam_member" "invokers" {

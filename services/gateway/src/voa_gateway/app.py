@@ -1,7 +1,7 @@
 """voa-gateway: the only public service.
 
 Routes (every Twilio route verifies X-Twilio-Signature; fail closed without a token):
-  GET  /healthz
+  GET  /health
   POST /twilio/answer       -> TwiML <Connect><Stream>
   POST /twilio/status       call progress + async AMD verdicts -> calls/{id}; terminal -> task
   POST /twilio/sms          inbound SMS -> task (processed by the API)
@@ -204,8 +204,8 @@ def create_app(cfg: AppConfig | None = None, gateway: Gateway | None = None) -> 
             else None
         )
 
-    @app.get("/healthz")
-    async def healthz():
+    @app.get("/health")
+    async def health():
         return {"ok": True}
 
     # ------------------------------------------------------------------ twilio voice

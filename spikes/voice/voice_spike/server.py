@@ -3,7 +3,7 @@
     VOA_ENV=dev uv run uvicorn voice_spike.server:app --port 8080
 
 Routes
-  GET  /healthz
+  GET  /health
   GET  /softphone              browser softphone page (talk to the agent with your mic)
   WS   /browser/media          softphone media
   POST /twilio/answer          Twilio voice webhook -> TwiML <Connect><Stream>
@@ -76,8 +76,8 @@ async def trace_context(request: Request, call_next):
         return await call_next(request)
 
 
-@app.get("/healthz")
-async def healthz() -> dict:
+@app.get("/health")
+async def health() -> dict:
     return {"ok": True}
 
 

@@ -267,7 +267,7 @@ The UI's current contract is kept so the UI ports with config-only changes. The 
 - The SMS sidecar endpoints (`/api/followups/*` today) move under the same API: `/api/sms/*`.
 - Auth: a private service. The UI BFF and the assistant call it with Google ID tokens. Writes record the IAP or GE user email (`acted_by`). The single shared `DEMO_API_KEY` goes away.
 - OpenAPI is generated from Pydantic models. A TS client could be generated for the UI later, but that is optional.
-- `/healthz` and `/readyz` on both services.
+- `/health` and `/readyz` on both services.
 
 ### 5.2 Background work
 
