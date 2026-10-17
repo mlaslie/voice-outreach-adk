@@ -19,3 +19,22 @@ def test_json_formatter_carries_context_and_masks():
     assert out["call_id"] == "CA_test"
     assert out["logging.googleapis.com/labels"]["campaign"] == "post_op"
     assert "5550123" not in out["message"]
+
+
+def test_safe_extra_never_breaks_logging(caplog):
+    from voa_core.logging import safe_extra
+
+    log = logging.getLogger("voa.test")
+    with caplog.at_level(logging.INFO, logger="voa.test"):
+        log.info(
+            "tool", extra=safe_extra({"event": "tool.call", "name": "verify_identity", "args": 1})
+        )
+    rec = caplog.records[-1]
+    assert rec.name == "voa.test" and rec.name_ == "verify_identity" and rec.args_ == 1
+
+
+async def test_gateway_timeline_logs_at_info(caplog):
+    from voa_gateway.session import Timeline
+
+    with caplog.at_level(logging.INFO):
+        Timeline().add("tool.call", name="end_call", msg="x")

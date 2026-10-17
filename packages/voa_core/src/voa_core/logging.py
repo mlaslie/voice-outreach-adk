@@ -53,6 +53,14 @@ def bind(**fields: str | None) -> Iterator[None]:
             var.reset(token)
 
 
+def safe_extra(fields: dict[str, Any]) -> dict[str, Any]:
+    """``extra=`` dict that can't crash logging: keys that collide with LogRecord
+    attributes (``name``, ``msg``, ``args``...) raise KeyError inside ``logging``,
+    so they get a trailing underscore. (Found in production: a ``name`` field
+    killed a live call's event loop.)"""
+    return {(f"{k}_" if k in _RESERVED else k): v for k, v in fields.items()}
+
+
 def set_context(**fields: str | None) -> None:
     """Like :func:`bind` but without automatic reset (for long-lived tasks)."""
     for key, value in fields.items():

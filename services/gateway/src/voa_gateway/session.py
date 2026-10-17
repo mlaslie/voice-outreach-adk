@@ -35,7 +35,7 @@ from google.adk.runners import Runner
 from google.genai import types
 from voa_agents.voice import call_facts
 from voa_core.config import AppConfig
-from voa_core.logging import bind
+from voa_core.logging import bind, safe_extra
 from voa_providers.audio import (
     LIVE_INPUT_MIME,
     LIVE_OUTPUT_RATE,
@@ -94,7 +94,7 @@ class Timeline:
     def add(self, event: str, **detail: Any) -> None:
         ms = round((time.monotonic() - self.t0) * 1000)
         self.entries.append({"ms": ms, "event": event, **detail})
-        log.info(event, extra={"event": event, "t_ms": ms, **detail})
+        log.info(event, extra=safe_extra({"event": event, "t_ms": ms, **detail}))
 
 
 def clean_transcript(text: str) -> str:
