@@ -26,7 +26,7 @@ PATIENT = {
 }
 
 
-async def _run(amd_verdict: str | None):
+async def _run(amd_verdict: str | None, scenario: str = "happy"):
     from voice_spike.harness import SCENARIOS, Patient, PatientVoice
 
     cfg = load_config()
@@ -43,7 +43,7 @@ async def _run(amd_verdict: str | None):
         "calls", CALL_ID, {"call_sid": CALL_ID, "amd_requested": amd_verdict is not None}
     )
     media = FakeMediaSession(codec=Codec.MULAW_8K, call_id=CALL_ID)
-    patient = Patient(media=media, voice=PatientVoice(cfg), scenario=SCENARIOS["happy"])
+    patient = Patient(media=media, voice=PatientVoice(cfg), scenario=SCENARIOS[scenario])
     session = CallSession(
         cfg=cfg,
         runner=gw.runner,
@@ -55,7 +55,8 @@ async def _run(amd_verdict: str | None):
     )
     patient.bridge = session
     media.start()
-    tasks = [asyncio.create_task(c) for c in (patient.feeder(), patient.conversation())]
+    coros = [patient.feeder(), patient.conversation(), patient.barge_in()]
+    tasks = [asyncio.create_task(c) for c in coros]
     if amd_verdict:
 
         async def verdict():
@@ -92,3 +93,28 @@ async def test_machine_verdict_drops_voicemail_without_starting_agent():
     assert (
         "vm.play" in events and "agent.release" not in events and "agent.audio_start" not in events
     )
+
+
+@pytest.mark.parametrize(
+    ("scenario", "outcome", "tier"),
+    [
+        ("dob_retry", "questionnaire_completed", None),
+        ("barge_in", "questionnaire_completed", None),
+        ("red_flag", "emergency_ended", "emergency"),
+        ("wrong_person", "unable_to_reach_wrong_person", None),
+    ],
+)
+async def test_personas_with_production_agent(scenario, outcome, tier):
+    """Persona evals against the campaign-driven agent (not the spike prompt)."""
+    store, session = await _run(None, scenario)
+    call = await store.get("calls", CALL_ID)
+    assert call.get("outcome") == outcome, [e["event"] for e in session.timeline.entries]
+    if tier:
+        assert call["follow_up"] == tier
+    if scenario == "barge_in":
+        assert any(e["event"] == "agent.interrupted" for e in session.timeline.entries)
+    if outcome == "unable_to_reach_wrong_person":
+        assert call.get("call_status") in (
+            None,
+            "",
+        )  # a non-reaching report must not settle the call

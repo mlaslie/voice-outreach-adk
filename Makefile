@@ -2,7 +2,7 @@
 ENV ?= demo
 TF  := terraform -chdir=infra/envs/$(ENV)
 
-.PHONY: setup test lint pii tf-bootstrap tf-init tf-plan tf-apply spike-harness spike-serve
+.PHONY: setup test lint pii tf-bootstrap tf-init tf-plan tf-apply spike-harness spike-serve deploy smoke docs-config bootstrap
 
 setup:            ## install deps and git hooks
 	uv sync --all-packages
@@ -35,3 +35,14 @@ spike-harness:    ## phase-0 voice spike: simulated patient vs Gemini Live (cost
 
 spike-serve:      ## run the spike server locally (softphone at http://localhost:8080/softphone)
 	cd spikes/voice && uv run uvicorn voice_spike.server:app --port 8080
+
+deploy:           ## build at HEAD and roll out: make deploy SERVICES="gateway api ui"
+	scripts/deploy.sh $(ENV) $(SERVICES)
+
+smoke:            ## deployed end-to-end checks (API as the dashboard + spoken softphone call)
+	scripts/e2e/api_smoke.sh $(ENV)
+
+docs-config:      ## regenerate docs/CONFIG.md from the config models
+	uv run python scripts/gen_config_doc.py
+
+bootstrap: tf-bootstrap tf-init tf-plan tf-apply  ## base infrastructure for a new environment (see docs/DEPLOY.md)

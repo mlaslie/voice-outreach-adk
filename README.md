@@ -1,57 +1,72 @@
 # voice-outreach-custom-adk
 
-Outbound voice and SMS outreach for post-operative follow-up, built on
-**Google ADK** and **Gemini Live**, deployed on **Cloud Run** with **Terraform**.
-A from-scratch replacement for a CX-Agent-Studio + Twilio proxy system.
+Outbound voice and SMS outreach for post-operative follow-up. It is built on **Google ADK** and **Gemini Live**, runs on **Cloud Run**, and its infrastructure is in **Terraform**. It replaces, from scratch, a system built on CX Agent Studio and a Twilio proxy.
 
-> Status: **phase 0** (bootstrap + spikes). See [`docs/PLAN.md`](docs/PLAN.md).
+The system calls a patient and:
+
+- asks for them by name and verifies their date of birth;
+- asks for consent;
+- runs a short questionnaire, watching every turn for red flags;
+- files a structured report with a deterministic triage tier.
+
+A patient who isn't reached gets an SMS follow-up with three options: call me now, pick a time, or answer by text. Nurses work from a dashboard protected by IAP.
+
+## Architecture
+
+```
+Twilio ── signed webhooks + media WS ──► voa-gateway (Cloud Run, public, every route authenticated)
+                                           CallSession: AMD hold → Gemini Live (ADK run_live) → drain/hangup
+                                           writes calls / reports / transcripts / events; queues Cloud Tasks
+Nurse ── IAP ──► voa-ui (Next.js BFF) ── ID token ──► voa-api (Cloud Run, private)
+                                           REST + SSE, dialing via Cloud Tasks, runs, recall, allowlist,
+                                           budgets, SMS follow-up, Scheduler cron
+State: Firestore (nam5, PITR) · recordings: GCS · models: Gemini Live, Gemini-TTS, Gemini text
+```
+
+More detail:
+
+- [`docs/PLAN.md`](docs/PLAN.md): plan, decisions and risks
+- [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md): build phases
+- [`docs/spikes/voice.md`](docs/spikes/voice.md): phase-0 results
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `packages/voa_core` | config loader, structured logging + PII masking, domain logic |
-| `packages/voa_providers` | telephony interfaces + adapters (`twilio`, `browser`, `fake`), audio transcoding |
-| `packages/voa_agents` | ADK agents (voice first), tools, prompts |
-| `spikes/voice` | phase-0 voice spike: bridge, harness, spike server, softphone |
+| `packages/voa_core` | config, logging and PII masking, store (Firestore and memory), tasks, budget, campaign; domain logic for lifecycle, compliance, reports, survey/triage, intent, DOB, time parsing and the SMS state machine |
+| `packages/voa_providers` | provider interfaces; Twilio, browser-softphone and fake adapters; audio transcoding |
+| `packages/voa_agents` | ADK voice agent (instruction built from the campaign, plus tools), SMS agent, skills |
+| `services/gateway` | public telephony gateway: webhooks, media streams, `CallSession` |
+| `services/api` | private API: dashboard REST/SSE, Cloud Tasks and cron handlers, SMS |
+| `ui/` | Next.js dashboard and nurse console (pure BFF) |
+| `config/` | layered YAML config and campaigns; identifying values live only in gitignored files |
 | `infra/` | Terraform modules and per-environment roots |
-| `config/` | layered YAML config; identifying values only in gitignored files |
-| `scripts/` | PII scanner, bootstrap and secret helpers |
+| `scripts/` | build, deploy, secrets, PII scanner, end-to-end smoke tests |
+| `spikes/voice` | phase-0 voice spike and simulated-patient harness |
 
-## Quick start
-
-```bash
-make setup                       # uv sync + git hooks (PII scan, gitleaks, ruff)
-cp config/site.example.yaml config/site.yaml   # set gcp.project_id
-make test
-```
-
-Talk to the agent without a phone line:
+## Common tasks
 
 ```bash
-gcloud auth application-default login
-make spike-serve                 # open http://localhost:8080/softphone
+make setup                 # deps + git hooks (PII scan, gitleaks, ruff, terraform fmt)
+make test                  # unit tests, no cloud
+VOA_RUN_LIVE=1 uv run pytest services/gateway/tests/test_session_live.py   # live persona evals (Gemini)
+make deploy ENV=demo SERVICES="gateway api ui"
+make smoke ENV=demo        # deployed end-to-end checks
+make docs-config           # regenerate docs/CONFIG.md
 ```
 
-Run the simulated-patient scenarios (real Gemini Live calls, ~2 min each):
+Further docs:
 
-```bash
-make spike-harness
-```
-
-## Deploying infrastructure
-
-```bash
-cp infra/envs/demo/terraform.tfvars.example infra/envs/demo/terraform.tfvars   # edit
-make tf-bootstrap tf-init tf-plan
-make tf-apply
-scripts/set-secrets.sh <project-id>   # Twilio credentials -> Secret Manager
-```
+- [`docs/DEPLOY.md`](docs/DEPLOY.md): setting up a new environment
+- [`docs/RUNBOOK.md`](docs/RUNBOOK.md): operations
+- [`docs/CONFIG.md`](docs/CONFIG.md): every configuration key
+- [`docs/HANDOFF.md`](docs/HANDOFF.md): handoff notes
 
 ## Keeping the repository free of PII
 
-Identifying values (org names, project ids, phone numbers, emails) live only in
-gitignored files; each has a committed `*.example*` twin with fictional values
-(phone numbers in the reserved 555-0100…0199 block). `scripts/pii_scan.py` runs on
-every commit and in CI against a private denylist (`config/pii-denylist.txt`
-locally, the `PII_DENYLIST` repository secret in CI). See `docs/PLAN.md` §14.
+Identifying values are org names, project ids, phone numbers and emails. They live only in gitignored files. Each of those files has a committed `*.example*` twin with fictional values; phone numbers come from the reserved 555-0100…0199 block.
+
+Two checks enforce this:
+
+- `scripts/pii_scan.py` runs on every commit, together with gitleaks. It checks against a private denylist in `config/pii-denylist.txt`.
+- CI runs the same scan, using the `PII_DENYLIST` repository secret.
