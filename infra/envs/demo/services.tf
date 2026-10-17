@@ -21,6 +21,9 @@ locals {
     VOA__SERVICES__TASKS_INVOKER_SA        = module.sa.emails["${local.p}-tasks-invoker"]
     VOA__SERVICES__UI_SA                   = module.sa.emails["${local.p}-ui"]
     VOA__DIALING__ALLOWLIST                = var.static_allowlist
+    VOA__SMS__DRY_RUN                      = tostring(var.sms_dry_run)
+    VOA__SMS__FROM_NUMBER                  = var.sms_from_number
+    VOA__SMS__VOICE_NUMBER                 = var.twilio_from_number
     VOA__SERVICES__RECORDINGS_BUCKET       = module.recordings.name
     VOA__SERVICES__PROMPTS_BUCKET          = module.prompts.name
     VOA__TELEPHONY__VOICE_PROVIDER         = "twilio"
@@ -214,4 +217,37 @@ module "observability" {
   gateway_host = var.gateway_image == "" ? "" : trimprefix(local.gateway_url, "https://")
   alert_emails = var.alert_emails
   depends_on   = [module.services]
+}
+
+
+# --------------------------------------------------------------------------- SMS follow-up
+
+resource "google_cloud_scheduler_job" "sms_expire" {
+  count            = var.api_image == "" ? 0 : 1
+  project          = var.project_id
+  region           = var.region
+  name             = "${local.p}-sms-expire"
+  description      = "Expire stale SMS conversations (files abandoned surveys with urgent findings)"
+  schedule         = "*/10 * * * *"
+  time_zone        = "Etc/UTC"
+  attempt_deadline = "120s"
+  http_target {
+    http_method = "POST"
+    uri         = "${local.api_url}/cron/sms-expire"
+    oidc_token {
+      service_account_email = module.sa.emails["${local.p}-tasks-invoker"]
+      audience              = local.api_url
+    }
+  }
+  depends_on = [module.services]
+}
+
+# Inbound SMS de-duplication markers expire on their own (review C-7 store).
+resource "google_firestore_field" "sms_inbound_seen_ttl" {
+  project    = var.project_id
+  database   = module.firestore.database
+  collection = "sms_inbound_seen"
+  field      = "expire_at"
+  ttl_config {}
+  index_config {}
 }

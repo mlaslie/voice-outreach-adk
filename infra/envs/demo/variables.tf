@@ -135,3 +135,15 @@ variable "alert_emails" {
   type        = list(string)
   default     = []
 }
+
+variable "sms_dry_run" {
+  description = "Log SMS instead of sending. Keep true until the number, A2P campaign and copy are confirmed."
+  type        = bool
+  default     = true
+}
+
+variable "sms_from_number" {
+  description = "SMS sender number (E.164; identifying: tfvars only). Usually a dedicated number (see PLAN 11.9)."
+  type        = string
+  default     = ""
+}
