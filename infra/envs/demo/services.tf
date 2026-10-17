@@ -159,3 +159,48 @@ resource "google_service_account_iam_member" "operators_impersonate_ui" {
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = each.value
 }
+
+# --------------------------------------------------------------------------- dashboard (IAP)
+
+resource "google_project_service_identity" "iap" {
+  provider   = google-beta
+  project    = var.project_id
+  service    = "iap.googleapis.com"
+  depends_on = [module.services]
+}
+
+module "ui" {
+  count           = var.ui_image == "" ? 0 : 1
+  source          = "../../modules/cloud_run_service"
+  project_id      = var.project_id
+  region          = var.region
+  name            = "${local.p}-ui"
+  image           = var.ui_image
+  service_account = module.sa.emails["${local.p}-ui"]
+  public          = false
+  iap             = true
+  # Only IAP's service agent may invoke the service; people go through IAP.
+  invokers      = ["serviceAccount:${google_project_service_identity.iap.email}"]
+  min_instances = 0
+  max_instances = 3
+  concurrency   = 80
+  timeout_s     = 3600 # SSE passthrough
+  memory        = "512Mi"
+  env = {
+    API_BASE_URL = local.api_url
+    NODE_ENV     = "production"
+  }
+}
+
+resource "google_iap_web_cloud_run_service_iam_member" "ui_users" {
+  for_each               = var.ui_image == "" ? toset([]) : toset(var.iap_members)
+  project                = var.project_id
+  location               = var.region
+  cloud_run_service_name = module.ui[0].name
+  role                   = "roles/iap.httpsResourceAccessor"
+  member                 = each.value
+}
+
+output "ui_url" {
+  value = var.ui_image == "" ? null : module.ui[0].url
+}

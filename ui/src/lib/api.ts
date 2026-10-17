@@ -86,6 +86,15 @@ export const api = {
     return request<PlaceCallResponse>("/place-call", json("POST", body));
   },
 
+  /**
+   * Start a browser test call: the backend stages a patient (a call-list entry,
+   * or the fictional test patient) and returns a short-lived softphone URL on the
+   * gateway. No phone line is used.
+   */
+  startTestCall(entryId?: string): Promise<{ call_sid: string; softphone_url: string; expires_in: number }> {
+    return request("/test-call", json("POST", entryId ? { entry_id: entryId } : {}));
+  },
+
   /** Irreversible: deletes the call records and their recordings. */
   batchDelete(callSids: string[]): Promise<BatchDeleteResponse> {
     return request<BatchDeleteResponse>("/calls/batch-delete", json("POST", { call_sids: callSids }));

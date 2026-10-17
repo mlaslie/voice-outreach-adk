@@ -1,6 +1,8 @@
 "use client";
 
-import { RefreshCw, Phone } from "lucide-react";
+import { RefreshCw, Phone, Headphones } from "lucide-react";
+import { toast } from "sonner";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { LiveIndicator } from "@/components/live-indicator";
 
@@ -22,6 +24,22 @@ export function DashboardHeader({ connState, onRefresh, onPlaceCall }: Dashboard
         <Button variant="outline" size="sm" onClick={onRefresh}>
           <RefreshCw className="h-4 w-4 mr-1.5" />
           Refresh
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          title="Talk to the agent from this browser as the fictional test patient (no phone line)"
+          onClick={async () => {
+            try {
+              const { softphone_url } = await api.startTestCall();
+              window.open(softphone_url, "_blank", "noopener");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Could not start a test call");
+            }
+          }}
+        >
+          <Headphones className="h-4 w-4 mr-1.5" />
+          Test in browser
         </Button>
         <Button size="sm" onClick={onPlaceCall}>
           <Phone className="h-4 w-4 mr-1.5" />

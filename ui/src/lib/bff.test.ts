@@ -14,6 +14,7 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["POST", `calls/${SID}/follow-up`],
     ["POST", "calls/batch-delete"],
     ["POST", "place-call"],
+    ["POST", "test-call"],
     ["GET", "call-list"],
     ["POST", "call-list"],
     ["POST", "call-list/bulk"],
