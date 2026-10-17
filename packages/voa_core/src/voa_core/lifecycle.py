@@ -380,7 +380,12 @@ def classify_completed(doc: Mapping[str, Any] | None, answered_by_hint: str | No
     """Disposition for a call that reached "completed" (replaces _classify_completed).
 
     Order matters:
-      1. A report outcome wins: voicemail_left -> left_vmail, anything else -> success.
+      1. A report outcome wins: voicemail_left -> left_vmail, anything else -> success,
+         EXCEPT outcomes that did not reach the patient (wrong person, identity
+         failed, consent declined): those fall through to the inference below, so
+         the patient's follow-up stays open. (The report path already withheld
+         promotion for them; this closes the same hole when Twilio's "completed"
+         arrives after the report. Found on the first real call.)
       2. A machine verdict -> left_vmail, unless the live session released on it
          (``amd_released``): then the agent went on talking to whoever it was.
          ``answered_by_hint`` (this event's verdict) beats the stored one.
@@ -390,7 +395,7 @@ def classify_completed(doc: Mapping[str, Any] | None, answered_by_hint: str | No
     outcome = d.get("outcome")
     if outcome == "voicemail_left":
         return LEFT_VMAIL
-    if outcome:
+    if outcome and outcome not in NON_REACHING_OUTCOMES:
         return SUCCESS
     answered_by = (answered_by_hint or d.get("answered_by") or "").strip()
     if not d.get("amd_released") and is_machine(answered_by):

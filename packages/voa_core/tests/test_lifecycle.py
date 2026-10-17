@@ -454,3 +454,15 @@ def test_call_leg_liveness(doc, expected):
 
 def test_liveness_fails_safe_on_a_read_error():
     assert call_leg_still_live(None, read_failed=True) is True
+
+
+@pytest.mark.parametrize(
+    "outcome", ["identity_verification_failed", "unable_to_reach_wrong_person", "consent_declined"]
+)
+def test_non_reaching_report_before_completed_is_not_success(outcome):
+    # Real-call regression: the report lands first, then Twilio's "completed".
+    doc = {"answered_at": "2026-10-17T20:30:00+00:00", "outcome": outcome, "answered_by": "human"}
+    assert classify_completed(doc) == "interrupted"
+    now = datetime(2026, 10, 17, 20, 31, tzinfo=UTC)
+    patch = call_event_patch(CallEventKind.COMPLETED, now=now, current=doc)
+    assert patch["call_status"] == "interrupted"

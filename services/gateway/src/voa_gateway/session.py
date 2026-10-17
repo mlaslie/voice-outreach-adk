@@ -20,7 +20,6 @@ everything storage-specific behind :class:`CallSink`.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import re
 import time
@@ -84,6 +83,7 @@ class AmdPolicy:
     vm_drop: bool = True
     vm_drop_verdicts: frozenset[str] = frozenset({"machine_end_beep"})
     hangup_verdicts: frozenset[str] = frozenset({"fax"})
+    poll_interval_s: float = 0.4
 
 
 @dataclass
@@ -242,44 +242,44 @@ class CallSession:
     async def _amd_watch(self) -> None:
         """Hold the agent until the AMD verdict (or ``hold_max_s``), then keep watching
         for a late machine verdict until ``late_window_s``. Decisions come from
-        ``lifecycle.verdict_action`` so voice and the status webhook agree."""
+        ``lifecycle.verdict_action`` so voice and the status webhook agree.
+
+        Polls the call doc (the verdict is *state* written by whichever instance got
+        the AMD webhook). A Firestore listener was used first; on the first real call
+        its stream was cancelled by a timeout wrapper / slow to connect and the
+        verdict was missed, so the agent started on the hold timeout instead.
+        """
         from voa_core import lifecycle
 
         release_at = time.monotonic() + self.amd.hold_max_s
         watch_until = time.monotonic() + self.amd.late_window_s
-        stream = self.sink.watch_call(self.call_id)
-        try:
-            while time.monotonic() < watch_until:
-                until = release_at if self._phase == "hold" else watch_until
-                try:
-                    doc = await asyncio.wait_for(anext(stream), max(0.05, until - time.monotonic()))
-                except TimeoutError:
-                    if self._phase == "hold":
-                        self._release("amd_timeout")
-                    continue
-                verdict = (doc or {}).get("answered_by")
-                action = lifecycle.verdict_action(
-                    verdict, self.amd.vm_drop, self.amd.vm_drop_verdicts
-                )
-                if action is lifecycle.VerdictAction.HOLD:
-                    continue
-                self.timeline.add("amd.verdict", verdict=verdict, action=action, phase=self._phase)
-                if action is lifecycle.VerdictAction.HANGUP:
-                    self._phase = "voicemail"
-                    self._done.set()
-                elif action is lifecycle.VerdictAction.DROP:
-                    if self._phase == "hold" or self.facts.caller_turns == 0:
-                        await self._voicemail_drop()
-                    else:
-                        self.timeline.add("amd.late_machine_ignored", reason="caller_spoke")
+        while time.monotonic() < watch_until and not self._done.is_set():
+            try:
+                doc = await self.sink.call_doc(self.call_id)
+            except Exception:
+                log.warning("amd poll failed", extra={"event": "amd.poll_error"})
+                doc = None
+            verdict = (doc or {}).get("answered_by")
+            action = lifecycle.verdict_action(verdict, self.amd.vm_drop, self.amd.vm_drop_verdicts)
+            if action is lifecycle.VerdictAction.HOLD:
+                if self._phase == "hold" and time.monotonic() >= release_at:
+                    self._release("amd_timeout")
+                await asyncio.sleep(self.amd.poll_interval_s)
+                continue
+            self.timeline.add("amd.verdict", verdict=verdict, action=action, phase=self._phase)
+            if action is lifecycle.VerdictAction.HANGUP:
+                self._phase = "voicemail"
+                self._done.set()
+            elif action is lifecycle.VerdictAction.DROP:
+                if self._phase == "hold" or self.facts.caller_turns == 0:
+                    await self._voicemail_drop()
                 else:
-                    if lifecycle.release_marks_amd_released(verdict):
-                        await self.sink.mark_amd_released(self.call_id)
-                    self._release(f"amd_{verdict}")
-                return
-        finally:
-            with contextlib.suppress(Exception):
-                await stream.aclose()
+                    self.timeline.add("amd.late_machine_ignored", reason="caller_spoke")
+            else:
+                if lifecycle.release_marks_amd_released(verdict):
+                    await self.sink.mark_amd_released(self.call_id)
+                self._release(f"amd_{verdict}")
+            return
 
     async def _voicemail_drop(self) -> None:
         self._phase = "voicemail"

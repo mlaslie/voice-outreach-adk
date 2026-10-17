@@ -81,6 +81,7 @@ class AmdConfig(_Strict):
     speech_end_threshold_ms: int = Field(default=1000, ge=500, le=5000)
     hold_max_s: float = Field(default=4.0, ge=0, le=30)
     late_window_s: float = Field(default=65.0, ge=0, le=120)
+    poll_interval_s: float = Field(default=0.4, ge=0.1, le=5)
     vm_drop: bool = True
     vm_drop_verdicts: list[str] = Field(default_factory=lambda: ["machine_end_beep"])
 
