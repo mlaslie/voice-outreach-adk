@@ -9,8 +9,10 @@ from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.models import Gemini
 from google.genai import types
+from voa_core.campaign import load_campaign
 from voa_core.config import AppConfig
 
+from .instruction import build_instruction
 from .tools import build_tools
 
 SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
@@ -23,20 +25,30 @@ def _load_prompt(name: str) -> str:
 
 
 def build_voice_agent(
-    cfg: AppConfig, prompt_file: str = "spike_post_op.md", *, skills: list[str] | None = None
+    cfg: AppConfig,
+    prompt_file: str | None = None,
+    *,
+    skills: list[str] | None = None,
 ) -> Agent:
     """Build the live voice agent.
 
-    ``skills``: names of skill folders to expose through ADK's SkillToolset (loaded on
-    demand by the model). Default None = everything is compiled into the prompt.
+    By default the instruction is generated per session from the campaign named in
+    ``state["campaign_id"]`` (see ``instruction.py``). ``prompt_file`` selects a fixed
+    template from ``prompts/`` instead (used by the phase-0 spike).
+
+    ``skills``: skill folders exposed through ADK's SkillToolset (loaded on demand by
+    the model). Default None = everything is compiled into the instruction.
+
+    The DOB lives in session state but is never rendered: instructions are built with
+    explicit fields, not ADK's ``{state}`` templating.
     """
-    template = _load_prompt(prompt_file)
+    template = _load_prompt(prompt_file) if prompt_file else None
 
     def instruction(ctx: ReadonlyContext) -> str:
-        # Rendered per session from state, so one agent serves every patient.
-        # str.format (not ADK's {state} templating) because the template is ours and
-        # must never pull arbitrary state keys (the DOB lives in state too).
         patient = ctx.state.get("patient", {})
+        if template is None:
+            campaign = load_campaign(ctx.state.get("campaign_id", "post_op"))
+            return build_instruction(campaign, org_name=cfg.site.org_name, patient=patient)
         return template.format(
             agent_name=AGENT_NAME,
             org_name=cfg.site.org_name,

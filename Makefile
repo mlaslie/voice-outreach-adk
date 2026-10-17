@@ -5,7 +5,7 @@ TF  := terraform -chdir=infra/envs/$(ENV)
 .PHONY: setup test lint pii tf-bootstrap tf-init tf-plan tf-apply spike-harness spike-serve
 
 setup:            ## install deps and git hooks
-	uv sync
+	uv sync --all-packages
 	uv run pre-commit install --hook-type pre-commit --hook-type pre-push
 
 test:             ## unit tests (no cloud calls)

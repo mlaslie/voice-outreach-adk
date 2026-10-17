@@ -20,6 +20,16 @@ from voa_core.dob import DobResult, check_dob, speakable
 
 from .call_facts import facts_for
 
+
+def _campaign(tool_context: ToolContext):
+    cid = tool_context.state.get("campaign_id")
+    if not cid:
+        return None
+    from voa_core.campaign import load_campaign
+
+    return load_campaign(cid)
+
+
 log = logging.getLogger(__name__)
 
 QUESTION_IDS = (
@@ -42,6 +52,7 @@ OUTCOMES = (
     "voicemail_left",
 )
 MAX_DOB_ATTEMPTS = 2
+_MUST_BE_TYPED = {"pain_present", "pain_severity", "pain_trend", "incision_concerns"}
 
 
 def _yes(value: Any) -> bool:
@@ -100,10 +111,30 @@ async def record_answer(question_id: str, answer: str, tool_context: ToolContext
             "status": "error",
             "message": f"unknown question_id; use one of {', '.join(QUESTION_IDS)}",
         }
+    # Normalize with the same deterministic parsers the SMS survey uses, so voice and
+    # text answers are typed identically and triage sees one vocabulary.
+    from voa_core import survey
+
+    parsed: object = answer
+    if question_id in survey._PARSERS:
+        parsed = survey.parse_answer(question_id, answer)
+        if parsed is None and question_id == survey.Q_FEVER:
+            parsed = "unknown"
+        if parsed is None and question_id in _MUST_BE_TYPED:
+            _audit(tool_context, "record_answer", question_id=question_id, status="unclear")
+            return {
+                "status": "unclear",
+                "message": f"The answer to {question_id} was unclear. Ask the question again.",
+            }
+        if parsed is None:
+            parsed = answer
     answers = dict(tool_context.state.get("answers", {}))
-    answers[question_id] = answer
+    answers[question_id] = parsed
+    raw = dict(answers.get(survey.RAW_KEY, {}))
+    raw[question_id] = answer
+    answers[survey.RAW_KEY] = raw
     tool_context.state["answers"] = answers
-    _audit(tool_context, "record_answer", question_id=question_id)
+    _audit(tool_context, "record_answer", question_id=question_id, status="recorded")
     return {"status": "recorded"}
 
 
@@ -114,25 +145,6 @@ def _missing(answers: dict[str, str]) -> list[str]:
     if _yes(answers.get("incision_concerns")):
         need.append("incision_description")
     return [q for q in need if not str(answers.get(q, "")).strip()]
-
-
-def _triage(answers: dict[str, str]) -> tuple[str, str]:
-    """Deterministic tier (phase-0 subset of the real rules in survey.py)."""
-    try:
-        severity = int(
-            "".join(ch for ch in str(answers.get("pain_severity", "")) if ch.isdigit()) or -1
-        )
-    except ValueError:
-        severity = -1
-    if _yes(answers.get("fever_reported")):
-        return "urgent_same_day", "fever reported"
-    if severity >= 8 or str(answers.get("pain_trend", "")).lower().startswith("wors"):
-        return "urgent_same_day", "severe or worsening pain"
-    if _yes(answers.get("incision_concerns")):
-        return "urgent_same_day", "incision concern"
-    if 4 <= severity <= 7:
-        return "routine_next_business_day", "moderate pain"
-    return "none", "no concerns reported"
 
 
 async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
@@ -161,7 +173,11 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
                 "Stop, wait for their answer, and continue the call.",
             }
     answers = dict(tool_context.state.get("answers", {}))
-    if outcome == "questionnaire_completed" and (missing := _missing(answers)):
+    campaign = _campaign(tool_context)
+    patient = tool_context.state.get("patient", {})
+    visible = {k: v for k, v in answers.items() if not k.startswith("_")}
+    missing = campaign.missing(patient, visible) if campaign else _missing(visible)
+    if outcome == "questionnaire_completed" and missing:
         _audit(tool_context, "submit_report", status="incomplete", missing=missing)
         return {"status": "incomplete", "ask_these_questions": missing}
 
@@ -170,7 +186,10 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
     elif outcome == "identity_verification_failed":
         tier, reason = "urgent_same_day", "identity could not be verified"
     elif outcome == "questionnaire_completed":
-        tier, reason = _triage(answers)
+        from voa_core import survey
+
+        t = survey.triage(answers)
+        tier, reason = t.follow_up, t.reason
     else:
         tier, reason = "none", outcome.replace("_", " ")
 
@@ -179,8 +198,21 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
         "follow_up": tier,
         "follow_up_reason": reason,
         "dob_verification_result": tool_context.state.get("dob_verification_result", "skipped"),
-        "survey_responses": answers,
+        "survey_responses": {k: v for k, v in answers.items() if not k.startswith("_")},
     }
+    # Same validator the store applies: if it would reject the report, tell the model
+    # now (while the caller is still on the line) instead of failing silently later.
+    from voa_core import reports
+
+    _clean, errors = reports.validate_report(
+        {
+            **report,
+            "patient_id": str(tool_context.state.get("patient", {}).get("patient_id") or "unknown"),
+        }
+    )
+    if errors:
+        _audit(tool_context, "submit_report", status="invalid", errors=errors)
+        return {"status": "incomplete", "problems": errors}
     tool_context.state["report"] = report
     _audit(tool_context, "submit_report", status="ok", outcome=outcome, follow_up=tier)
     closing = (

@@ -137,7 +137,7 @@ class Scenario:
     )
     barge_in_turn: int | None = None
     barge_in_text: str = "Sorry, who did you say is calling?"
-    prompt_file: str = "spike_post_op.md"
+    prompt_file: str | None = "spike_post_op.md"
     skills: list[str] | None = None
 
 

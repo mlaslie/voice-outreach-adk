@@ -69,6 +69,41 @@ class TelephonyConfig(_Strict):
     public_base_url: str = ""  # e.g. https://voa-gateway-xxxx.run.app (no trailing slash)
 
 
+class AmdConfig(_Strict):
+    """Answering-machine detection: placed with the call, acted on by the gateway."""
+
+    enabled: bool = True
+    mode: Literal["Enable", "DetectMessageEnd"] = "DetectMessageEnd"
+    timeout_s: int = Field(default=55, ge=3, le=59)
+    speech_end_threshold_ms: int = Field(default=1000, ge=500, le=5000)
+    hold_max_s: float = Field(default=4.0, ge=0, le=30)
+    late_window_s: float = Field(default=65.0, ge=0, le=120)
+    vm_drop: bool = True
+    vm_drop_verdicts: list[str] = Field(default_factory=lambda: ["machine_end_beep"])
+
+
+class ServicesConfig(_Strict):
+    """Where the pieces live. Filled from Terraform outputs per environment."""
+
+    gateway_url: str = ""  # public, e.g. https://voa-gateway-xxxx.run.app
+    api_url: str = ""  # private
+    tasks_invoker_sa: str = ""
+    recordings_bucket: str = ""
+    prompts_bucket: str = ""
+    store: Literal["firestore", "memory"] = "firestore"
+    queue_dial: str = "voa-dial"
+    queue_events: str = "voa-events"
+    queue_sms: str = "voa-sms"
+
+
+class SoftphoneConfig(_Strict):
+    """Browser softphone into the gateway. Off in deployed environments unless a
+    token secret is configured (tokens are minted by the API behind IAP)."""
+
+    enabled: bool = False
+    token_secret: str = ""  # secret:// reference; empty = no token required (local dev only)
+
+
 class DebugConfig(_Strict):
     enabled: bool = False
     log_tool_args: bool = False  # never true where real PHI flows
@@ -82,6 +117,9 @@ class AppConfig(_Strict):
     voice: VoiceConfig = VoiceConfig()
     site: SiteConfig = SiteConfig()
     telephony: TelephonyConfig = TelephonyConfig()
+    amd: AmdConfig = AmdConfig()
+    services: ServicesConfig = ServicesConfig()
+    softphone: SoftphoneConfig = SoftphoneConfig()
     debug: DebugConfig = DebugConfig()
     # Provider-specific blocks are validated by the provider adapter itself.
     providers: dict[str, dict[str, Any]] = Field(default_factory=dict)

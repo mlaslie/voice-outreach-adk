@@ -19,7 +19,7 @@ dev = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/*", "spikes/voice"]
+members = ["packages/*", "services/*", "spikes/voice"]
 
 [tool.uv.sources]
 voa-core = { workspace = true }
@@ -28,7 +28,7 @@ voa-agents = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["packages", "spikes", "scripts/tests"]
+testpaths = ["packages", "services", "spikes", "scripts/tests"]
 addopts = "-q"
 markers = [
     "live: calls real Google Cloud APIs (needs ADC and a configured project); skipped unless VOA_RUN_LIVE=1",
@@ -46,3 +46,4 @@ ignore = ["S101"]  # assert is fine in tests
 "scripts/**" = ["S603", "S607"]   # git invoked with fixed arguments
 "spikes/**" = ["ASYNC110"]        # spike harness polls playout state
 "**/tests/**" = ["S105", "S106"]
+"**/voice/instruction.py" = ["E501"]  # spoken prompt text reads better unwrapped

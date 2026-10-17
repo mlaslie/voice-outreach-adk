@@ -23,21 +23,28 @@ async def test_unclear_dob_costs_no_attempt():
 
 
 async def test_submit_requires_answers_and_end_requires_submit():
-    c = ctx(answers={"overall_feeling": "ok", "pain_present": "yes"})
+    c = ctx(answers={})
+    for qid, said in [("overall_feeling", "ok I guess"), ("pain_present", "yeah it hurts")]:
+        assert (await tools.record_answer(qid, said, c))["status"] == "recorded"
+    assert c.state["answers"]["pain_present"] == "yes"  # normalized by the shared parser
     assert (await tools.end_call("done", c))["status"] == "refused"
     r = await tools.submit_report("questionnaire_completed", c)
     assert r["status"] == "incomplete"
     assert set(r["ask_these_questions"]) >= {"pain_severity", "fever_reported"}
-    c.state["answers"] |= {
-        "pain_severity": "9",
-        "pain_location": "knee",
-        "pain_trend": "same",
-        "fever_reported": "no",
-        "incision_concerns": "no",
-    }
+    assert (await tools.record_answer("pain_severity", "hmm", c))["status"] == "unclear"
+    for qid, said in [
+        ("pain_severity", "about a nine"),
+        ("pain_location", "my knee"),
+        ("pain_trend", "about the same"),
+        ("fever_reported", "no"),
+        ("incision_concerns", "no it looks fine"),
+    ]:
+        assert (await tools.record_answer(qid, said, c))["status"] == "recorded"
+    assert c.state["answers"]["pain_severity"] == 9
     r = await tools.submit_report("questionnaire_completed", c)
     assert r["status"] == "ok" and "nurses" in r["closing"]
     assert c.state["report"]["follow_up"] == "urgent_same_day"
+    assert "_raw" not in c.state["report"]["survey_responses"]
     assert (await tools.end_call("done", c))["status"] == "ending"
 
 

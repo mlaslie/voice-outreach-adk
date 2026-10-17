@@ -1,0 +1,78 @@
+/* Theme — the one file to edit to re-skin the dashboard.
+ *
+ * Imported by globals.css. Every component reads these tokens, so swapping
+ * the values here (plus the font families loaded in layout.tsx) is the whole
+ * job. Keep the token NAMES: components reference them.
+ *
+ * This is a neutral default palette (slate neutrals, a blue-teal primary)
+ * that belongs to no organisation. To re-skin for a deployment, change the
+ * values below; do not commit a real organisation's brand assets.
+ */
+
+@theme {
+  /* Primary action colour and its variants. */
+  --color-brand: #1f6f8b;            /* primary (buttons, links) */
+  --color-brand-dark: #185a71;       /* primary hover */
+  --color-brand-bright: #2a8fb2;     /* brighter accent */
+  --color-brand-mint: #9fd8e6;       /* light accent */
+  --color-brand-deep: #1e3a4c;       /* deep accent (sidebar) */
+  --color-brand-deep-dark: #152a37;  /* deep accent, darker */
+
+  /* Neutrals */
+  --color-ink: #1f2937;              /* body text + headings */
+  --color-ink-soft: #4b5563;
+  --color-ink-muted: #9ca3af;
+  --color-rule: #e5e7eb;
+  --color-mist: #f3f4f6;
+  --color-mist-cool: #dde3ea;
+  --color-sand: #f5f1ea;
+
+  /* Secondary / status hues */
+  --color-brand-blue: #2563eb;
+  --color-brand-blue-dark: #1d4ed8;
+  --color-brand-blue-deep: #1e3a8a;
+  --color-brand-yellow: #eab308;
+  --color-brand-orange: #f59e0b;
+  --color-brand-turquoise: #14b8a6;
+  --color-brand-coral: #f87171;
+  --color-brand-coral-dark: #ef4444;
+  --color-brand-red: #dc2626;
+  --color-brand-red-dark: #b91c1c;
+  --color-brand-pink: #ec4899;
+  --color-brand-pink-dark: #db2777;
+
+  /* Type: free Google Fonts loaded in layout.tsx, with system fallbacks. */
+  --font-sans: var(--font-body), helvetica, arial, sans-serif;
+  --font-display: var(--font-poppins), helvetica, arial, sans-serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
+
+  --radius-pill: 9999px;
+}
+
+/*
+ * shadcn primitives, repointed at the palette above. These stay as HSL
+ * triplets because the ui/ components compose them as `hsl(var(--x))`
+ * and rely on `/90`-style alpha modifiers.
+ */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 215 27.9% 16.9%;     /* #1f2937 */
+  --card: 0 0% 100%;
+  --card-foreground: 215 27.9% 16.9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 215 27.9% 16.9%;
+  --primary: 195.3 63.4% 33.3%;      /* #1f6f8b */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 220 14.3% 95.9%;      /* #f3f4f6 */
+  --secondary-foreground: 215 27.9% 16.9%;
+  --muted: 220 14.3% 95.9%;
+  --muted-foreground: 215 13.8% 34.1%; /* #4b5563 */
+  --accent: 220 14.3% 95.9%;
+  --accent-foreground: 215 27.9% 16.9%;
+  --destructive: 0 72.2% 50.6%;      /* #dc2626 */
+  --destructive-foreground: 0 0% 100%;
+  --border: 220 13% 91%;             /* #e5e7eb */
+  --input: 220 13% 91%;
+  --ring: 195.3 63.4% 33.3%;
+  --radius: 0.5rem;
+}
