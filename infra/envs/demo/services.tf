@@ -204,3 +204,14 @@ resource "google_iap_web_cloud_run_service_iam_member" "ui_users" {
 output "ui_url" {
   value = var.ui_image == "" ? null : module.ui[0].url
 }
+
+# --------------------------------------------------------------------------- observability
+
+module "observability" {
+  source       = "../../modules/observability"
+  project_id   = var.project_id
+  prefix       = local.p
+  gateway_host = var.gateway_image == "" ? "" : trimprefix(local.gateway_url, "https://")
+  alert_emails = var.alert_emails
+  depends_on   = [module.services]
+}

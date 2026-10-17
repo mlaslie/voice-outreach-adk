@@ -64,7 +64,6 @@ resource "google_cloud_run_v2_service" "this" {
   ingress             = "INGRESS_TRAFFIC_ALL"
   deletion_protection = false
   iap_enabled         = var.iap
-  launch_stage        = var.iap ? "BETA" : null
   # Public services skip the invoker IAM check instead of granting allUsers: org
   # policies with domain-restricted sharing forbid allUsers bindings. Every route on
   # the public service authenticates its caller itself (Twilio signatures, tokens).

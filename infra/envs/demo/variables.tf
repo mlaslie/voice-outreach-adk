@@ -129,3 +129,9 @@ variable "operators" {
   type        = list(string)
   default     = []
 }
+
+variable "alert_emails" {
+  description = "Who gets alert e-mails (identifying: tfvars only)."
+  type        = list(string)
+  default     = []
+}
