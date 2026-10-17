@@ -28,6 +28,7 @@ import argparse
 import getpass
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -86,8 +87,37 @@ def from_dotenv(env: dict[str, str]) -> dict[str, str]:
     return found
 
 
+_GCLOUD: str | None = None
+
+
+def find_gcloud() -> str:
+    """gcloud from PATH, $CLOUDSDK_ROOT_DIR, or the usual install locations (an IDE or
+    app shell often lacks the PATH entry the installer added to your login shell)."""
+    global _GCLOUD
+    if _GCLOUD:
+        return _GCLOUD
+    candidates = [shutil.which("gcloud")]
+    roots = [
+        os.environ.get("CLOUDSDK_ROOT_DIR", ""),
+        "~/google-cloud-sdk",
+        "~/Downloads/google-cloud-sdk",
+        "/opt/homebrew/share/google-cloud-sdk",
+        "/usr/local/share/google-cloud-sdk",
+        "/usr/lib/google-cloud-sdk",
+    ]
+    candidates += [str(Path(r).expanduser() / "bin" / "gcloud") for r in roots if r]
+    for c in candidates:
+        if c and Path(c).is_file() and os.access(c, os.X_OK):
+            _GCLOUD = c
+            return c
+    sys.exit(
+        "gcloud not found. Install the Google Cloud CLI, put it on PATH, or set "
+        "CLOUDSDK_ROOT_DIR to the SDK folder (the one containing bin/gcloud)."
+    )
+
+
 def gcloud(*args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run(["gcloud", *args], input=stdin, capture_output=True, text=True)  # noqa: S603,S607
+    return subprocess.run([find_gcloud(), *args], input=stdin, capture_output=True, text=True)  # noqa: S603
 
 
 def copy_from_secret(resource: str) -> str | None:
@@ -144,6 +174,7 @@ def main() -> int:
 
     dotenv = from_dotenv(parse_dotenv(a.from_env)) if a.from_env else {}
     missing: list[str] = []
+    uploaded = 0
     print(f"Secret Manager project: {a.project_id}")
     for name, (shape, desc) in SHAPES.items():
         value, source = os.environ.get(ENV_VARS[name], ""), "environment"
@@ -161,6 +192,17 @@ def main() -> int:
             print(f"- {name}: REFUSED from {source} (expected {desc}, got {masked(value)})")
             missing.append(name)
             continue
+        current = gcloud(
+            "secrets",
+            "versions",
+            "access",
+            "latest",
+            f"--secret={name}",
+            f"--project={a.project_id}",
+        )
+        if current.returncode == 0 and current.stdout.strip() == value:
+            print(f"- {name}: unchanged (latest version already holds this value)")
+            continue
         if a.dry_run:
             print(f"- {name}: ok from {source} [dry-run, not uploaded]")
             continue
@@ -177,6 +219,7 @@ def main() -> int:
             print(f"- {name}: UPLOAD FAILED: {last_err(r)}")
             missing.append(name)
         else:
+            uploaded += 1
             print(f"- {name}: added a version (from {source})")
 
     number = os.environ.get("VOA_TWILIO_FROM_NUMBER") or dotenv.get("from_number")
@@ -193,7 +236,10 @@ def main() -> int:
     if missing:
         print("\nStill needed: " + ", ".join(missing))
         return 1
-    print("\nAll set. Restart the API so it picks up the credentials (see docs/DEPLOY.md §3).")
+    if uploaded:
+        print("\nAll set. Restart the API so it picks up the credentials (see docs/DEPLOY.md §3).")
+    else:
+        print("\nAll set; nothing changed.")
     return 0
 
 
