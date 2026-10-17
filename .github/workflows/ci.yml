@@ -19,7 +19,9 @@ jobs:
       - name: PII scan (denylist from repository secret PII_DENYLIST)
         env:
           PII_DENYLIST: ${{ secrets.PII_DENYLIST }}
-        run: uv run --no-project python scripts/pii_scan.py --require-denylist
+        run: |
+          uv run --no-project python scripts/pii_scan.py --require-denylist
+          uv run --no-project python scripts/pii_scan.py --require-denylist --history
       - name: gitleaks (full history)
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \

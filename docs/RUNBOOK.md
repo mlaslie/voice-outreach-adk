@@ -76,6 +76,7 @@ A `secret://` reference has no version. Run `scripts/set-secrets.sh <project>`. 
 | Query fails with "requires an index" | A Firestore composite index is missing | The store sorts client-side when filter and sort fields differ; don't add composite queries without declaring the index in Terraform |
 | A phone number became an int | YAML-parsing of env values | Env overrides now stay strings |
 | A service behaved as `dev` | A file overrode `VOA_ENV` | `VOA_ENV` is now authoritative |
+| A service stays on its old revision after a deploy ("Extra inputs are not permitted") | A shared `VOA__*` env var was added for a config section the running image doesn't know (strict config fails closed) | Deploy every service that reads the new section together: `scripts/deploy.sh <env> gateway api` |
 | The agent says goodbye but the call stays up | The model never calls `end_call` | The gateway hangs up 5 s after the report and turn complete (`hangup.auto_after_report`) |
 | The agent takes an exit right after asking a question | Live-model behaviour | `submit_report` refuses non-emergency exits while a question is unanswered |
 

@@ -147,6 +147,56 @@ def _scan_binary(rel: str, path: Path, denylist: list[str]) -> list[Finding]:
     return [Finding(rel, 0, "unscannable-binary", "")]
 
 
+def scan_history(denylist: list[str]) -> list[Finding]:
+    """Every blob reachable from any ref, scanned once (text, or zip members)."""
+    import io
+    import zipfile
+
+    objs = subprocess.run(
+        ["git", "rev-list", "--all", "--objects"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    findings: list[Finding] = []
+    seen: set[str] = set()
+    for line in objs:
+        sha, _, path = line.partition(" ")
+        if not path or sha in seen:
+            continue
+        seen.add(sha)
+        kind = subprocess.run(
+            ["git", "cat-file", "-t", sha], cwd=ROOT, capture_output=True, text=True
+        ).stdout.strip()
+        if (
+            kind != "blob"
+            or Path(path).suffix.lower() in SKIP_SUFFIXES
+            or Path(path).name in SKIP_NAMES
+        ):
+            continue
+        data = subprocess.run(["git", "cat-file", "-p", sha], cwd=ROOT, capture_output=True).stdout
+        label = f"{path}@{sha[:8]}"
+        if data[:2] == b"PK":
+            with zipfile.ZipFile(io.BytesIO(data)) as z:
+                for name in z.namelist():
+                    findings += scan_text(
+                        f"{label}!{name}", z.read(name).decode("utf-8", "replace"), denylist
+                    )
+            continue
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            findings.append(Finding(label, 0, "unscannable-binary", ""))
+            continue
+        findings += [
+            f
+            for f in scan_text(label, text, denylist)
+            if f.rule == "denylist" or path not in GENERIC_EXEMPT_PATHS
+        ]
+    return findings
+
+
 def _git(*args: str) -> list[str]:
     out = subprocess.run(
         ["git", *args], cwd=ROOT, check=True, capture_output=True, text=True
@@ -181,6 +231,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("files", nargs="*")
     parser.add_argument("--staged", action="store_true", help="scan files staged for commit")
     parser.add_argument(
+        "--history",
+        action="store_true",
+        help="scan every file in every commit (CI; catches leaks removed later)",
+    )
+    parser.add_argument(
         "--require-denylist",
         action="store_true",
         help="fail if no denylist is configured (use in CI)",
@@ -194,6 +249,16 @@ def main(argv: list[str] | None = None) -> int:
             print(msg, file=sys.stderr)
             return 2
         print(msg, file=sys.stderr)
+
+    if args.history:
+        findings = scan_history(denylist)
+        for f in findings:
+            print(f"{f.path}:{f.line}: {f.rule} [{f.sample}]")
+        print(
+            f"pii_scan --history: {len(findings)} finding(s)",
+            file=sys.stderr if findings else sys.stdout,
+        )
+        return 1 if findings else 0
 
     if args.files:
         paths = [os.path.relpath(Path(f).resolve(), ROOT) for f in args.files]
