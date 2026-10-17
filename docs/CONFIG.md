@@ -21,6 +21,7 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `voice.custom_vocabulary` | `VOA__VOICE__CUSTOM_VOCABULARY` | list | `[]` |  |
 | `voice.session_resumption` | `VOA__VOICE__SESSION_RESUMPTION` | bool | `True` |  |
 | `voice.max_call_seconds` | `VOA__VOICE__MAX_CALL_SECONDS` | int | `900` |  |
+| `voice.auto_hangup_grace_s` | `VOA__VOICE__AUTO_HANGUP_GRACE_S` | float | `2.5` |  |
 | `site.org_name` | `VOA__SITE__ORG_NAME` | str | `'Acme Health'` |  |
 | `site.support_email` | `VOA__SITE__SUPPORT_EMAIL` | str | `'support@example.org'` |  |
 | `site.privacy_url` | `VOA__SITE__PRIVACY_URL` | str | `'https://example.org/privacy'` |  |
@@ -35,6 +36,7 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `amd.speech_end_threshold_ms` | `VOA__AMD__SPEECH_END_THRESHOLD_MS` | int | `1000` |  |
 | `amd.hold_max_s` | `VOA__AMD__HOLD_MAX_S` | float | `4.0` |  |
 | `amd.late_window_s` | `VOA__AMD__LATE_WINDOW_S` | float | `65.0` |  |
+| `amd.poll_interval_s` | `VOA__AMD__POLL_INTERVAL_S` | float | `0.4` |  |
 | `amd.vm_drop` | `VOA__AMD__VM_DROP` | bool | `True` |  |
 | `amd.vm_drop_verdicts` | `VOA__AMD__VM_DROP_VERDICTS` | list | `['machine_end_beep']` |  |
 | `services.gateway_url` | `VOA__SERVICES__GATEWAY_URL` | str | `''` |  |

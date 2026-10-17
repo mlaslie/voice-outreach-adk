@@ -56,6 +56,9 @@ class VoiceConfig(_Strict):
     custom_vocabulary: list[str] = Field(default_factory=list)
     session_resumption: bool = True
     max_call_seconds: int = Field(default=900, ge=60, le=3600)
+    # Hang up this long after the report is filed and the agent's turn ends, when the
+    # model never calls end_call (seen on real calls). The goodbye has already played.
+    auto_hangup_grace_s: float = Field(default=2.5, ge=0.5, le=15)
 
 
 class SiteConfig(_Strict):

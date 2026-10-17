@@ -23,6 +23,7 @@ import asyncio
 import logging
 import re
 import time
+import unicodedata
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -97,8 +98,20 @@ class Timeline:
         log.info(event, extra=safe_extra({"event": event, "t_ms": ms, **detail}))
 
 
-def clean_transcript(text: str) -> str:
-    return " ".join(_MARKUP.sub(" ", text).split())
+def clean_transcript(text: str, latin_only: bool = False) -> str:
+    """Strip transcription markup; for Latin-script languages also drop stray letters
+    from other scripts (a real call produced "date of birth?িতার"). Accented Latin
+    letters, digits and punctuation are kept."""
+    text = _MARKUP.sub(" ", text)
+    if latin_only:
+        text = "".join(
+            ch
+            for ch in text
+            if not unicodedata.category(ch).startswith(("L", "M"))
+            or unicodedata.name(ch, "").startswith("LATIN")
+            or 0x300 <= ord(ch) <= 0x36F  # combining accents used by Latin letters
+        )
+    return " ".join(text.split())
 
 
 def run_config(cfg: AppConfig, vocabulary: list[str]) -> RunConfig:
@@ -142,6 +155,7 @@ class CallSession:
         self.patient_override = patient_override
         self.drain_timeout_s = drain_timeout_s
         self.on_agent_turn_end = on_agent_turn_end
+        self._latin_only = cfg.voice.language_code.lower().startswith("en")
         in_codec = inbound_codec or media.codec
         self.timeline = Timeline()
         self.queue = LiveRequestQueue()
@@ -410,13 +424,13 @@ class CallSession:
                 self._phase = "closing"
                 self._spawn(self._finish_turn_then_drain())
         if (t := event.input_transcription) and t.finished and t.text:
-            text = clean_transcript(t.text)
+            text = clean_transcript(t.text, self._latin_only)
             if text:
                 self.transcript.append({"role": "patient", "text": text, "at_ms": self._ms()})
                 self.facts.caller_spoke()
         if (t := event.output_transcription) and t.text:
             if t.finished:
-                text = clean_transcript(t.text)
+                text = clean_transcript(t.text, self._latin_only)
                 if text:
                     self.transcript.append({"role": "agent", "text": text, "at_ms": self._ms()})
             else:
@@ -460,7 +474,8 @@ class CallSession:
             self.timeline.add("report.saved", outcome=report.get("outcome"))
 
     # ------------------------------------------------------------------ ending
-    async def _auto_hangup_after_report(self, grace_s: float = 5.0) -> None:
+    async def _auto_hangup_after_report(self) -> None:
+        grace_s = self.cfg.voice.auto_hangup_grace_s
         turns = self.facts.caller_turns
         await asyncio.sleep(grace_s)
         if self._phase != "live" or self.facts.caller_turns != turns or self.agent_speaking:
