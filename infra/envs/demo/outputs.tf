@@ -18,3 +18,15 @@ output "secrets" {
   description = "Created empty; add values with scripts/set-secrets.sh"
   value       = module.secrets.ids
 }
+
+output "build_staging_bucket" {
+  value = module.build_staging.name
+}
+
+output "gateway_url" {
+  value = local.gateway_url
+}
+
+output "api_url" {
+  value = local.api_url
+}

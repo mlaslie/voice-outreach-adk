@@ -120,16 +120,28 @@ class Gateway:
     async def voicemail_clip(self) -> bytes | None:
         return await self.prompts.ensure(self.voicemail_text())
 
+    def _secret(self, ref: str) -> str:
+        """Resolve a secret, failing closed: a missing secret or version yields ""
+        (callers then refuse the request) instead of a 500. Not cached when empty,
+        so adding the secret later takes effect without a redeploy."""
+        if not ref:
+            return ""
+        try:
+            return resolve_secret(ref, self.cfg.gcp.project_id)
+        except Exception:
+            log.error("secret unavailable", extra={"event": "secret.unavailable", "ref": ref})
+            return ""
+
     def twilio_token(self) -> str:
-        if self._twilio_token is None:
-            ref = self.cfg.providers.get("twilio", {}).get("auth_token", "")
-            self._twilio_token = resolve_secret(ref, self.cfg.gcp.project_id) if ref else ""
+        if not self._twilio_token:
+            self._twilio_token = self._secret(
+                self.cfg.providers.get("twilio", {}).get("auth_token", "")
+            )
         return self._twilio_token
 
     def softphone_secret(self) -> str:
-        if self._softphone_secret is None:
-            ref = self.cfg.softphone.token_secret
-            self._softphone_secret = resolve_secret(ref, self.cfg.gcp.project_id) if ref else ""
+        if not self._softphone_secret:
+            self._softphone_secret = self._secret(self.cfg.softphone.token_secret)
         return self._softphone_secret
 
     def public(self, path: str, scheme: str = "https") -> str:

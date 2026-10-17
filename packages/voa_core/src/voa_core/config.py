@@ -60,6 +60,8 @@ class VoiceConfig(_Strict):
 class SiteConfig(_Strict):
     org_name: str = "Acme Health"
     support_email: str = "support@example.org"
+    privacy_url: str = "https://example.org/privacy"
+    terms_url: str = "https://example.org/terms"
     timezone: str = "America/New_York"
 
 

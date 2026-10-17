@@ -1,0 +1,43 @@
+# Build and push service images tagged with the commit SHA.
+#   gcloud builds submit --config cloudbuild.yaml --substitutions=_TAG=$(git rev-parse --short HEAD) ...
+# (scripts/build.sh fills in the substitutions and refuses dirty trees.)
+substitutions:
+  _REPO: ""        # e.g. us-central1-docker.pkg.dev/<project>/voa-images
+  _TAG: ""
+  _SERVICES: "gateway api"
+  _ORG_NAME: ""
+  _SUPPORT_EMAIL: ""
+  _PRIVACY_URL: ""
+  _TERMS_URL: ""
+steps:
+  - id: build-python
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        for s in ${_SERVICES}; do
+          [ "$s" = ui ] && continue
+          docker build -f deploy/service.Dockerfile --build-arg SERVICE=$s -t ${_REPO}/voa-$s:${_TAG} .
+          docker push ${_REPO}/voa-$s:${_TAG}
+        done
+  - id: build-ui
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        case " ${_SERVICES} " in *" ui "*) ;; *) exit 0;; esac
+        docker build -f ui/Dockerfile ui \
+          --build-arg NEXT_PUBLIC_ORG_NAME="${_ORG_NAME}" \
+          --build-arg NEXT_PUBLIC_SUPPORT_EMAIL="${_SUPPORT_EMAIL}" \
+          --build-arg NEXT_PUBLIC_PRIVACY_URL="${_PRIVACY_URL}" \
+          --build-arg NEXT_PUBLIC_TERMS_URL="${_TERMS_URL}" \
+          -t ${_REPO}/voa-ui:${_TAG}
+        docker push ${_REPO}/voa-ui:${_TAG}
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 1800s

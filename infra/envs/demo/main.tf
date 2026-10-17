@@ -119,8 +119,9 @@ module "prompts" {
   name          = "${var.project_id}-${local.p}-prompts"
   force_destroy = true # rendered TTS clips; reproducible from config
   iam = {
-    "roles/storage.objectViewer" = [local.gateway]
-    "roles/storage.objectAdmin"  = [local.api]
+    "roles/storage.objectViewer"  = [local.gateway]
+    "roles/storage.objectCreator" = [local.gateway] # caches rendered clips
+    "roles/storage.objectAdmin"   = [local.api]
   }
   depends_on = [module.services]
 }
@@ -133,6 +134,7 @@ module "secrets" {
     "twilio-api-key-sid"    = [local.gateway, local.api]
     "twilio-api-key-secret" = [local.gateway, local.api]
     "twilio-auth-token"     = [local.gateway, local.api] # webhook signature validation only
+    "softphone-token-key"   = [local.gateway, local.api] # HMAC key for softphone test-call tokens
   }
   depends_on = [module.services]
 }
@@ -166,7 +168,6 @@ resource "google_project_iam_audit_config" "data_access" {
 }
 
 data "google_project" "this" {
-  count      = var.billing_account_id == "" ? 0 : 1
   project_id = var.project_id
 }
 
@@ -175,7 +176,7 @@ resource "google_billing_budget" "monthly" {
   billing_account = var.billing_account_id
   display_name    = "${local.p} monthly budget"
   budget_filter {
-    projects = ["projects/${data.google_project.this[0].number}"]
+    projects = ["projects/${data.google_project.this.number}"]
   }
   amount {
     specified_amount {

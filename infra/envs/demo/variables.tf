@@ -54,3 +54,66 @@ variable "labels" {
   type    = map(string)
   default = { app = "voice-outreach", managed-by = "terraform" }
 }
+
+# --------------------------------------------------------------------------- services
+
+variable "gateway_image" {
+  description = "Full image reference for voa-gateway (scripts/build.sh prints the tag). Empty = not deployed."
+  type        = string
+  default     = ""
+}
+
+variable "api_image" {
+  type    = string
+  default = ""
+}
+
+variable "ui_image" {
+  type    = string
+  default = ""
+}
+
+variable "gateway_min_instances" {
+  description = "Keep one warm instance so an answered call never waits on a cold start."
+  type        = number
+  default     = 1
+}
+
+variable "dial_concurrency" {
+  description = "Simultaneous outbound dials (Cloud Tasks max concurrent dispatches)."
+  type        = number
+  default     = 1
+}
+
+variable "org_name" {
+  type    = string
+  default = "Acme Health"
+}
+
+variable "support_email" {
+  type    = string
+  default = "support@example.org"
+}
+
+variable "clinic_timezone" {
+  type    = string
+  default = "America/New_York"
+}
+
+variable "twilio_from_number" {
+  description = "Caller ID for outbound calls (E.164). Identifying: set only in terraform.tfvars."
+  type        = string
+  default     = ""
+}
+
+variable "softphone_enabled" {
+  description = "Allow browser test calls into the gateway (tokens are minted by the API behind IAP)."
+  type        = bool
+  default     = true
+}
+
+variable "iap_members" {
+  description = "Who may open the dashboard, e.g. [\"user:nurse@example.org\"]."
+  type        = list(string)
+  default     = []
+}
