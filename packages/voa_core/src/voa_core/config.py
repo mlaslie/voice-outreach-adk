@@ -16,6 +16,7 @@ Startup fails closed: an invalid or incomplete config raises ``ConfigError``.
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Literal
@@ -90,12 +91,28 @@ class ServicesConfig(_Strict):
     gateway_url: str = ""  # public, e.g. https://voa-gateway-xxxx.run.app
     api_url: str = ""  # private
     tasks_invoker_sa: str = ""
+    ui_sa: str = ""  # the dashboard's runtime SA (allowed to call /api/*)
+    nurse_agent_sa: str = ""  # post-v1 nurse assistant
     recordings_bucket: str = ""
     prompts_bucket: str = ""
     store: Literal["firestore", "memory"] = "firestore"
     queue_dial: str = "voa-dial"
     queue_events: str = "voa-events"
     queue_sms: str = "voa-sms"
+
+
+class DialingConfig(_Strict):
+    """Abuse controls and call-list limits (F4/F5). Fail closed by default."""
+
+    # Static allowlist: comma-separated E.164 numbers, prefixes (>= 8 digits) or "*".
+    # Union-ed with the Firestore allowlist; empty + empty = nothing is dialable.
+    allowlist: str = ""
+    max_dials_per_hour: int = Field(default=30, ge=0)
+    max_dials_per_run: int = Field(default=50, ge=1)
+    max_concurrent_calls: int = Field(default=1, ge=1, le=20)
+    max_list_size: int = Field(default=1000, ge=1)
+    max_list_writes_per_hour: int = Field(default=600, ge=0)
+    call_timeout_s: int = Field(default=600, ge=60)  # a call "in flight" longer than this is stale
 
 
 class SoftphoneConfig(_Strict):
@@ -122,6 +139,7 @@ class AppConfig(_Strict):
     amd: AmdConfig = AmdConfig()
     services: ServicesConfig = ServicesConfig()
     softphone: SoftphoneConfig = SoftphoneConfig()
+    dialing: DialingConfig = DialingConfig()
     debug: DebugConfig = DebugConfig()
     # Provider-specific blocks are validated by the provider adapter itself.
     providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
@@ -156,7 +174,12 @@ def _env_overrides(environ: dict[str, str]) -> dict[str, Any]:
         parts = [p.lower() for p in key[5:].split("__") if p]
         if not parts:
             continue
-        value: Any = yaml.safe_load(raw) if raw else raw  # "true" -> True, "8" -> 8
+        # Keep strings as strings and let pydantic coerce ("true" -> bool, "8" -> int).
+        # YAML-parsing would turn "+12025550123" into an int. Only explicit JSON
+        # lists/objects are parsed.
+        value: Any = raw
+        if raw and raw[0] in "[{":
+            value = json.loads(raw)
         node = out
         for part in parts[:-1]:
             node = node.setdefault(part, {})
@@ -192,7 +215,12 @@ def load_config(config_dir: Path | None = None, environ: dict[str, str] | None =
             data = {"providers": {layer.stem: data}}
         merged = _deep_merge(merged, data)
     merged = _deep_merge(merged, _env_overrides(environ))
-    merged.setdefault("env", env_name)
+    # VOA_ENV is authoritative: a file must never be able to make a deployed
+    # service believe it is "dev" (dev relaxes auth checks).
+    if "VOA_ENV" in environ:
+        merged["env"] = env_name
+    else:
+        merged.setdefault("env", env_name)
 
     try:
         return AppConfig.model_validate(merged)

@@ -38,3 +38,27 @@ def test_invalid_config_fails_closed_without_echoing_values(tmp_path):
 def test_repo_app_yaml_is_valid():
     cfg = load_config(Path(__file__).parents[3] / "config", {"VOA__GCP__PROJECT_ID": "any-project"})
     assert cfg.models.live_location != "global"
+
+
+def test_env_values_stay_strings(tmp_path):
+    _write(tmp_path / "app.yaml", "gcp: {project_id: base-project}\n")
+    cfg = load_config(
+        tmp_path,
+        {
+            "VOA__DIALING__ALLOWLIST": "+12025550101",
+            "VOA__PROVIDERS__TWILIO__FROM_NUMBER": "+12025550100",
+            "VOA__AMD__VM_DROP_VERDICTS": '["machine_end_beep", "machine_end_other"]',
+            "VOA__AMD__ENABLED": "false",
+            "VOA__DIALING__MAX_DIALS_PER_HOUR": "12",
+        },
+    )
+    assert cfg.dialing.allowlist == "+12025550101"
+    assert cfg.providers["twilio"]["from_number"] == "+12025550100"
+    assert cfg.amd.vm_drop_verdicts == ["machine_end_beep", "machine_end_other"]
+    assert cfg.amd.enabled is False and cfg.dialing.max_dials_per_hour == 12
+
+
+def test_voa_env_cannot_be_overridden_by_files(tmp_path):
+    _write(tmp_path / "app.yaml", "env: dev\ngcp: {project_id: base-project}\n")
+    assert load_config(tmp_path, {"VOA_ENV": "demo"}).env == "demo"
+    assert load_config(tmp_path, {}).env == "dev"

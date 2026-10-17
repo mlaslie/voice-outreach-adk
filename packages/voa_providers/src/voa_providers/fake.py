@@ -96,3 +96,29 @@ class FakeMediaSession:
         self.events.append((time.monotonic(), "close"))
         for task, _ in self._pending_marks:
             task.cancel()
+
+
+@dataclass
+class FakeVoice:
+    """Voice provider double: records placed calls, can be told to reject."""
+
+    name: str = "fake"
+    placed: list = field(default_factory=list)
+    reject_code: int | None = None
+
+    async def place_call(self, req):
+        from uuid import uuid4
+
+        from .base import PlacedCall, ProviderRejected
+
+        if self.reject_code is not None:
+            raise ProviderRejected(self.reject_code, "rejected")
+        call_id = "CA" + uuid4().hex
+        self.placed.append((call_id, req))
+        return PlacedCall(call_id=call_id, status="queued")
+
+    async def hangup(self, call_id: str) -> None:
+        return None
+
+    def answer_response(self, media_ws_url, params):
+        return "<Response/>", "application/xml"

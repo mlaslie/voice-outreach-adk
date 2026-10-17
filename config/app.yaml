@@ -2,7 +2,7 @@
 # Org names, project ids, phone numbers and account ids belong in the
 # gitignored files described in config/README.md.
 
-env: dev
+# env comes from VOA_ENV (dev | test | demo | prod); never set it in a file.
 log_level: INFO
 
 gcp:

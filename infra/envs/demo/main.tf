@@ -107,7 +107,7 @@ module "recordings" {
   force_destroy     = !var.protect_data
   iam = {
     "roles/storage.objectCreator" = [local.gateway]
-    "roles/storage.objectViewer"  = [local.api]
+    "roles/storage.objectAdmin"   = [local.api] # serve and delete (batch delete)
   }
   depends_on = [module.services]
 }

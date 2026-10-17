@@ -117,3 +117,9 @@ variable "iap_members" {
   type        = list(string)
   default     = []
 }
+
+variable "static_allowlist" {
+  description = "Comma-separated E.164 numbers always dialable (identifying: tfvars only). Usually empty; manage numbers in the dashboard."
+  type        = string
+  default     = ""
+}

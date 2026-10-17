@@ -108,3 +108,43 @@ module "gateway" {
   env              = local.common_env
   depends_on       = [module.secrets, google_cloud_tasks_queue.this]
 }
+
+module "api" {
+  count           = var.api_image == "" ? 0 : 1
+  source          = "../../modules/cloud_run_service"
+  project_id      = var.project_id
+  region          = var.region
+  name            = "${local.p}-api"
+  image           = var.api_image
+  service_account = module.sa.emails["${local.p}-api"]
+  public          = false
+  invokers        = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-tasks-invoker"]]
+  min_instances   = 0
+  max_instances   = 5
+  concurrency     = 40
+  timeout_s       = 3600 # SSE streams to the dashboard
+  memory          = "1Gi"
+  env             = local.common_env
+  depends_on      = [module.secrets, google_cloud_tasks_queue.this]
+}
+
+resource "google_cloud_scheduler_job" "dispatch_due" {
+  count       = var.api_image == "" ? 0 : 1
+  project     = var.project_id
+  region      = var.region
+  name        = "${local.p}-dispatch-due"
+  description = "Dial scheduled call runs and due call-list entries"
+  schedule    = "* * * * *"
+  time_zone   = "Etc/UTC"
+  # Pausing this job is the off switch for scheduled dialling.
+  attempt_deadline = "60s"
+  http_target {
+    http_method = "POST"
+    uri         = "${local.api_url}/cron/dispatch-due"
+    oidc_token {
+      service_account_email = module.sa.emails["${local.p}-tasks-invoker"]
+      audience              = local.api_url
+    }
+  }
+  depends_on = [module.services]
+}
