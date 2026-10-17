@@ -49,7 +49,9 @@ Firestore's location is permanent. Choose `firestore_location` before the first 
 python3 -c "import secrets;print(secrets.token_hex(32),end='')" | \
   gcloud secrets versions add softphone-token-key --project <project> --data-file=-
 # Twilio (skip for a browser-only evaluation)
-scripts/set-secrets.sh <project>     # prompts for account SID, API key SID/secret, auth token
+scripts/set-secrets.sh <project> --from-env <path/to/.env> \
+    --auth-token-from projects/<other-project>/secrets/<name> \
+    --tfvars infra/envs/demo/terraform.tfvars   # shape-checked; --dry-run to preview; prompts for anything missing
 ```
 
 Until the Twilio secrets exist, the system fails closed:
