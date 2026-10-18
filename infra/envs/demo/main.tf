@@ -3,6 +3,7 @@ locals {
 
   services = [
     "aiplatform.googleapis.com",
+    "discoveryengine.googleapis.com",
     "artifactregistry.googleapis.com",
     "bigquery.googleapis.com",
     "billingbudgets.googleapis.com",
@@ -55,6 +56,10 @@ module "sa" {
       display_name  = "Nurse dashboard (Next.js BFF)"
       project_roles = local.common_runtime_roles
     }
+    "${local.p}-nurse" = {
+      display_name  = "Nurse assistant (Gemini Enterprise A2A agent)"
+      project_roles = concat(local.common_runtime_roles, ["roles/aiplatform.user", "roles/datastore.user"])
+    }
     "${local.p}-tasks-invoker" = {
       display_name  = "OIDC identity for Cloud Tasks and Scheduler"
       project_roles = []
@@ -75,7 +80,7 @@ locals {
 
 # The build SA deploys services that run as the runtime SAs, so it must be able to act as them.
 resource "google_service_account_iam_member" "build_acts_as_runtime" {
-  for_each           = toset(["${local.p}-gateway", "${local.p}-api", "${local.p}-ui"])
+  for_each           = toset(["${local.p}-gateway", "${local.p}-api", "${local.p}-ui", "${local.p}-nurse"])
   service_account_id = "projects/${var.project_id}/serviceAccounts/${module.sa.emails[each.value]}"
   role               = "roles/iam.serviceAccountUser"
   member             = local.build

@@ -147,3 +147,20 @@ variable "sms_from_number" {
   type        = string
   default     = ""
 }
+
+variable "nurse_image" {
+  type    = string
+  default = ""
+}
+
+variable "nurse_oauth_client_id" {
+  description = "OAuth client of the Gemini Enterprise agent's authorization resource (enables end-user identity). Empty until registered."
+  type        = string
+  default     = ""
+}
+
+variable "nurse_extra_invokers" {
+  description = "Extra principals allowed to call the nurse agent, e.g. operators for testing or another project's Discovery Engine agent."
+  type        = list(string)
+  default     = []
+}

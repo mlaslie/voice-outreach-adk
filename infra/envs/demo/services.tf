@@ -20,6 +20,7 @@ locals {
     VOA__SERVICES__API_URL                 = local.api_url
     VOA__SERVICES__TASKS_INVOKER_SA        = module.sa.emails["${local.p}-tasks-invoker"]
     VOA__SERVICES__UI_SA                   = module.sa.emails["${local.p}-ui"]
+    VOA__SERVICES__NURSE_AGENT_SA          = module.sa.emails["${local.p}-nurse"]
     VOA__DIALING__ALLOWLIST                = var.static_allowlist
     VOA__SMS__DRY_RUN                      = tostring(var.sms_dry_run)
     VOA__SMS__FROM_NUMBER                  = var.sms_from_number
@@ -123,7 +124,7 @@ module "api" {
   image           = var.api_image
   service_account = module.sa.emails["${local.p}-api"]
   public          = false
-  invokers        = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-tasks-invoker"]]
+  invokers        = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-tasks-invoker"], module.sa.members["${local.p}-nurse"]]
   min_instances   = 0
   max_instances   = 5
   concurrency     = 40
@@ -250,4 +251,60 @@ resource "google_firestore_field" "sms_inbound_seen_ttl" {
   field      = "expire_at"
   ttl_config {}
   index_config {}
+}
+
+
+# --------------------------------------------------------------------------- nurse assistant (A2A for Gemini Enterprise)
+
+locals {
+  nurse_url = "https://${local.p}-nurse-${local.url_suffix}"
+}
+
+# Gemini Enterprise calls the agent as this project's Discovery Engine service agent.
+resource "google_project_service_identity" "discoveryengine" {
+  provider   = google-beta
+  project    = var.project_id
+  service    = "discoveryengine.googleapis.com"
+  depends_on = [module.services]
+}
+
+module "nurse" {
+  count           = var.nurse_image == "" ? 0 : 1
+  source          = "../../modules/cloud_run_service"
+  project_id      = var.project_id
+  region          = var.region
+  name            = "${local.p}-nurse"
+  image           = var.nurse_image
+  service_account = module.sa.emails["${local.p}-nurse"]
+  public          = false
+  invokers = concat(
+    ["serviceAccount:${google_project_service_identity.discoveryengine.email}"],
+    var.nurse_extra_invokers,
+  )
+  min_instances = 0
+  max_instances = 5
+  concurrency   = 20
+  timeout_s     = 300
+  memory        = "1Gi"
+  env = merge(local.common_env, {
+    VOA_NURSE_PUBLIC_URL      = local.nurse_url
+    VOA_NURSE_DASHBOARD_URL   = var.ui_image == "" ? "" : module.ui[0].url
+    VOA_NURSE_ALLOWED_EMAILS  = join(",", [for m in var.iap_members : trimprefix(m, "user:") if startswith(m, "user:")])
+    VOA_NURSE_OAUTH_CLIENT_ID = var.nurse_oauth_client_id
+  })
+  depends_on = [module.secrets]
+}
+
+resource "google_firestore_field" "nurse_ttl" {
+  for_each   = toset(["nurse_sessions", "nurse_proposals"])
+  project    = var.project_id
+  database   = module.firestore.database
+  collection = each.value
+  field      = "expire_at"
+  ttl_config {}
+  index_config {}
+}
+
+output "nurse_url" {
+  value = var.nurse_image == "" ? null : local.nurse_url
 }
