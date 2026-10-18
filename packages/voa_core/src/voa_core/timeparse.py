@@ -91,6 +91,51 @@ _DAYPARTS = {
     "lunchtime": (12, 0),
 }
 
+# Vague phrases patients actually use, most specific first. ``"END"`` and
+# ``"START"`` mean the last / first bookable start time of the policy, so "late
+# tomorrow night after the kids sleep" lands at the end of the window instead of
+# falling through to the 10 AM default (a gap found during the port).
+_PHRASES: tuple[tuple[str, tuple[int, int] | str], ...] = (
+    (
+        r"\blate (?:tomorrow |at )?night\b|\btomorrow night late\b|\bbedtime\b"
+        r"|\blate (?:in the )?evening\b"
+        r"|\bafter (?:the )?(?:kids?|children|baby) "
+        r"(?:go(?:es)? to (?:bed|sleep)|(?:are|is) asleep|sleeps?)\b",
+        "END",
+    ),
+    (r"\b(?:early (?:in the )?morning|first thing)\b", "START"),
+    (r"\bafter (?:dinner|supper)\b", (19, 0)),
+    (r"\bafter work\b|\bend of (?:the )?(?:work ?)?day\b", (17, 30)),
+    (r"\bafter school\b", (15, 30)),
+    (r"\blate afternoon\b", (16, 0)),
+    (r"\bearly afternoon\b", (13, 0)),
+    (r"\blate morning\b", (11, 0)),
+    (r"\bearly evening\b", (17, 0)),
+    (r"\b(?:tomorrow )?night\b", (19, 0)),
+)
+
+# Day parts that put a bare hour in the afternoon/evening ("evening 8" = 8 PM).
+_PM_WORDS = re.compile(r"\b(afternoon|evening|tonight|night|dinner|supper)\b")
+
+_NUMBER_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "fifteen": 15,
+    "twenty": 20,
+    "thirty": 30,
+    "forty five": 45,
+    "couple of": 2,
+    "few": 3,
+}
+
 # A day named with no time attached. The patient confirms the result, so a
 # sensible mid-morning default is better than a second round trip.
 _DEFAULT_HOUR = 10
@@ -151,18 +196,33 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def _parse_clock(text: str) -> tuple[int, int] | None:
+def _parse_clock(
+    text: str, policy: SchedulingPolicy = DEFAULT_SCHEDULING
+) -> tuple[int, int] | None:
     """(hour, minute) in 24h, or None.
 
-    A bare hour with no am/pm is read as a *callback-hours* time: 1-7 means
-    afternoon, 8-11 means morning. "at 3" from someone arranging a call back
-    from a clinic means 3 in the afternoon far more often than 3 a.m., and
-    the window clamp would reject 3 a.m. anyway.
+    An explicit number wins over a day-part word: "tomorrow evening at 7" is 7 PM,
+    not the 6 PM "evening" default (a bug found during the port). A bare hour with
+    no am/pm is read as a *callback-hours* time: 1-7 means afternoon, 8-11 morning,
+    unless a PM word ("evening 8") says otherwise.
     """
+    numeric = _parse_numeric_clock(text, pm_context=bool(_PM_WORDS.search(text)))
+    if numeric is not None:
+        return numeric
+    for pattern, value in _PHRASES:
+        if re.search(pattern, text):
+            if value == "END":
+                return policy.quiet_end, 0
+            if value == "START":
+                return policy.quiet_start, 0
+            return value
     for word, (h, m) in _DAYPARTS.items():
         if re.search(rf"\b{word}\b", text):
             return h, m
+    return None
 
+
+def _parse_numeric_clock(text: str, *, pm_context: bool = False) -> tuple[int, int] | None:
     m = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)?\b", text)
     if not m:
         return None
@@ -184,7 +244,9 @@ def _parse_clock(text: str) -> tuple[int, int] | None:
         if hour > 23:
             return None
         # Bare number: only treat as a clock time in a plausible range.
-        if 1 <= hour <= 7:
+        if pm_context and 1 <= hour <= 11:
+            hour += 12
+        elif 1 <= hour <= 7:
             hour += 12
         elif hour == 12:
             hour = 12
@@ -194,11 +256,16 @@ def _parse_clock(text: str) -> tuple[int, int] | None:
 
 
 def _parse_relative(text: str, now: datetime.datetime) -> datetime.datetime | None:
-    m = re.search(r"\bin (?:about )?(?:an?|(\d{1,3}))\s*(minute|min|hour|hr|day)s?\b", text)
+    words = "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True))
+    m = re.search(
+        rf"\bin (?:about |around )?(?:an? )?(?:(\d{{1,3}})|({words}))?\s*"
+        r"(minute|min|hour|hr|day)s?\b",
+        text,
+    )
     if not m:
         return None
-    qty = int(m.group(1)) if m.group(1) else 1
-    unit = m.group(2)
+    qty = int(m.group(1)) if m.group(1) else _NUMBER_WORDS.get(m.group(2) or "", 1)
+    unit = m.group(3)
     if unit in ("minute", "min"):
         delta = datetime.timedelta(minutes=qty)
     elif unit in ("hour", "hr"):
@@ -218,10 +285,15 @@ def _parse_day(text: str, now: datetime.datetime) -> tuple[datetime.date | None,
     """
 
     def cut(m: re.Match) -> str:
-        return (text[: m.start()] + " " + text[m.end() :]).strip()
+        return re.sub(r"\s+", " ", text[: m.start()] + " " + text[m.end() :]).strip()
 
+    m = re.search(r"\b(?:the )?day after tomorrow\b", text)
+    if m:
+        return now.date() + datetime.timedelta(days=2), cut(m)
     m = re.search(r"\btomorrow\b", text)
     if m:
+        # Keep "tomorrow night" etc. readable by the clock parser: only the
+        # day word is consumed.
         return now.date() + datetime.timedelta(days=1), cut(m)
     m = re.search(r"\b(today|tonight|this (?:morning|afternoon|evening))\b", text)
     if m:
@@ -294,7 +366,7 @@ def parse_when(
         return relative
 
     day, remainder = _parse_day(t, now)
-    clock = _parse_clock(remainder)
+    clock = _parse_clock(remainder, policy)
 
     if day is None and clock is None:
         return None

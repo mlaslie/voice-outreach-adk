@@ -198,3 +198,45 @@ class TestExplicitSignal:
     )
     def test_a_clock_or_calendar_word_is_a_signal(self, text):
         assert not timeparse.is_bare_number_without_time_signal(text)
+
+
+class TestPortGaps:
+    """Gaps found during the port, plus the day-part-overrides-hour bug."""
+
+    @pytest.mark.parametrize(
+        ("text", "days", "hour", "minute"),
+        [
+            ("the day after tomorrow", 2, 10, 0),
+            ("day after tomorrow at 3", 2, 15, 0),
+            ("late tomorrow night after the kids sleep", 1, 20, 0),
+            ("tomorrow after the kids go to bed", 1, 20, 0),
+            ("tomorrow night", 1, 19, 0),
+            ("tomorrow after dinner", 1, 19, 0),
+            ("tomorrow after work", 1, 17, 30),
+            ("tomorrow late afternoon", 1, 16, 0),
+            ("tomorrow early morning", 1, 8, 0),
+            ("first thing tomorrow", 1, 8, 0),
+            ("tomorrow evening at 7", 1, 19, 0),
+            ("tomorrow evening 8", 1, 20, 0),
+            ("tomorrow morning at 9", 1, 9, 0),
+        ],
+    )
+    def test_phrases(self, now, text, days, hour, minute):
+        got = timeparse.parse_when(text, now, POLICY)
+        assert got is not None, text
+        assert (got.date() - now.date()).days == days, text
+        assert (got.hour, got.minute) == (hour, minute), text
+
+    def test_late_night_respects_the_policy_window(self, now):
+        narrow = SchedulingPolicy(quiet_start=9, quiet_end=18)
+        got = timeparse.parse_when("late tomorrow night", now, narrow)
+        assert (got.hour, got.minute) == (18, 0)
+        assert timeparse.clamp(got, now, narrow).adjusted is False  # bookable as is
+
+    def test_number_words_in_relative_times(self, now):
+        assert timeparse.parse_when("in two hours", now, POLICY) == now + datetime.timedelta(
+            hours=2
+        )
+        assert timeparse.parse_when(
+            "in a couple of hours", now, POLICY
+        ) == now + datetime.timedelta(hours=2)
