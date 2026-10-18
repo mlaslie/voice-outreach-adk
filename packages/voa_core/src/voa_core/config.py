@@ -85,6 +85,7 @@ class AmdConfig(_Strict):
     hold_max_s: float = Field(default=4.0, ge=0, le=30)
     late_window_s: float = Field(default=65.0, ge=0, le=120)
     poll_interval_s: float = Field(default=0.4, ge=0.1, le=5)
+    strategy: Literal["speak_first", "hold"] = "speak_first"
     vm_drop: bool = True
     vm_drop_verdicts: list[str] = Field(default_factory=lambda: ["machine_end_beep"])
 

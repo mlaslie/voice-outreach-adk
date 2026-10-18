@@ -46,3 +46,6 @@ docs-config:      ## regenerate docs/CONFIG.md from the config models
 	uv run python scripts/gen_config_doc.py
 
 bootstrap: tf-bootstrap tf-init tf-plan tf-apply  ## base infrastructure for a new environment (see docs/DEPLOY.md)
+
+eval-voice:       ## persona eval with pass rates (real Gemini Live; ~10 min): make eval-voice RUNS=3
+	uv run python evals/voice_personas.py --runs $(or $(RUNS),3) --concurrency 3

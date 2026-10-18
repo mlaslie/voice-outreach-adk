@@ -26,7 +26,12 @@ PATIENT = {
 }
 
 
-async def _run(amd_verdict: str | None, scenario: str = "happy"):
+async def _run(
+    amd_verdict: str | None,
+    scenario: str = "happy",
+    strategy: str = "speak_first",
+    verdict_after_s: float = 1.5,
+):
     from voice_spike.harness import SCENARIOS, Patient, PatientVoice
 
     cfg = load_config()
@@ -49,7 +54,7 @@ async def _run(amd_verdict: str | None, scenario: str = "happy"):
         runner=gw.runner,
         media=media,
         sink=sink,
-        amd=AmdPolicy(enabled=True, hold_max_s=8.0, vm_drop=True),
+        amd=AmdPolicy(enabled=True, hold_max_s=8.0, vm_drop=True, strategy=strategy),
         voicemail_clip=gw.voicemail_clip,
         on_agent_turn_end=patient.on_agent_turn_end,
     )
@@ -60,7 +65,7 @@ async def _run(amd_verdict: str | None, scenario: str = "happy"):
     if amd_verdict:
 
         async def verdict():
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(verdict_after_s)
             await store.merge("calls", CALL_ID, {"answered_by": amd_verdict})
 
         tasks.append(asyncio.create_task(verdict()))
@@ -85,8 +90,8 @@ async def test_happy_path_persists_report_transcript_and_events():
     assert "report.saved" in events and "drain.mark_sent" in events
 
 
-async def test_machine_verdict_drops_voicemail_without_starting_agent():
-    store, session = await _run("machine_end_beep")
+async def test_hold_strategy_drops_voicemail_without_starting_agent():
+    store, session = await _run("machine_end_beep", strategy="hold")
     call = await store.get("calls", CALL_ID)
     assert call["outcome"] == "voicemail_left" and call["call_status"] == "left_vmail"
     events = [e["event"] for e in session.timeline.entries]
@@ -118,3 +123,15 @@ async def test_personas_with_production_agent(scenario, outcome, tier):
             None,
             "",
         )  # a non-reaching report must not settle the call
+
+
+async def test_speak_first_starts_at_once_then_drops_voicemail_on_beep():
+    """Speak-first: the agent opens immediately; the machine verdict (at the beep)
+    clears it and drops the clip. No pause after pick-up for real people."""
+    store, session = await _run("machine_end_beep", strategy="speak_first", verdict_after_s=6.0)
+    call = await store.get("calls", CALL_ID)
+    assert call["outcome"] == "voicemail_left" and call["call_status"] == "left_vmail"
+    ev = {e["event"]: e for e in session.timeline.entries}
+    assert ev["agent.release"]["reason"] == "speak_first"
+    assert ev["agent.audio_start"]["ms"] < 3000  # opener starts well before any verdict
+    assert "vm.play" in ev

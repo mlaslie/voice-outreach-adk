@@ -71,3 +71,21 @@ async def test_exit_refused_while_question_unanswered():
         assert (await tools.submit_report("unable_to_reach_wrong_person", c))["status"] == "ok"
     finally:
         call_facts.unregister("s-guard")
+
+
+async def test_exits_wait_while_amd_pending_and_identity_flagged():
+    from voa_agents.voice import call_facts
+
+    c = ctx()
+    c.session = SimpleNamespace(id="s-amd")
+    facts = call_facts.register("s-amd")
+    try:
+        facts.amd_pending = True
+        facts.caller_spoke()  # a voicemail greeting looks like a caller turn
+        r = await tools.submit_report("unable_to_reach_wrong_person", c)
+        assert r["status"] == "refused" and "connecting" in r["message"]
+        assert (await tools.submit_report("emergency_ended", c))["status"] == "ok"
+        assert (await tools.verify_identity("March 15, 1950", c))["result"] == "match"
+        assert facts.identity_verified is True
+    finally:
+        call_facts.unregister("s-amd")

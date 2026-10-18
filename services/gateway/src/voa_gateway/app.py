@@ -111,6 +111,7 @@ class Gateway:
             vm_drop=cfg.amd.vm_drop,
             vm_drop_verdicts=frozenset(cfg.amd.vm_drop_verdicts),
             poll_interval_s=cfg.amd.poll_interval_s,
+            strategy=cfg.amd.strategy,
         )
         self._twilio_token: str | None = None
         self._softphone_secret: str | None = None

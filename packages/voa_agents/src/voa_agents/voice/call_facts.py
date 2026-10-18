@@ -17,6 +17,10 @@ class CallFacts:
     caller_turns: int = 0
     # Agent speech (from output transcription, partials included) since the caller last spoke.
     agent_text_since_caller: str = ""
+    # Answering-machine detection still pending: the "caller" may be a voicemail
+    # greeting, so only the emergency exit is allowed (speak-first AMD strategy).
+    amd_pending: bool = False
+    identity_verified: bool = False
 
     def caller_spoke(self) -> None:
         self.caller_turns += 1

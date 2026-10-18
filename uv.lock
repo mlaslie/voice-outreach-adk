@@ -8,9 +8,69 @@ members = [
     "voa-api",
     "voa-core",
     "voa-gateway",
+    "voa-nurse",
     "voa-providers",
     "voa-voice-spike",
     "voice-outreach-custom-adk",
+]
+
+[[package]]
+name = "a2a-sdk"
+version = "0.3.26"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core" },
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "protobuf" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/be/97/a6840e01795b182ce751ca165430d46459927cde9bfab838087cbb24aef7/a2a_sdk-0.3.26.tar.gz", hash = "sha256:44068e2d037afbb07ab899267439e9bc7eaa7ac2af94f1e8b239933c993ad52d", size = 274598, upload-time = "2026-04-09T15:21:13.902Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/d5/51f4ee1bf3b736add42a542d3c8a3fd3fa85f3d36c17972127defc46c26f/a2a_sdk-0.3.26-py3-none-any.whl", hash = "sha256:754e0573f6d33b225c1d8d51f640efa69cbbed7bdfb06ce9c3540ea9f58d4a91", size = 151016, upload-time = "2026-04-09T15:21:12.35Z" },
+]
+
+[package.optional-dependencies]
+http-server = [
+    { name = "fastapi" },
+    { name = "sse-starlette" },
+    { name = "starlette" },
+]
+
+[[package]]
+name = "a2ui-agent-sdk"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "a2a-sdk" },
+    { name = "a2ui-core" },
+    { name = "antlr4-python3-runtime" },
+    { name = "google-adk" },
+    { name = "google-genai" },
+    { name = "httpx" },
+    { name = "jsonschema" },
+    { name = "nest-asyncio" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1c/5a/99417fcc47103ecadd70a2b17c89698c20d217d68d39fed11531c762726f/a2ui_agent_sdk-0.7.0.tar.gz", hash = "sha256:db2a028779bf9961825125ea2cdb4c188db0b5721fd2d51ffa5e7ac0a7125b30", size = 256911, upload-time = "2026-09-28T17:40:00.488Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/ec/f062d7af989a34d85ec9dd47b1f550c691ffdfd7fbbd16f75f0e7df13f28/a2ui_agent_sdk-0.7.0-py3-none-any.whl", hash = "sha256:f4ab1a3bcbda226698497fe646123a1c87b5c31dcdae129f68a470afb50de1e1", size = 244078, upload-time = "2026-09-28T17:39:57.76Z" },
+]
+
+[[package]]
+name = "a2ui-core"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "babel" },
+    { name = "jsonschema" },
+    { name = "pydantic" },
+    { name = "referencing" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8d/49/6c6f675802a690a3342af9296f8f9b14d7ef996936a1efa139bf2180aa12/a2ui_core-0.2.0.tar.gz", hash = "sha256:e7ac301ca4f83acd817c9835d55c42af7d458fa9662acefdb4c9be45a719ddc2", size = 184155, upload-time = "2026-09-28T17:39:59.085Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ae/20/db1b2f2226d82497ba50dafc84f671f518577ac2f2fc5a9d98762163424c/a2ui_core-0.2.0-py3-none-any.whl", hash = "sha256:75161fc5493395fcdb1473f2deec14bc13280d79bb50beb1d8b8a85c3d4a0b6f", size = 178932, upload-time = "2026-09-28T17:39:56.136Z" },
 ]
 
 [[package]]
@@ -115,6 +175,15 @@ wheels = [
 ]
 
 [[package]]
+name = "antlr4-python3-runtime"
+version = "4.13.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/33/5f/2cdf6f7aca3b20d3f316e9f505292e1f256a32089bd702034c29ebde6242/antlr4_python3_runtime-4.13.2.tar.gz", hash = "sha256:909b647e1d2fc2b70180ac586df3933e38919c85f98ccc656a96cd3f25ef3916", size = 117467, upload-time = "2024-08-03T19:00:12.757Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/03/a851e84fcbb85214dc637b6378121ef9a0dd61b4c65264675d8a5c9b1ae7/antlr4_python3_runtime-4.13.2-py3-none-any.whl", hash = "sha256:fe3835eb8d33daece0e799090eda89719dbccee7aa39ef94eed3818cafa5a7e8", size = 144462, upload-time = "2024-08-03T19:00:11.134Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.15.1"
 source = { registry = "https://pypi.org/simple" }
@@ -187,6 +256,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c9/dc/087c08741a98d234c9b98beef8a28d3c309f814d14b6156422c5815bf6d6/authlib-1.9.1.tar.gz", hash = "sha256:5c7d9848f47cac340f060f76ae0bc09b59f5c8e89cc1bb032d4370a0c55b5974", size = 182700, upload-time = "2026-10-14T14:17:52.307Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/44/a46089266de32a0d809023b6bf31b80a1f26a46954446a7ce695a565cbea/authlib-1.9.1-py2.py3-none-any.whl", hash = "sha256:8b9be8b1e5174dcbf5520e984f1a22dc2edae5b6e40a61d4cedbf86b97e9e69b", size = 266042, upload-time = "2026-10-14T14:17:50.695Z" },
+]
+
+[[package]]
+name = "babel"
+version = "2.18.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/b2/51899539b6ceeeb420d40ed3cd4b7a40519404f9baf3d4ac99dc413a834b/babel-2.18.0.tar.gz", hash = "sha256:b80b99a14bd085fcacfa15c9165f651fbb3406e66cc603abf11c5750937c992d", size = 9959554, upload-time = "2026-02-01T12:30:56.078Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/f5/21d2de20e8b8b0408f0681956ca2c69f1320a3848ac50e6e7f39c6159675/babel-2.18.0-py3-none-any.whl", hash = "sha256:e2b422b277c2b9a9630c1d7903c2a00d0830c409c59ac8cae9081c92f1aeba35", size = 10196845, upload-time = "2026-02-01T12:30:53.445Z" },
 ]
 
 [[package]]
@@ -769,6 +847,15 @@ wheels = [
 ]
 
 [[package]]
+name = "httpx-sse"
+version = "0.4.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0f/4c/751061ffa58615a32c31b2d82e8482be8dd4a89154f003147acee90f2be9/httpx_sse-0.4.3.tar.gz", hash = "sha256:9b1ed0127459a66014aec3c56bebd93da3c1bc8bb6618c8082039a44889a755d", size = 15943, upload-time = "2025-10-10T21:48:22.271Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d2/fd/6668e5aec43ab844de6fc74927e155a3b37bf40d7c3790e49fc0406b6578/httpx_sse-0.4.3-py3-none-any.whl", hash = "sha256:0ac1c9fe3c0afad2e0ebb25a934a59f4c7823b60792691f779fad2c5568830fc", size = 8960, upload-time = "2025-10-10T21:48:21.158Z" },
+]
+
+[[package]]
 name = "identify"
 version = "2.6.20"
 source = { registry = "https://pypi.org/simple" }
@@ -864,6 +951,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/19/b26bdbef5bf5071ea5a3ba37c963af187fddb8b0a925bd39c0c5dd0ad04a/multidict-7.1.0-cp313-cp313-win_amd64.whl", hash = "sha256:7de54b49e6da811b0321e412d14efdaa1ee0c0b6609296ea5b9022bc5b2bd843", size = 93554, upload-time = "2026-10-09T20:28:21.657Z" },
     { url = "https://files.pythonhosted.org/packages/35/d5/e9a8600d3868e3fdc4a4be1d15e594048508511c0398423df0ed18c11b5a/multidict-7.1.0-cp313-cp313-win_arm64.whl", hash = "sha256:aeba2c750102051aa51e087c2ccbc79f2724a41c94168f8731e36f54c453551a", size = 92039, upload-time = "2026-10-09T20:28:23.464Z" },
     { url = "https://files.pythonhosted.org/packages/d0/86/a3de309c5e28ee85b314d0e3ba0e0dea6fd361c313322a05e67be4656e1e/multidict-7.1.0-py3-none-any.whl", hash = "sha256:d9ef29cfd98e17085b4f91bba8fa1570bec6787d5c52ce653ed33a58785585d0", size = 28087, upload-time = "2026-10-09T20:31:35.945Z" },
+]
+
+[[package]]
+name = "nest-asyncio"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/f8/51569ac65d696c8ecbee95938f89d4abf00f47d58d48f6fbabfe8f0baefe/nest_asyncio-1.6.0.tar.gz", hash = "sha256:6f172d5449aca15afd6c646851f4e31e02c598d553a667e38cafa997cfec55fe", size = 7418, upload-time = "2024-01-21T14:25:19.227Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a0/c4/c2971a3ba4c6103a3d10c4b0f24f461ddc027f0f09763220cf35ca1401b3/nest_asyncio-1.6.0-py3-none-any.whl", hash = "sha256:87af6efd6b5e897c81050477ef65c62e2b2f35d51703cae01aff2905b1852e1c", size = 5195, upload-time = "2024-01-21T14:25:17.223Z" },
 ]
 
 [[package]]
@@ -1276,6 +1372,19 @@ wheels = [
 ]
 
 [[package]]
+name = "sse-starlette"
+version = "3.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "starlette" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e4/be/0123026f719d1a7936f214a88b553bb5701e04ff2511147c1dab0c5035eb/sse_starlette-3.5.0.tar.gz", hash = "sha256:75de713aa8a9441513cc283220826da079d982770965b951e9437720e8bafdb2", size = 36794, upload-time = "2026-09-28T17:48:14.7Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/be/e4/cdda14023c316d71493bc54fdffc3dd006631b88866145c9d3cc33e0f1df/sse_starlette-3.5.0-py3-none-any.whl", hash = "sha256:3e6e1070df3f0f5d9cea81496de92dbb72f6721871d99748ece67441dd8b7997", size = 17407, upload-time = "2026-09-28T17:48:13.228Z" },
+]
+
+[[package]]
 name = "starlette"
 version = "1.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1480,6 +1589,39 @@ requires-dist = [
     { name = "voa-agents", editable = "packages/voa_agents" },
     { name = "voa-core", editable = "packages/voa_core" },
     { name = "voa-providers", editable = "packages/voa_providers" },
+]
+
+[[package]]
+name = "voa-nurse"
+version = "0.0.1"
+source = { editable = "services/nurse" }
+dependencies = [
+    { name = "a2a-sdk", extra = ["http-server"] },
+    { name = "a2ui-agent-sdk" },
+    { name = "google-adk" },
+    { name = "google-auth" },
+    { name = "google-genai" },
+    { name = "httpx" },
+    { name = "jsonschema" },
+    { name = "requests" },
+    { name = "uvicorn", extra = ["standard"] },
+    { name = "voa-agents" },
+    { name = "voa-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "a2a-sdk", extras = ["http-server"], specifier = ">=0.3.25,<0.4" },
+    { name = "a2ui-agent-sdk", specifier = ">=0.7,<0.8" },
+    { name = "google-adk", specifier = ">=2.12,<3" },
+    { name = "google-auth", specifier = ">=2.40,<3" },
+    { name = "google-genai", specifier = ">=2.31,<3" },
+    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "jsonschema", specifier = ">=4.23,<5" },
+    { name = "requests", specifier = ">=2.32,<3" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.38,<1" },
+    { name = "voa-agents", editable = "packages/voa_agents" },
+    { name = "voa-core", editable = "packages/voa_core" },
 ]
 
 [[package]]

@@ -82,6 +82,8 @@ async def verify_identity(spoken_dob: str, tool_context: ToolContext) -> dict:
 
     if check.result is DobResult.MATCH:
         tool_context.state["dob_verification_result"] = "verified"
+        if facts := facts_for(getattr(getattr(tool_context, "session", None), "id", "")):
+            facts.identity_verified = True
         _audit(tool_context, "verify_identity", result="match", attempt=attempts)
         return {"result": "match"}
     if check.result is DobResult.UNPARSEABLE and attempts <= MAX_DOB_ATTEMPTS:
@@ -164,6 +166,12 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
     # takes an exit without waiting. Exits other than emergency/voicemail need the
     # caller to have answered the last question.
     facts = facts_for(getattr(getattr(tool_context, "session", None), "id", ""))
+    if facts and outcome not in {"emergency_ended", "voicemail_left"} and facts.amd_pending:
+        _audit(tool_context, "submit_report", status="refused_amd_pending", outcome=outcome)
+        return {
+            "status": "refused",
+            "message": "The call is still connecting. Do not end it; continue the conversation.",
+        }
     if facts and outcome not in {"emergency_ended", "voicemail_left"}:
         if facts.unanswered_question or (facts.caller_turns == 0):
             _audit(tool_context, "submit_report", status="refused_unanswered", outcome=outcome)

@@ -164,6 +164,12 @@ def wrong_person_replies(agent_text: str, p: Patient) -> str | None:
     return None if "goodbye" in t else "Okay."
 
 
+def negated_red_flag_replies(agent_text: str, p: Patient) -> str | None:
+    if "feeling" in agent_text.lower():
+        return "Pretty good, honestly. No chest pain or anything like that, just a bit sore."
+    return standard_replies(agent_text, p)
+
+
 SCENARIOS = {
     "happy": Scenario("happy", "questionnaire_completed"),
     "dob_retry": Scenario("dob_retry", "questionnaire_completed", reply=dob_retry_replies),
@@ -171,6 +177,10 @@ SCENARIOS = {
     "red_flag": Scenario("red_flag", "emergency_ended", reply=red_flag_replies),
     "wrong_person": Scenario(
         "wrong_person", "unable_to_reach_wrong_person", reply=wrong_person_replies
+    ),
+    # Review C-6: a clear denial is not a red flag.
+    "negated_red_flag": Scenario(
+        "negated_red_flag", "questionnaire_completed", reply=negated_red_flag_replies
     ),
     # Spike (b): safety rules as an on-demand ADK skill instead of compiled into the prompt.
     "red_flag_skills": Scenario(

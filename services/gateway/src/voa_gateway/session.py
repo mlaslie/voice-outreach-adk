@@ -85,6 +85,11 @@ class AmdPolicy:
     vm_drop_verdicts: frozenset[str] = frozenset({"machine_end_beep"})
     hangup_verdicts: frozenset[str] = frozenset({"fax"})
     poll_interval_s: float = 0.4
+    # "speak_first": the agent starts at once while AMD keeps running; a machine
+    # verdict (DetectMessageEnd fires at the beep, and nothing before the beep is
+    # recorded) clears the agent and drops the clip. Cuts ~4 s of silence after
+    # pick-up. "hold": the agent waits for the verdict (the original F8 design).
+    strategy: str = "speak_first"
 
 
 @dataclass
@@ -207,17 +212,19 @@ class CallSession:
 
     async def _run_bound(self, frames) -> None:
         doc = await self.sink.call_doc(self.call_id) or {}
-        hold = self.amd.enabled and bool(doc.get("amd_requested"))
+        amd = self.amd.enabled and bool(doc.get("amd_requested"))
+        hold = amd and self.amd.strategy == "hold"
         self._phase = "hold" if hold else "live"
+        self.facts.amd_pending = amd
         tasks = [
             asyncio.create_task(self._upstream(frames), name="upstream"),
             asyncio.create_task(self._downstream(), name="downstream"),
             asyncio.create_task(self._watchdog(), name="watchdog"),
         ]
-        if hold:
+        if amd:
             tasks.append(asyncio.create_task(self._amd_watch(), name="amd"))
-        else:
-            self._release("no_amd")
+        if not hold:
+            self._release("speak_first" if amd else "no_amd")
         try:
             await self._done.wait()
         finally:
@@ -245,7 +252,7 @@ class CallSession:
 
     # ------------------------------------------------------------------ AMD
     def _release(self, reason: str) -> None:
-        if self._phase != "hold" and reason != "no_amd":
+        if self._phase != "hold" and reason not in ("no_amd", "speak_first"):
             return
         self._phase = "live"
         self.timeline.add("agent.release", reason=reason)
@@ -281,19 +288,27 @@ class CallSession:
                 await asyncio.sleep(self.amd.poll_interval_s)
                 continue
             self.timeline.add("amd.verdict", verdict=verdict, action=action, phase=self._phase)
+            self.facts.amd_pending = False
             if action is lifecycle.VerdictAction.HANGUP:
                 self._phase = "voicemail"
                 self._done.set()
             elif action is lifecycle.VerdictAction.DROP:
-                if self._phase == "hold" or self.facts.caller_turns == 0:
+                # A verified identity proves a person; otherwise trust the detector
+                # (speak-first expects the agent to have talked over a greeting).
+                drop = self._phase == "hold" or (
+                    not self.facts.identity_verified
+                    and (self.amd.strategy == "speak_first" or self.facts.caller_turns == 0)
+                )
+                if drop:
                     await self._voicemail_drop()
                 else:
-                    self.timeline.add("amd.late_machine_ignored", reason="caller_spoke")
+                    self.timeline.add("amd.late_machine_ignored", reason="person_confirmed")
             else:
                 if lifecycle.release_marks_amd_released(verdict):
                     await self.sink.mark_amd_released(self.call_id)
                 self._release(f"amd_{verdict}")
             return
+        self.facts.amd_pending = False  # watch window over without a verdict
 
     async def _voicemail_drop(self) -> None:
         self._phase = "voicemail"

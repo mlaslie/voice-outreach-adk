@@ -37,6 +37,7 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `amd.hold_max_s` | `VOA__AMD__HOLD_MAX_S` | float | `4.0` |  |
 | `amd.late_window_s` | `VOA__AMD__LATE_WINDOW_S` | float | `65.0` |  |
 | `amd.poll_interval_s` | `VOA__AMD__POLL_INTERVAL_S` | float | `0.4` |  |
+| `amd.strategy` | `VOA__AMD__STRATEGY` | Literal | `'speak_first'` |  |
 | `amd.vm_drop` | `VOA__AMD__VM_DROP` | bool | `True` |  |
 | `amd.vm_drop_verdicts` | `VOA__AMD__VM_DROP_VERDICTS` | list | `['machine_end_beep']` |  |
 | `services.gateway_url` | `VOA__SERVICES__GATEWAY_URL` | str | `''` |  |
