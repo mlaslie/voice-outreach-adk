@@ -58,6 +58,15 @@ A `secret://` reference has no version. Run `scripts/set-secrets.sh <project>`. 
 
 **Note:** Cloud Run's front end reserves `/healthz`, so it never reaches the container; use `/health`.
 
+## Answering-machine strategy
+
+`amd.strategy` (`VOA__AMD__STRATEGY`):
+
+- `speak_first` (default): the agent opens about 1 s after pick-up while Twilio's detection keeps running. A machine verdict (DetectMessageEnd fires at the beep) clears the agent and drops the clip. Nothing said before the beep is recorded.
+- `hold`: the agent waits for the verdict, which adds about 4 s of silence.
+
+While the verdict is pending, the agent cannot take any exit except the emergency one. A verified identity overrides a late machine verdict.
+
 ## Stopping things
 
 | Need | Do |
