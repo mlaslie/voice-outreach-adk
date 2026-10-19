@@ -149,6 +149,10 @@ class SmsConfig(_Strict):
     self_name: str = "ADK"
     peer_name: str = "GE-CX"
     peer_webhook_url: str = ""  # the other system's incoming-SMS webhook; env/tfvars only
+    # Other URLs that reach the same service (Cloud Run answers on two hostnames).
+    # Read as "that system is active"; never written. Comma-separated.
+    peer_webhook_aliases: str = ""
+    self_webhook_aliases: str = ""
 
 
 class SoftphoneConfig(_Strict):

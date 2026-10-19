@@ -21,6 +21,7 @@ one tester; it is not a multi-tenant router.
     - ADK: `<gateway_url>/twilio/sms`
     - GE-CX: `<sms-followup-svc URL>/api/sms-inbound`
   - **the other system's** webhook, so it can give control away.
+- **Each system can be reached on more than one hostname.** Cloud Run answers on `<name>-<project-number>.<region>.run.app` and on its `status.url` form. When reading, treat **any** of a system's hostnames as that system. When writing, always use its one primary URL.
 
 ## Operations (each system implements them on its own backend, behind its own dashboard auth)
 

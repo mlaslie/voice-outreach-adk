@@ -26,6 +26,8 @@ locals {
     VOA__SMS__SURVEY_ENABLED               = tostring(var.sms_survey_enabled)
     VOA__SMS__SWITCH_ENABLED               = tostring(var.sms_switch_enabled)
     VOA__SMS__PEER_WEBHOOK_URL             = var.sms_peer_webhook_url
+    VOA__SMS__PEER_WEBHOOK_ALIASES         = var.sms_peer_webhook_aliases
+    VOA__SMS__SELF_WEBHOOK_ALIASES         = var.sms_self_webhook_aliases
     VOA__SMS__FROM_NUMBER                  = var.sms_from_number
     VOA__SMS__VOICE_NUMBER                 = var.twilio_from_number
     VOA__SERVICES__RECORDINGS_BUCKET       = module.recordings.name

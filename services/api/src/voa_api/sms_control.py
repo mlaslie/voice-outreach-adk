@@ -40,11 +40,19 @@ def shared_number(api: Api) -> str:
     return api.cfg.sms.from_number or api.cfg.sms.voice_number
 
 
+def _urls(primary: str, aliases: str) -> set[tuple[str, str, str]]:
+    return {normalise(u) for u in [primary, *aliases.split(",")] if u.strip()}
+
+
 def owner_of(api: Api, sms_url: str) -> str:
-    if sms_url and own_webhook(api) and normalise(sms_url) == normalise(own_webhook(api)):
+    """Which system the number's SMS webhook points at. Each system may be reached on
+    more than one hostname (Cloud Run's two URL forms); any of them counts."""
+    if not sms_url:
+        return UNKNOWN
+    s, url = api.cfg.sms, normalise(sms_url)
+    if url in _urls(own_webhook(api), s.self_webhook_aliases):
         return SELF
-    peer = api.cfg.sms.peer_webhook_url
-    if sms_url and peer and normalise(sms_url) == normalise(peer):
+    if url in _urls(s.peer_webhook_url, s.peer_webhook_aliases):
         return PEER
     return UNKNOWN
 

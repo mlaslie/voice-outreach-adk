@@ -160,6 +160,18 @@ variable "sms_peer_webhook_url" {
   default     = ""
 }
 
+variable "sms_peer_webhook_aliases" {
+  description = "Other URLs of the other system's SMS webhook (comma-separated), read as that system being active; never written."
+  type        = string
+  default     = ""
+}
+
+variable "sms_self_webhook_aliases" {
+  description = "Other URLs of this system's SMS webhook (comma-separated), e.g. the gateway's status.url form; read as this system being active."
+  type        = string
+  default     = ""
+}
+
 variable "sms_from_number" {
   description = "SMS sender number (E.164; identifying: tfvars only). Usually a dedicated number (see PLAN 11.9)."
   type        = string

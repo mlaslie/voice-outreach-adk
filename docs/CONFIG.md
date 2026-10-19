@@ -80,6 +80,8 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `sms.self_name` | `VOA__SMS__SELF_NAME` | str | `'ADK'` |  |
 | `sms.peer_name` | `VOA__SMS__PEER_NAME` | str | `'GE-CX'` |  |
 | `sms.peer_webhook_url` | `VOA__SMS__PEER_WEBHOOK_URL` | str | `''` |  |
+| `sms.peer_webhook_aliases` | `VOA__SMS__PEER_WEBHOOK_ALIASES` | str | `''` |  |
+| `sms.self_webhook_aliases` | `VOA__SMS__SELF_WEBHOOK_ALIASES` | str | `''` |  |
 | `debug.enabled` | `VOA__DEBUG__ENABLED` | bool | `False` |  |
 | `debug.log_tool_args` | `VOA__DEBUG__LOG_TOOL_ARGS` | bool | `False` |  |
 | `debug.save_audio` | `VOA__DEBUG__SAVE_AUDIO` | bool | `False` |  |

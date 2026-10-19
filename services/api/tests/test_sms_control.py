@@ -26,6 +26,21 @@ def test_url_matching_ignores_case_slash_and_query():
     assert sms_control.owner_of(api, "") == "unknown"
 
 
+def test_either_hostname_of_a_system_counts_but_only_the_primary_is_written():
+    client, api, _ = make(
+        switch_enabled="true",
+        peer_webhook_url=PEER,
+        peer_webhook_aliases="https://peer-abc-uc.example.org/api/sms-inbound",
+        self_webhook_aliases="https://gw-abc-uc.example.org/twilio/sms/",
+        voice_number="+12025550100",
+    )
+    api.number_control = FakeNumberControl("https://PEER-abc-uc.example.org/api/sms-inbound")
+    assert sms_control.owner_of(api, "https://gw-abc-uc.example.org/twilio/sms") == "self"
+    assert client.get("/api/sms/control", headers=NURSE).json()["active"] == "peer"
+    client.post("/api/sms/control", json={"action": "take"}, headers=NURSE)
+    assert api.number_control.sms_url == OURS
+
+
 def test_status_names_the_active_system():
     client, api = shared(PEER)
     s = client.get("/api/sms/control", headers=NURSE).json()

@@ -17,3 +17,6 @@ sms_survey_enabled = false
 # Sharing the SMS number with another system (docs/sms-number-switch.md)
 sms_switch_enabled   = false
 sms_peer_webhook_url = "" # e.g. https://<other-sms-service>/api/sms-inbound
+# Cloud Run answers on two hostnames; list the other form of each (read-only matching)
+sms_peer_webhook_aliases = ""
+sms_self_webhook_aliases = "" # e.g. https://<gateway status.url>/twilio/sms
