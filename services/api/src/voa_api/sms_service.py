@@ -51,7 +51,7 @@ from voa_core.config import resolve_secret
 from voa_core.copy import SiteCopy
 from voa_core.logging import mask_phone
 from voa_core.sms import states as st
-from voa_core.sms.conversation import ConversationPolicy, Decision, Effect
+from voa_core.sms.conversation import ConversationPolicy, Decision, Effect, asked_questions
 from voa_core.store import Where, new_id, now_iso
 from voa_core.timeparse import SchedulingPolicy
 
@@ -1106,10 +1106,13 @@ async def submit_survey(api: Api, snap: dict) -> dict:
             )
         return {"filed": True}
 
+    # Every completed closing carries the medication-list reminder; one that
+    # recorded questions also says the care team will follow up on them.
+    asked = asked_questions(snap.get("answers") or {})
     closing = (
-        messages.survey_done_urgent()
+        messages.survey_done_urgent(asked_questions=asked)
         if follow_up in (survey.FOLLOW_UP_URGENT, survey.FOLLOW_UP_EMERGENCY)
-        else messages.survey_done_routine()
+        else messages.survey_done_routine(asked_questions=asked)
     )
     try:
         await send_sms(api, phone, closing, call_id=snap.get("call_id"))

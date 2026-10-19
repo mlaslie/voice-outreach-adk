@@ -58,6 +58,8 @@ export function demoData(now: Date = new Date()): NurseData {
     } as CallDoc;
   };
 
+  // Dolores Whitfield and Angela Brooks keep the pre-19-Oct-2026 answer
+  // shape (no leg, sleep or questions keys), as old calls do in production.
   const calls: CallDoc[] = [
     call({
       name: "Dolores Whitfield", pid: "P-2041", op: "Total knee replacement", endedH: -1.2, mins: 7,
@@ -72,43 +74,73 @@ export function demoData(now: Date = new Date()): NurseData {
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "urgent_same_day",
       follow_up_reason: "Redness and warmth spreading around the incision; low-grade fever (100.6°F).",
-      survey_responses: { pain_present: "yes", pain_severity: 5, pain_trend: "same", fever_reported: "yes",
-        incision_concerns: "yes", incision_description: "red, warm, spreading", overall_feeling: "fair" },
+      survey_responses: { pain_present: "yes", pain_severity: 5, pain_trend: "same",
+        pain_location: "a sharp pull around the incision when I sit up", fever_reported: "yes",
+        incision_concerns: "yes", incision_description: "red, warm, spreading", overall_feeling: "fair",
+        legs_swollen: "no", sleeping_well: "no", has_questions: "yes", patient_questions: [] },
     }),
     call({
       name: "Priya Raman", pid: "P-2043", op: "Rotator cuff repair", endedH: -27, mins: 5,
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "urgent_same_day",
-      follow_up_reason: "Pain uncontrolled on current regimen; out of prescribed medication.",
-      survey_responses: { pain_present: "yes", pain_severity: 8, pain_trend: "same", fever_reported: "no",
-        incision_concerns: "no", overall_feeling: "poor" },
+      follow_up_reason: "Patient reports pain 8/10, question asked (medication).",
+      survey_responses: { pain_present: "yes", pain_severity: 8, pain_trend: "same",
+        pain_location: "deep ache in the shoulder, worse at night", fever_reported: "no",
+        incision_concerns: "no", legs_swollen: "no", sleeping_well: "no", overall_feeling: "poor",
+        has_questions: "yes",
+        patient_questions: [
+          { text: "I'm almost out of the pain pills. Can I take ibuprofen with them, or should I stop one?",
+            category: "medication", priority: "urgent_same_day" },
+        ] },
     }),
     call({
       name: "Harold Okafor", pid: "P-2044", op: "Hip arthroplasty", endedH: -5, mins: 6,
+      patient_context: { operation_name: "Hip arthroplasty", is_diabetic: true },
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "routine_next_business_day",
       follow_up_reason: "Blood sugar readings running high (210–240); diabetic.",
-      survey_responses: { pain_present: "yes", pain_severity: 3, pain_trend: "better", fever_reported: "no",
-        incision_concerns: "no", blood_sugar_status: "high", overall_feeling: "good" },
+      survey_responses: { pain_present: "yes", pain_severity: 3, pain_trend: "better",
+        pain_location: "sore along the outside of the hip", fever_reported: "no",
+        incision_concerns: "no", legs_swollen: "no", sleeping_well: "yes",
+        blood_sugar_status: "high", blood_sugar_reading: "between 210 and 240 most mornings",
+        overall_feeling: "good", has_questions: "no" },
     }),
     call({
       name: "Lucia Fernández", pid: "P-2045", op: "Spinal fusion", endedH: -2, mins: 5,
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "routine_next_business_day",
-      follow_up_reason: "Asked about resuming physical therapy and driving.",
-      survey_responses: { pain_present: "yes", pain_severity: 4, pain_trend: "better", fever_reported: "no",
-        incision_concerns: "no", overall_feeling: "good" },
+      follow_up_reason: "Patient reports questions asked (appointment, activity).",
+      survey_responses: { pain_present: "yes", pain_severity: 4, pain_trend: "better",
+        pain_location: "stiff in the lower back, easing each day", fever_reported: "no",
+        incision_concerns: "no", legs_swollen: "no", sleeping_well: "yes", overall_feeling: "good",
+        has_questions: "yes",
+        patient_questions: [
+          { text: "When is my follow-up appointment with the surgeon? Nobody has called me yet.",
+            category: "appointment", priority: "routine_next_business_day" },
+          { text: "When am I allowed to drive again?", category: "activity", priority: "routine_next_business_day" },
+        ] },
     }),
     call({
       name: "Gregory Tan", pid: "P-2046", op: "Hernia repair", endedH: -0.6, mins: 4,
       call_status: "success", outcome: "questionnaire_completed", follow_up: "none",
-      survey_responses: { pain_present: "no", fever_reported: "no", incision_concerns: "no", overall_feeling: "great" },
+      survey_responses: { pain_present: "no", fever_reported: "no", incision_concerns: "no", legs_swollen: "no",
+        sleeping_well: "yes", overall_feeling: "great", has_questions: "no" },
     }),
     call({
       name: "Angela Brooks", pid: "P-2047", op: "Total knee replacement", endedH: -4.2, mins: 0,
       channel: "sms", call_status: "success", outcome: "questionnaire_completed", follow_up: "none",
       survey_responses: { pain_present: "yes", pain_severity: 2, pain_trend: "better", fever_reported: "no",
         incision_concerns: "no", overall_feeling: "good" },
+    }),
+    call({
+      name: "Vivian Ashcombe", pid: "P-2054", op: "Total knee replacement", endedH: -0.9, mins: 6,
+      call_status: "success", outcome: "questionnaire_completed",
+      follow_up: "urgent_same_day",
+      follow_up_reason: "Patient reports swelling in one leg, getting worse.",
+      survey_responses: { pain_present: "yes", pain_severity: 5, pain_trend: "same",
+        pain_location: "tight, aching calf below the new knee", fever_reported: "no", incision_concerns: "no",
+        legs_swollen: "yes", swelling_description: "Just the left leg. The calf is puffier than yesterday and tender.",
+        sleeping_well: "yes", overall_feeling: "okay", has_questions: "no" },
     }),
     call({
       name: "Samuel Reyes", pid: "P-2048", op: "Carpal tunnel release", endedH: -6, mins: 1,

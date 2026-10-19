@@ -20,6 +20,7 @@ import { CompletedFilter, CompletedItem, CompletedKind, DayScope, inScope, match
 import { formatDuration, formatPhone } from "@/lib/format";
 import { getFollowUpLabel } from "@/lib/status";
 import { cn } from "@/lib/utils";
+import { QuestionCountPill } from "@/components/patient-questions";
 import { Avatar, ChipOption, EmptyState, FilterChips, Panel, Pill, Tone, ago, clock, isSameDay } from "./parts";
 
 export const KIND: Record<CompletedKind, { label: string; tone: Tone; icon: React.ComponentType<{ className?: string }> }> = {
@@ -157,6 +158,7 @@ export function CompletedView({
                             </Pill>
                           ) : null}
                           {i.optedOut ? <Pill tone="emergency">Opted out</Pill> : null}
+                          {i.call ? <QuestionCountPill call={i.call} /> : null}
                         </div>
                         <div className="mt-1 truncate text-[13px] text-ink-soft">
                           {i.procedure ?? "—"}

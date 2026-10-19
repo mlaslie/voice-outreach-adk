@@ -32,6 +32,9 @@ Q_PAIN = "pain_present"
 Q_FEVER = "fever_reported"
 Q_INCISION = "incision_concerns"
 Q_SUGAR = "blood_sugar_status"
+Q_SWELLING = "legs_swollen"
+Q_SLEEP = "sleeping_well"
+Q_HAS_QUESTIONS = "has_questions"
 
 # Conditional follow-ups. NOT numbered: the patient was already told there are
 # N questions, and these appear only for the people who trigger them. All four
@@ -41,6 +44,15 @@ F_PAIN_SEVERITY = "pain_severity"
 F_PAIN_LOCATION = "pain_location"
 F_PAIN_TREND = "pain_trend"
 F_INCISION_DESC = "incision_description"
+F_SWELLING_DESC = "swelling_description"
+# Not asked: written alongside other answers.
+#: The patient's own words for their blood sugars ("120 to 250"); the status is
+#: the parsed high/low/in_range, the reading is what a nurse wants to see.
+F_SUGAR_READING = "blood_sugar_reading"
+#: Questions the patient asked the care team: [{text, category, priority}]
+#: (``voa_core.patient_questions``). Asked last; a "yes" to Q_HAS_QUESTIONS
+#: collects one or more.
+F_PATIENT_QUESTIONS = "patient_questions"
 
 _PAIN_FOLLOWUPS = (F_PAIN_SEVERITY, F_PAIN_LOCATION, F_PAIN_TREND)
 
@@ -61,9 +73,10 @@ def coerce_bool(value) -> bool:
 
 def build_plan(patient_context: dict | None) -> list[str]:
     """The numbered questions this patient will be asked, in order."""
-    plan = [Q_OVERALL, Q_PAIN, Q_FEVER, Q_INCISION]
+    plan = [Q_OVERALL, Q_PAIN, Q_FEVER, Q_INCISION, Q_SWELLING, Q_SLEEP]
     if coerce_bool((patient_context or {}).get("is_diabetic")):
         plan.append(Q_SUGAR)
+    plan.append(Q_HAS_QUESTIONS)
     return plan
 
 
@@ -73,6 +86,8 @@ def followups_for(field: str, answer: str) -> tuple[str, ...]:
         return _PAIN_FOLLOWUPS
     if field == Q_INCISION and answer == "yes":
         return (F_INCISION_DESC,)
+    if field == Q_SWELLING and answer == "yes":
+        return (F_SWELLING_DESC,)
     return ()
 
 
@@ -409,6 +424,10 @@ _PARSERS = {
     Q_FEVER: parse_yes_no,
     Q_INCISION: parse_yes_no,
     Q_SUGAR: parse_sugar,
+    Q_SWELLING: parse_yes_no,
+    Q_SLEEP: parse_yes_no,
+    Q_HAS_QUESTIONS: parse_yes_no,
+    F_SWELLING_DESC: parse_free_text,
     F_PAIN_SEVERITY: parse_scale,
     F_PAIN_LOCATION: parse_free_text,
     F_PAIN_TREND: parse_trend,
@@ -418,10 +437,12 @@ _PARSERS = {
 # Fields the proxy requires as a typed value once their parent is "yes", so
 # "record unknown and move on" is not available for them -- an unparseable
 # answer has to stay on the question or the report cannot be filed at all.
-STRICT_FIELDS = frozenset({F_PAIN_SEVERITY, F_PAIN_LOCATION, F_PAIN_TREND, F_INCISION_DESC})
+STRICT_FIELDS = frozenset(
+    {F_PAIN_SEVERITY, F_PAIN_LOCATION, F_PAIN_TREND, F_INCISION_DESC, F_SWELLING_DESC}
+)
 
 # Fields whose schema has a real "unknown" value.
-UNKNOWNABLE = frozenset({Q_FEVER, Q_INCISION, Q_SUGAR, Q_PAIN})
+UNKNOWNABLE = frozenset({Q_FEVER, Q_INCISION, Q_SUGAR, Q_PAIN, Q_SWELLING, Q_SLEEP})
 
 
 def parse_answer(field: str, body: str):
@@ -486,10 +507,16 @@ def raw_answers(answers: dict) -> dict:
 
 def _free_text_blob(answers: dict) -> str:
     """Everything the patient actually wrote, parsed fields included."""
-    parts = [str(answers.get(f) or "") for f in (Q_OVERALL, F_PAIN_LOCATION, F_INCISION_DESC)]
+    # Patient questions are NOT scanned here: "when will I see my doctor?" is a
+    # question for the care team, not a request to speak to someone today.
+    # patient_questions.classify() triages them instead.
+    parts = [
+        str(answers.get(f) or "")
+        for f in (Q_OVERALL, F_PAIN_LOCATION, F_INCISION_DESC, F_SWELLING_DESC)
+    ]
     raw = answers.get(RAW_KEY)
     if isinstance(raw, dict):
-        parts.extend(str(v) for v in raw.values())
+        parts.extend(str(v) for k, v in raw.items() if k != Q_HAS_QUESTIONS)
     elif isinstance(raw, (list, tuple)):
         parts.extend(str(x) for x in raw)
     return " ".join(parts)
@@ -503,12 +530,44 @@ def _prose_field(answers: dict, pattern: re.Pattern) -> str | None:
     per field is the only way to point at the message it was in.
     """
     for field, text in raw_answers(answers).items():
-        if pattern.search(str(text)):
+        if field != Q_HAS_QUESTIONS and pattern.search(str(text)):
             return field
-    for field in (Q_OVERALL, F_PAIN_LOCATION, F_INCISION_DESC):
+    for field in (Q_OVERALL, F_PAIN_LOCATION, F_INCISION_DESC, F_SWELLING_DESC):
         if pattern.search(str(answers.get(field) or "")):
             return field
     return None
+
+
+# Swelling in one leg, or swelling that is getting worse or comes with pain,
+# redness, warmth or breathlessness, can mean a clot: same day. (Calf swelling
+# WITH pain is also a red flag the voice agent acts on as an emergency.)
+_SWELLING_URGENT = re.compile(
+    r"\b(one (leg|foot|side|ankle|calf)|just (the |my )?(left|right)|only (the |my |on )?"
+    r"(left|right|one)|(left|right) (leg|foot|side|ankle|calf) only|single|"
+    r"worse|worsening|getting bigger|bigger|increas|spreading|"
+    r"pain|painful|hurts?|tender|red|warm|hot|short of breath|breath)",
+    re.I,
+)
+
+
+def swelling_is_urgent(description: str) -> bool:
+    """One leg, worsening, or painful/red/warm swelling: same day. A negated word
+    ("not painful", "no redness") does not count. Shared with the nurse agent so
+    its colouring cannot drift from this rule."""
+    negated = _negated_words(description)
+    for m in _SWELLING_URGENT.finditer(description or ""):
+        words = m.group(0).lower().split()
+        # The pattern matches stems ("red", "pain"); the negated word is whole ("redness").
+        if not any(n.startswith(w) for w in words for n in negated):
+            return True
+    return False
+
+
+def _questions(answers: dict) -> list[dict]:
+    from . import patient_questions
+
+    qs = answers.get(F_PATIENT_QUESTIONS)
+    return [q for q in qs if patient_questions.valid_entry(q)] if isinstance(qs, list) else []
 
 
 def triage(answers: dict) -> Triage:
@@ -546,6 +605,17 @@ def triage(answers: dict) -> Triage:
     if answers.get(Q_SUGAR) in ("high", "low"):
         urgent.append(f"blood sugar {answers[Q_SUGAR]}")
         triggers.append(Q_SUGAR)
+    swelling_desc = str(answers.get(F_SWELLING_DESC) or "")
+    if answers.get(Q_SWELLING) == "yes" and swelling_is_urgent(swelling_desc):
+        urgent.append("leg or foot swelling (one side, worsening, or painful)")
+        triggers.extend((Q_SWELLING, F_SWELLING_DESC))
+    questions = _questions(answers)
+    from . import patient_questions as pq
+
+    q_now, q_next = pq.summary(questions)
+    if q_now:
+        urgent.extend(q_now)
+        triggers.append(F_PATIENT_QUESTIONS)
     if answers.get(Q_PAIN) == "yes" and sev is None and _SEVERE_LANGUAGE.search(prose):
         urgent.append("severe pain described without a number")
         triggers.append(_prose_field(answers, _SEVERE_LANGUAGE) or Q_PAIN)
@@ -572,7 +642,19 @@ def triage(answers: dict) -> Triage:
     if answers.get(Q_PAIN) == "yes" and sev is None:
         routine.append("pain reported, no severity given")
         triggers.append(Q_PAIN)
-    unknowns = [f for f in (Q_PAIN, Q_FEVER, Q_INCISION, Q_SUGAR) if answers.get(f) == "unknown"]
+    if answers.get(Q_SWELLING) == "yes" and Q_SWELLING not in triggers:
+        routine.append("leg or foot swelling")
+        triggers.append(Q_SWELLING)
+    if q_next and not q_now:
+        routine.extend(q_next)
+        triggers.append(F_PATIENT_QUESTIONS)
+    if answers.get(Q_HAS_QUESTIONS) == "yes" and not questions:
+        # Said yes but no question was captured: a nurse still needs to call.
+        routine.append("has questions for the care team")
+        triggers.append(Q_HAS_QUESTIONS)
+    unknowns = [
+        f for f in (Q_PAIN, Q_FEVER, Q_INCISION, Q_SUGAR, Q_SWELLING) if answers.get(f) == "unknown"
+    ]
     if unknowns:
         routine.append("some answers unclear")
         triggers.extend(unknowns)
@@ -584,11 +666,18 @@ def triage(answers: dict) -> Triage:
             tuple(dict.fromkeys(triggers)),
         )
 
+    info: list[str] = []
     if sev is not None and 1 <= sev <= 3:
+        info.append(f"mild pain {sev}/10")
+        triggers.append(F_PAIN_SEVERITY)
+    if answers.get(Q_SLEEP) == "no":
+        info.append("not sleeping well")
+        triggers.append(Q_SLEEP)
+    if info:
         return Triage(
             FOLLOW_UP_INFO,
-            f"Patient reports mild pain {sev}/10.",
-            (F_PAIN_SEVERITY,),
+            "Patient reports " + ", ".join(info) + ".",
+            tuple(dict.fromkeys(triggers)),
         )
 
     return Triage(FOLLOW_UP_NONE, "No concerning symptoms reported.")

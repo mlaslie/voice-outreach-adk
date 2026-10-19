@@ -1,6 +1,7 @@
 import { CallDoc } from "@/lib/types";
 import { getDobChipClasses } from "@/lib/status";
 import { Badge } from "@/components/ui/badge";
+import { formatQuestion, questionsFor } from "@/lib/patient-questions";
 
 interface SurveyAnswersProps {
   call: CallDoc;
@@ -63,7 +64,15 @@ export function SurveyAnswers({ call }: SurveyAnswersProps) {
               <Row
                 key={key}
                 label={key.replace(/_/g, " ")}
-                value={String(val)}
+                value={
+                  key === "patient_questions" ? (
+                    questionsFor(call).length ? (
+                      <ul className="list-disc pl-4">
+                        {questionsFor(call).map((q, i) => <li key={i}>{formatQuestion(q)}</li>)}
+                      </ul>
+                    ) : "none captured"
+                  ) : val !== null && typeof val === "object" ? JSON.stringify(val) : String(val)
+                }
               />
             ))}
         </>

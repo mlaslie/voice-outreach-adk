@@ -180,17 +180,20 @@ def test_has_urgent_finding():
 # ---------------------------------------------------------------------------
 
 
-def test_non_diabetic_gets_four_questions():
+def test_non_diabetic_plan_ends_with_the_questions_prompt():
     assert survey.build_plan(_ctx()) == [
         "overall_feeling",
         "pain_present",
         "fever_reported",
         "incision_concerns",
+        "legs_swollen",
+        "sleeping_well",
+        "has_questions",
     ]
 
 
-def test_diabetic_gets_the_blood_sugar_question():
-    assert survey.build_plan(_ctx(is_diabetic=True))[-1] == "blood_sugar_status"
+def test_diabetic_gets_the_blood_sugar_question_before_questions():
+    assert survey.build_plan(_ctx(is_diabetic=True))[-2:] == ["blood_sugar_status", "has_questions"]
 
 
 @pytest.mark.parametrize("value", ["false", "False", "", "0", "no", None])
@@ -203,8 +206,8 @@ def test_truthy_forms_do_make_a_diabetic(value):
     assert "blood_sugar_status" in survey.build_plan(_ctx(is_diabetic=value))
 
 
-def test_no_context_is_the_four_question_plan():
-    assert len(survey.build_plan(None)) == 4
+def test_no_context_is_the_non_diabetic_plan():
+    assert survey.build_plan(None) == survey.build_plan(_ctx())
 
 
 def test_pain_yes_triggers_exactly_the_required_followups():

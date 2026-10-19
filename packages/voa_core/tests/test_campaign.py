@@ -8,7 +8,15 @@ CONFIG = Path(__file__).parents[3] / "config"
 def test_post_op_applicability_and_missing():
     c = load_campaign("post_op", CONFIG)
     base = [q.id for q in c.applicable({"is_diabetic": False}, {})]
-    assert base == ["overall_feeling", "pain_present", "fever_reported", "incision_concerns"]
+    assert base == [
+        "overall_feeling",
+        "pain_present",
+        "fever_reported",
+        "incision_concerns",
+        "legs_swollen",
+        "sleeping_well",
+        "has_questions",
+    ]
     diabetic = [q.id for q in c.applicable({"is_diabetic": "true"}, {"pain_present": "Yes"})]
     assert "blood_sugar_status" in diabetic and "pain_severity" in diabetic
     answers = {"overall_feeling": "ok", "pain_present": "yes", "pain_severity": "4"}
@@ -17,6 +25,9 @@ def test_post_op_applicability_and_missing():
         "pain_trend",
         "fever_reported",
         "incision_concerns",
+        "legs_swollen",
+        "sleeping_well",
+        "has_questions",
     ]
 
 

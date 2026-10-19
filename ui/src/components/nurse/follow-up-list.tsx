@@ -4,6 +4,7 @@ import { useState } from "react";
 import { AlertTriangle, CalendarClock, Check, Clock, Phone, Siren, Undo2 } from "lucide-react";
 import { FollowUpFilter, FollowUpItem, FollowUpTier, matchesFollowUp } from "@/lib/nurse/model";
 import { findingsFor } from "@/lib/triage";
+import { QuestionCountPill } from "@/components/patient-questions";
 import { formatPhone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Avatar, ChipOption, EmptyState, FilterChips, Panel, Pill, TONE, Tone, ago, clock, countdown, isSameDay } from "./parts";
@@ -92,7 +93,8 @@ function FollowUpCard({
 }) {
   const t = TIER[item.tier];
   const due = countdown(item.dueBy, now);
-  const flags = findingsFor(item.call).filter((f) => f.level === "alert" || f.level === "watch");
+  // Questions get their own pill (below), not a flag chip.
+  const flags = findingsFor(item.call).filter((f) => (f.level === "alert" || f.level === "watch") && f.key !== "questions");
   const emergency = item.tier === "emergency";
 
   return (
@@ -111,6 +113,7 @@ function FollowUpCard({
               {item.callback ? (
                 <Pill tone="info" icon={CalendarClock}>Callback {isSameDay(item.callback.run_at, now) ? "today" : new Date(item.callback.run_at).toLocaleDateString(undefined, { weekday: "short" })} {clock(item.callback.run_at)}</Pill>
               ) : null}
+              <QuestionCountPill call={item.call} />
               {done ? <Pill tone="good" icon={Check}>Contacted</Pill> : null}
             </div>
             <p className="mt-1.5 text-[14px] leading-snug text-ink">{item.reason ?? "No reason recorded."}</p>

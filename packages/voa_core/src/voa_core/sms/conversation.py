@@ -23,6 +23,7 @@ from enum import StrEnum
 from voa_core import copy as messages
 from voa_core import dob as dobcheck
 from voa_core import intent as intent_mod
+from voa_core import patient_questions as pq
 from voa_core import survey as survey_mod
 from voa_core import timeparse
 from voa_core.copy import SiteCopy
@@ -134,7 +135,9 @@ def _unclear(session: dict, *, first: str, final: str, closing_state: str) -> De
 # --- The questionnaire -----------------------------------------------------------
 
 
-def _next_prompt(plan: list[str], pending: list[str], index: int) -> tuple[str, bool]:
+def _next_prompt(
+    plan: list[str], pending: list[str], index: int, answers: dict | None = None
+) -> tuple[str, bool]:
     """The text for the next thing to ask, and whether it is numbered.
 
     Pending follow-ups always come first: they belong to the question the
@@ -142,15 +145,28 @@ def _next_prompt(plan: list[str], pending: list[str], index: int) -> tuple[str, 
     already told how many questions there are.
     """
     if pending:
+        if pending[0] == survey_mod.F_PATIENT_QUESTIONS and _questions_so_far(answers or {}):
+            return messages.ANOTHER_QUESTION, False
         return messages.FOLLOWUP_TEXT[pending[0]], False
     field = plan[index]
     return messages.question(index + 1, len(plan), messages.QUESTION_TEXT[field]), True
 
 
 def _advance(
-    session: dict, answers: dict, plan: list[str], pending: list[str], index: int
+    session: dict,
+    answers: dict,
+    plan: list[str],
+    pending: list[str],
+    index: int,
+    *,
+    said: str | None = None,
 ) -> Decision:
-    """Emit the next prompt, or finish."""
+    """Emit the next prompt, or finish.
+
+    ``said`` replaces the default prompt (the questions loop acknowledges each
+    question in the same message that asks for the next one). On completion it
+    is sent as-is: it is an acknowledgement, not the closing.
+    """
     if not pending and index >= len(plan):
         t = survey_mod.triage(answers)
         return Decision(
@@ -158,7 +174,7 @@ def _advance(
             # confirms the report was filed. Telling a patient their care
             # team has their answers and then failing to file them is the
             # worst outcome available in this feature.
-            reply=None,
+            reply=said,
             state=store.STATE_SURVEY,
             effect=Effect.SUBMIT_SURVEY,
             retry=0,
@@ -171,7 +187,7 @@ def _advance(
             },
             note="survey-complete",
         )
-    text, _ = _next_prompt(plan, pending, index)
+    text = said or _next_prompt(plan, pending, index, answers)[0]
     return Decision(
         reply=text,
         state=store.STATE_SURVEY,
@@ -306,6 +322,162 @@ def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
     )
 
 
+# --- The questions loop ---------------------------------------------------------
+#
+# State: no new session fields. A bare YES to has_questions (or a second
+# unreadable reply to it) queues the pseudo follow-up ``patient_questions`` in
+# ``survey_pending``; while it is at the head of the queue, every reply is read
+# by _handle_question_loop instead of a parser. Whether to say "What is your
+# question?" or "Any other questions?" is derived from how many questions are
+# already recorded in ``survey_answers["patient_questions"]``, so a redelivered
+# or re-asked turn needs no extra cursor. The loop ends by dropping the pseudo
+# field from the queue (NO, or the MAX_QUESTIONS cap), and _advance then files.
+#
+# The question text is stored ONLY in patient_questions -- never in _raw -- and
+# nothing here answers it: the care team does.
+
+# Something that reads as a question even without a "?" (SMS rarely has one).
+_QUESTION_LIKE = re.compile(
+    r"\?|\b(can|could|should|shall|would|will|when|what|whats|how|why|where|which|who|"
+    r"is (it|there|this|that)|are (there|they|these)|do (i|you|we)|does|did|am i|"
+    r"wonder(ing)?|question|need to know|want(ed)? to know|not sure (if|whether|about))\b",
+    re.IGNORECASE,
+)
+# "I'm done" phrasings that are not a bare NO.
+_NO_MORE = re.compile(
+    r"\b(none|nothing( else)?|not (right )?now|not at (this|the moment)|no more|all set|"
+    r"that'?s (all|it|everything)|i'?m (good|ok|okay|fine|all good)|all good|no questions?)\b",
+    re.IGNORECASE,
+)
+# Sign-offs. After at least one question, these mean "that's all".
+_SIGN_OFF = frozenset(
+    {
+        "ok",
+        "okay",
+        "k",
+        "kk",
+        "thanks",
+        "thank you",
+        "thanks so much",
+        "thx",
+        "ty",
+        "great",
+        "cool",
+        "got it",
+        "perfect",
+        "ok thanks",
+        "okay thanks",
+        "ok thank you",
+        "done",
+    }
+)
+_LEAD_YES_NO = re.compile(
+    r"^\s*(yes|yeah|yep|yup|ya|y|sure|no|nope|nah|n)\b[\s,.;:!-]*(but\b[\s,]*)?",
+    re.IGNORECASE,
+)
+_BUT = re.compile(r"\bbut\b", re.IGNORECASE)
+
+
+def _questions_so_far(answers: dict) -> list[dict]:
+    qs = answers.get(survey_mod.F_PATIENT_QUESTIONS)
+    return [q for q in qs if pq.valid_entry(q)] if isinstance(qs, list) else []
+
+
+def asked_questions(answers: dict) -> bool:
+    """Whether the patient recorded at least one question for the care team."""
+    return bool(_questions_so_far(answers or {}))
+
+
+def _words(text: str) -> int:
+    return len(re.findall(r"[A-Za-z0-9']+", text or ""))
+
+
+def _read_questions_reply(body: str) -> tuple[str | None, str]:
+    """("no" | "yes" | "question" | None, question text) for has_questions and the loop.
+
+    "yes" means a bare yes -- ask them to type it. Anything that reads as a
+    question, or a sentence that is not a plain yes or no, IS the question:
+    over-recording costs a nurse a minute, dropping one costs the patient an
+    answer. "No, but ..." is never a no.
+    """
+    text = (body or "").strip()
+    rest = _LEAD_YES_NO.sub("", text, count=1).strip()
+    if _QUESTION_LIKE.search(text):
+        return "question", rest or text
+    yn = survey_mod.parse_yes_no(text)
+    has_but = bool(_BUT.search(text))
+    if not has_but:
+        if yn == "no" and (_words(rest) < 3 or _NO_MORE.search(rest)):
+            return "no", ""
+        if yn != "yes" and _NO_MORE.search(text) and _words(text) <= 6:
+            return "no", ""
+    if yn == "yes" and _words(rest) < 3:
+        return "yes", ""
+    if _words(text) >= 3:
+        return "question", rest or text
+    return None, ""
+
+
+def _record_question(
+    session: dict, answers: dict, plan: list[str], pending: list[str], index: int, text: str
+) -> Decision:
+    qs = [*_questions_so_far(answers), pq.record(text)]
+    answers[survey_mod.F_PATIENT_QUESTIONS] = qs
+    if len(qs) >= pq.MAX_QUESTIONS:
+        rest = [p for p in pending if p != survey_mod.F_PATIENT_QUESTIONS]
+        return _advance(
+            session, answers, plan, rest, index, said=messages.question_noted_last(text)
+        )
+    loop = (
+        pending
+        if pending[:1] == [survey_mod.F_PATIENT_QUESTIONS]
+        else [
+            survey_mod.F_PATIENT_QUESTIONS,
+            *pending,
+        ]
+    )
+    return _advance(session, answers, plan, loop, index, said=messages.question_noted(text))
+
+
+def _handle_question_loop(
+    session: dict, body: str, answers: dict, plan: list[str], pending: list[str], index: int
+) -> Decision:
+    kind, text = _read_questions_reply(body)
+    have = _questions_so_far(answers)
+    if kind is None and have and " ".join((body or "").lower().split()).strip(" .!") in _SIGN_OFF:
+        kind = "no"
+    if kind == "no":
+        return _advance(session, answers, plan, pending[1:], index)
+    if kind == "yes":
+        return Decision(
+            reply=messages.FOLLOWUP_TEXT[survey_mod.F_PATIENT_QUESTIONS],
+            state=store.STATE_SURVEY,
+            retry=0,
+            note="survey-question-prompt",
+        )
+    # We asked them to type a question: a short reply that is not yes or no is
+    # still the question ("driving", "my meds").
+    text = text or (body or "").strip()
+    if not text:
+        return Decision(
+            reply=_next_prompt(plan, pending, index, answers)[0],
+            retry=0,
+            note="survey-question-empty",
+        )
+    return _record_question(session, answers, plan, pending, index, text)
+
+
+def _keep_raw(answers: dict, field: str, body: str) -> None:
+    # Keep the sentence, not just the parsed value, and keyed by FIELD:
+    # triage scans prose for requests for a human, expressed worry and severe
+    # language, all of which a yes/no parser throws away -- and the dashboard
+    # needs to know which message an escalation came from in order to mark it.
+    raw = answers.get(survey_mod.RAW_KEY)
+    raw = dict(raw) if isinstance(raw, dict) else {}
+    raw[field] = (body or "").strip()[: survey_mod.MAX_FREE_TEXT]
+    answers[survey_mod.RAW_KEY] = raw
+
+
 def _handle_survey(session: dict, body: str) -> Decision:
     plan = list(session.get("survey_plan") or [])
     pending = list(session.get("survey_pending") or [])
@@ -343,12 +515,28 @@ def _handle_survey(session: dict, body: str) -> Decision:
         )
 
     field = pending[0] if pending else plan[index]
+    if field == survey_mod.F_PATIENT_QUESTIONS:
+        return _handle_question_loop(session, body, answers, plan, pending, index)
+
+    if field == survey_mod.Q_HAS_QUESTIONS:
+        kind, text = _read_questions_reply(body)
+        if kind is not None or int(session.get("retry_count") or 0) >= 1:
+            # A second unreadable reply is taken as a yes: the loop then asks
+            # them to type the question, and a bare "yes" with nothing
+            # recorded still files as "has questions" for a nurse to call.
+            answers[field] = "no" if kind == "no" else "yes"
+            _keep_raw(answers, field, body)
+            if kind == "question":
+                return _record_question(session, answers, plan, [], index + 1, text)
+            loop = [] if kind == "no" else [survey_mod.F_PATIENT_QUESTIONS]
+            return _advance(session, answers, plan, loop, index + 1)
+
     value = survey_mod.parse_answer(field, body)
 
     if value is None:
         retries = int(session.get("retry_count") or 0)
         if retries < 1:
-            text, _ = _next_prompt(plan, pending, index)
+            text, _ = _next_prompt(plan, pending, index, answers)
             return Decision(
                 reply=messages.unclear_answer(text),
                 retry=1,
@@ -362,7 +550,7 @@ def _handle_survey(session: dict, body: str) -> Decision:
             # cannot give a pain number still told us they are in pain, and
             # looping until the message cap strands them mid-form.
             if retries < survey_mod.MAX_STRICT_RETRIES:
-                text, _ = _next_prompt(plan, pending, index)
+                text, _ = _next_prompt(plan, pending, index, answers)
                 return Decision(
                     reply=messages.unclear_answer(text),
                     retry=retries + 1,
@@ -379,14 +567,11 @@ def _handle_survey(session: dict, body: str) -> Decision:
         value = "unknown" if field in survey_mod.UNKNOWNABLE else ""
 
     answers[field] = value
-    # Keep the sentence, not just the parsed value, and keyed by FIELD:
-    # triage scans prose for requests for a human, expressed worry and severe
-    # language, all of which a yes/no parser throws away -- and the dashboard
-    # needs to know which message an escalation came from in order to mark it.
-    raw = answers.get(survey_mod.RAW_KEY)
-    raw = dict(raw) if isinstance(raw, dict) else {}
-    raw[field] = (body or "").strip()[: survey_mod.MAX_FREE_TEXT]
-    answers[survey_mod.RAW_KEY] = raw
+    _keep_raw(answers, field, body)
+    if field == survey_mod.Q_SUGAR and (body or "").strip():
+        # The parsed status triages; the patient's own numbers are what a
+        # nurse wants to read ("120 to 250").
+        answers[survey_mod.F_SUGAR_READING] = (body or "").strip()[: survey_mod.MAX_FREE_TEXT]
     if pending:
         pending = pending[1:]
     else:

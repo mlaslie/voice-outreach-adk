@@ -55,6 +55,7 @@ class Persona:
     tier: str | None = None
     must_interrupt: bool = False
     forbid_tier: str | None = None
+    questions: int | None = None  # patient_questions recorded
 
 
 PERSONAS = {
@@ -66,6 +67,10 @@ PERSONAS = {
         "negated_red_flag", "questionnaire_completed", forbid_tier="emergency"
     ),
     "wrong_person": Persona("wrong_person", "unable_to_reach_wrong_person"),
+    # A medication question must make the call same-day, with both questions recorded.
+    "patient_questions": Persona(
+        "patient_questions", "questionnaire_completed", tier="urgent_same_day", questions=2
+    ),
     "voicemail": Persona(
         "happy", "voicemail_left", verdict="machine_end_beep", verdict_after_s=8.0
     ),
@@ -112,6 +117,12 @@ async def run_once(cfg, gw: Gateway, voice: PatientVoice, name: str, p: Persona)
         for t in tasks:
             t.cancel()
     call = await store.get("calls", call_id) or {}
+    # The live transcript: a timed-out run never reaches the sink's finish().
+    turns = list(session.transcript)
+    agent_said = " ".join(
+        str(x.get("text", "")) for x in turns if x.get("role") in ("agent", "assistant")
+    ).lower()
+    asked = (call.get("survey_responses") or {}).get("patient_questions") or []
     tl = session.timeline.entries
     first = next((e["ms"] for e in tl if e["event"] == "agent.audio_start"), None)
     start = next((e["ms"] for e in tl if e["event"] == "media.start"), 0)
@@ -129,6 +140,10 @@ async def run_once(cfg, gw: Gateway, voice: PatientVoice, name: str, p: Persona)
         "interrupt": not p.must_interrupt or any(e["event"] == "agent.interrupted" for e in tl),
         "no_live_error": not any(e["event"].startswith("live.") for e in tl),
         "drained": any(e["event"] == "media.mark_ack" for e in tl) or p.outcome == "voicemail_left",
+        "questions": p.questions is None or len(asked) == p.questions,
+        # Every completed call ends with the medication-list reminder.
+        "med_reminder": p.outcome != "questionnaire_completed"
+        or "list of your current medications" in agent_said,
     }
     return {
         "persona": name,
@@ -148,6 +163,12 @@ async def run_once(cfg, gw: Gateway, voice: PatientVoice, name: str, p: Persona)
             and e.get("status") == "refused"
         ),
         "duration_s": round(time.monotonic() - t0, 1),
+        # Kept for failed runs only (fictional patient): where did it stall?
+        **(
+            {}
+            if all(checks.values()) and error is None
+            else {"transcript": [f"{x.get('role')}: {x.get('text')}" for x in turns]}
+        ),
     }
 
 

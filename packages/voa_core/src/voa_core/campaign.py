@@ -15,7 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import find_config_dir
 
-QuestionType = Literal["text", "yes_no", "yes_no_unknown", "scale_0_10", "choice"]
+#: open_questions: a yes/no ("any questions?") followed by a loop that records each
+#: question the patient asks (voice: record_patient_question; SMS: the survey).
+QuestionType = Literal["text", "yes_no", "yes_no_unknown", "scale_0_10", "choice", "open_questions"]
 _YES = {"yes", "y", "yeah", "yep", "true"}
 
 

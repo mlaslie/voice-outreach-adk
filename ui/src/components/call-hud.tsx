@@ -19,6 +19,7 @@ import { RecordingPlayer } from "./recording-player";
 import { TranscriptViewer } from "./transcript-viewer";
 import { CallTexts } from "./call-texts";
 import { CompletionFlag } from "./completion-flag";
+import { PatientQuestionsSection } from "./patient-questions";
 import { useCallDetail } from "@/hooks/use-call-detail";
 import { CallDoc } from "@/lib/types";
 import { formatPhone, formatDuration, formatTime, relativeTime } from "@/lib/format";
@@ -256,6 +257,9 @@ export function CallHud({ callSid, liveDoc, onOpenChange }: CallHudProps) {
                     />
                   </dl>
                 </section>
+
+                {/* The patient's own questions: each needs a nurse callback. */}
+                <PatientQuestionsSection call={doc} />
 
                 {/* Findings */}
                 <section>

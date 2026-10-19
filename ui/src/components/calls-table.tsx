@@ -24,6 +24,7 @@ import { StatusChip } from "./status-chip";
 import { OutcomeChip } from "./outcome-chip";
 import { DeleteCallsDialog } from "./delete-calls-dialog";
 import { CallDoc } from "@/lib/types";
+import { QuestionCountPill } from "./patient-questions";
 import { formatPhone, formatDuration, relativeTime } from "@/lib/format";
 import {
   TERMINAL,
@@ -258,6 +259,7 @@ export function CallsTable({
                   <OutcomeChip outcome={call.outcome} channel={call.channel} />
                 </TableCell>
                 <TableCell>
+                  <div className="flex flex-wrap items-center gap-1.5">
                   {call.follow_up ? (
                     <span
                       title={call.follow_up_reason}
@@ -270,6 +272,8 @@ export function CallsTable({
                   ) : (
                     <span className="text-sm text-ink-muted">—</span>
                   )}
+                  <QuestionCountPill call={call} />
+                  </div>
                 </TableCell>
                 <TableCell className="text-sm">
                   {call.dob_verification_result

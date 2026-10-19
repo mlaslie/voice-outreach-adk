@@ -214,7 +214,9 @@ async def follow_up_queue():
 
 @card_tool
 async def get_call(call_sid: str | None = None, patient: str | None = None):
-    """One call in detail: disposition, symptom review, timing.
+    """One call in detail: disposition, symptom review, the questions the patient asked
+    the care team (in their own words, with priority), timing. Use for "what did the
+    patient ask?".
 
     Args:
         call_sid: A specific call id, when known.

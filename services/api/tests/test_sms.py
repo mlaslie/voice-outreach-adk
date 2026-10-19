@@ -16,6 +16,7 @@ from voa_agents.sms import AdkTimeInterpreter, SmsConversation
 from voa_api import sms_service as sms
 from voa_api.app import create_app
 from voa_api.context import Api
+from voa_core import copy as messages
 from voa_core.config import load_config
 from voa_core.copy import SiteCopy
 from voa_core.sms import states as st
@@ -487,6 +488,12 @@ def test_consent_history_is_kept_on_withdrawal():
 # --------------------------------------------------------------------------- the survey
 
 
+# Non-diabetic plan (7): overall, pain, fever, incision, legs swollen, sleeping
+# well, questions for the care team.
+CLEAN_SURVEY = ("pretty good", "no", "no", "no", "no", "yes", "no")
+URGENT_SURVEY = ("ok", "yes", "9", "my knee", "worse", "yes", "no", "no", "yes", "no")
+
+
 def answer_survey(client, answers):
     text(client, "3")
     text(client, "03/15/1950")
@@ -503,10 +510,13 @@ def test_survey_by_text_files_a_report_onto_the_call():
     )
     text(client, "03/15/1950")
     bodies = api.sms.bodies()
-    assert "that's verified" in bodies[-2] and bodies[-1].startswith("(1/4)")
-    for a in ("pretty good", "no", "no", "no"):
+    assert "that's verified" in bodies[-2] and bodies[-1].startswith("(1/7)")
+    for a in CLEAN_SURVEY:
         text(client, a)
-    assert "Your care team has your answers" in api.sms.bodies()[-1]
+    closing = api.sms.bodies()[-1]
+    assert "Your care team has your answers" in closing
+    assert messages.MEDICATION_LIST_REMINDER in closing
+    assert messages.QUESTIONS_FOLLOW_UP not in closing
 
     reps = run(api.store.query("reports"))
     assert len(reps) == 1
@@ -536,8 +546,9 @@ def test_survey_by_text_files_a_report_onto_the_call():
 
 def test_urgent_survey_answers_get_the_urgent_closing_and_tier():
     client, api, _, _ = ready()
-    answer_survey(client, ["ok", "yes", "9", "my knee", "worse", "yes", "no"])
+    answer_survey(client, URGENT_SURVEY)
     assert "someone from your care team will reach out" in api.sms.bodies()[-1]
+    assert messages.MEDICATION_LIST_REMINDER in api.sms.bodies()[-1]
     rep = run(api.store.query("reports"))[0][1]
     assert rep["follow_up"] == "urgent_same_day"
     assert rep["survey_responses"]["pain_severity"] == 9
@@ -574,7 +585,7 @@ def test_a_late_survey_reopens_a_signed_off_call_and_withdraws_its_export():
         )
     )
     run(api.store.set("ehr_outbox", CALL, {"status": "pending_export"}))
-    answer_survey(client, ["ok", "yes", "9", "my knee", "worse", "yes", "no"])
+    answer_survey(client, URGENT_SURVEY)
     call = run(api.store.get("calls", CALL))
     assert call["follow_up"] == "urgent_same_day"
     assert call["review"]["status"] == "reopened" and call["review"]["reopened_by"] == "report"
@@ -585,7 +596,7 @@ def test_a_late_survey_does_not_uncancel_a_patient():
     """Review of B-2: a nurse's cancel stands against a late report."""
     client, api, _, entry_id = ready()
     run(api.store.merge("call_list", entry_id, {"list_status": "canceled"}))
-    answer_survey(client, ["pretty good", "no", "no", "no"])
+    answer_survey(client, CLEAN_SURVEY)
     entry = run(api.store.get("call_list", entry_id))
     assert entry["list_status"] == "canceled" and entry["last_call_status"] == "success"
 
@@ -594,14 +605,46 @@ def test_closing_send_failure_is_retried_without_refiling():
     # Review S-3: a retryable failure on the closing is retried by the queued
     # filing task, which sends the closing and does NOT file a second report.
     client, api, _, _ = ready()
-    answer_survey(client, ["fine", "no", "no"])
+    answer_survey(client, CLEAN_SURVEY[:-1])
     api.sms.fail_status, api.sms.fail_times = 503, 1
     text(client, "no")
     assert len(run(api.store.query("reports"))) == 1
     assert session(api)["state"] == st.STATE_SURVEY  # not closed: the closing never went
     assert drain(client, api, kind="submit_survey")[0].json() == {"filed": True, "closed": True}
     assert "That's everything" in api.sms.bodies()[-1]
+    assert messages.MEDICATION_LIST_REMINDER in api.sms.bodies()[-1]
     assert len(run(api.store.query("reports"))) == 1
+
+
+def test_a_medication_question_by_text_files_urgent_same_day():
+    client, api, _, _ = ready()
+    answer_survey(client, [*CLEAN_SURVEY[:-1], "yes"])
+    assert api.sms.bodies()[-1] == messages.FOLLOWUP_TEXT["patient_questions"]
+    text(client, "How often should I take my pain pills")
+    assert api.sms.bodies()[-1].endswith(messages.ANOTHER_QUESTION)
+    text(client, "When is my follow-up appointment")
+    text(client, "no")
+    rep = run(api.store.query("reports"))[0][1]
+    assert rep["outcome"] == "questionnaire_completed"
+    assert rep["follow_up"] == "urgent_same_day"
+    qs = rep["survey_responses"]["patient_questions"]
+    assert [q["category"] for q in qs] == ["medication", "appointment"]
+    assert [q["priority"] for q in qs] == ["urgent_same_day", "routine_next_business_day"]
+    assert "patient_questions" in rep["survey_responses"]["_triggers"]
+    closing = api.sms.bodies()[-1]
+    assert messages.QUESTIONS_FOLLOW_UP in closing
+    assert messages.MEDICATION_LIST_REMINDER in closing
+    assert "someone from your care team will reach out" in closing
+
+
+def test_a_question_typed_straight_in_reply_files_with_the_closing():
+    client, api, _, _ = ready()
+    answer_survey(client, [*CLEAN_SURVEY[:-1], "can I drive yet", "no"])
+    rep = run(api.store.query("reports"))[0][1]
+    assert rep["survey_responses"]["has_questions"] == "yes"
+    assert rep["survey_responses"]["patient_questions"][0]["text"] == "can I drive yet"
+    assert rep["follow_up"] == "routine_next_business_day"
+    assert messages.QUESTIONS_FOLLOW_UP in api.sms.bodies()[-1]
 
 
 def test_c_stops_the_survey_and_files_only_when_something_urgent_is_known():

@@ -4,7 +4,9 @@ import datetime
 from zoneinfo import ZoneInfo
 
 import pytest
-from voa_core import survey
+from voa_core import copy as messages
+from voa_core import patient_questions as pq
+from voa_core import reports, survey
 from voa_core.copy import SiteCopy
 from voa_core.sms import conversation
 from voa_core.sms import states as st
@@ -311,7 +313,8 @@ def test_verified_dob_sends_the_preamble_and_question_one():
     assert d.effect is Effect.START_SURVEY
     assert d.session_patch["survey_plan"][0] == "overall_feeling"
     assert d.session_patch["dob_verified"] is True
-    assert d.extra_replies and d.extra_replies[0].startswith("(1/4)")
+    assert d.extra_replies and d.extra_replies[0].startswith("(1/7)")
+    assert "7 short questions" in d.reply
 
 
 def test_a_wrong_date_never_says_it_was_wrong():
@@ -370,7 +373,7 @@ def test_answers_advance_and_are_recorded():
     d = _decide(_survey_session(), "pretty good actually")
     assert d.session_patch["survey_answers"]["overall_feeling"] == "pretty good actually"
     assert d.session_patch["survey_index"] == 1
-    assert d.reply.startswith("(2/4)")
+    assert d.reply.startswith("(2/7)")
 
 
 def test_pain_yes_queues_three_unnumbered_followups():
@@ -388,8 +391,15 @@ def test_not_sure_on_the_pain_question_is_reasked_not_a_yes():
 def test_completion_does_not_send_the_closing_itself():
     d = _decide(
         _survey_session(
-            index=3,
-            answers={"overall_feeling": "fine", "pain_present": "no", "fever_reported": "no"},
+            index=6,
+            answers={
+                "overall_feeling": "fine",
+                "pain_present": "no",
+                "fever_reported": "no",
+                "incision_concerns": "no",
+                "legs_swollen": "no",
+                "sleeping_well": "yes",
+            },
         ),
         "no",
     )
@@ -496,23 +506,20 @@ def test_survey_states_are_live_so_they_expire():
 
 
 def _filing_would_accept(survey_responses: dict) -> tuple[bool, str]:
-    """Mirror of the filing endpoint's independent validation of a completed
-    questionnaire. Kept as an explicit mirror so this fails loudly if the two
-    ever disagree."""
-    for f in ("overall_feeling", "pain_present", "fever_reported", "incision_concerns"):
-        if f not in survey_responses:
-            return False, f"missing {f}"
-    if survey_responses.get("pain_present") == "yes":
-        for f in ("pain_severity", "pain_location", "pain_trend"):
-            if f not in survey_responses:
-                return False, f"missing {f}"
-        sev = survey_responses.get("pain_severity")
-        if not isinstance(sev, int) or not (0 <= sev <= 10):
-            return False, "pain_severity must be int 0-10"
-    if survey_responses.get("incision_concerns") == "yes":
-        if not survey_responses.get("incision_description"):
-            return False, "missing incision_description"
-    return True, ""
+    """The filing endpoint's own validation of a completed questionnaire."""
+    t = survey.triage(survey_responses)
+    _, errors = reports.validate_report(
+        {
+            "patient_id": "PT-1",
+            "call_sid": "CA1",
+            "channel": "sms",
+            "outcome": "questionnaire_completed",
+            "follow_up": t.follow_up,
+            "follow_up_reason": t.reason,
+            "survey_responses": survey_responses,
+        }
+    )
+    return not errors, "; ".join(errors)
 
 
 def _run_survey(replies, ctx=None):
@@ -534,56 +541,379 @@ def _run_survey(replies, ctx=None):
     return s, None
 
 
+def _walk(replies, ctx=None):
+    """Drive the questionnaire; return the session and every reply sent."""
+    ctx = ctx or _ctx()
+    s = _session(
+        st.STATE_SURVEY,
+        survey_plan=survey.build_plan(ctx),
+        survey_index=0,
+        survey_pending=[],
+        survey_answers={},
+    )
+    s["patient_context"] = ctx
+    prompts = []
+    for body in replies:
+        d = _decide(s, body)
+        if d.session_patch:
+            s.update(d.session_patch)
+        if d.retry is not None:
+            s["retry_count"] = d.retry
+        prompts.append(d.reply)
+    return s, prompts
+
+
+# Non-diabetic plan: overall, pain, fever, incision, legs, sleep, questions.
+CLEAN = ["doing ok", "no", "no", "no", "no", "yes", "no"]
+
+
+def test_the_plan_order_by_text():
+    assert survey.build_plan(_ctx()) == [
+        "overall_feeling",
+        "pain_present",
+        "fever_reported",
+        "incision_concerns",
+        "legs_swollen",
+        "sleeping_well",
+        "has_questions",
+    ]
+    diabetic = survey.build_plan(_ctx(is_diabetic=True))
+    assert diabetic[-2:] == ["blood_sugar_status", "has_questions"]
+
+
+def test_every_question_has_sms_copy():
+    for field in survey.build_plan(_ctx(is_diabetic=True)):
+        assert field in messages.QUESTION_TEXT
+    for field in (
+        "pain_severity",
+        "pain_location",
+        "pain_trend",
+        "incision_description",
+        "swelling_description",
+        "patient_questions",
+    ):
+        assert field in messages.FOLLOWUP_TEXT
+
+
+def test_the_new_questions_are_asked_in_order_by_text():
+    s, prompts = _walk(["doing ok", "no", "no", "no", "no"])
+    assert prompts[3].startswith("(5/7)") and "legs or feet swollen" in prompts[3]
+    assert prompts[4].startswith("(6/7)") and "sleeping well" in prompts[4]
+    s, prompts = _walk(CLEAN[:6])
+    assert prompts[5].startswith("(7/7)") and "questions for the care team" in prompts[5]
+
+
 def test_a_clean_run_produces_a_fileable_report():
-    s, d = _run_survey(["doing ok", "no", "no", "no"])
-    assert d is not None
-    ok, why = _filing_would_accept(s["survey_answers"])
+    s, d = _run_survey(CLEAN)
+    assert d is not None and d.reply is None
+    answers = s["survey_answers"]
+    assert answers["legs_swollen"] == "no"
+    assert answers["sleeping_well"] == "yes"
+    assert answers["has_questions"] == "no"
+    assert "patient_questions" not in answers
+    ok, why = _filing_would_accept(answers)
     assert ok, why
+    assert s["survey_follow_up"] == survey.FOLLOW_UP_NONE
+
+
+def test_not_sleeping_well_is_informational():
+    s, _ = _run_survey(["doing ok", "no", "no", "no", "no", "no", "no"])
+    assert s["survey_answers"]["sleeping_well"] == "no"
+    assert s["survey_follow_up"] == survey.FOLLOW_UP_INFO
 
 
 def test_a_positive_pain_run_produces_a_fileable_report():
-    s, _ = _run_survey(["sore", "yes", "8", "left knee", "worse", "no", "no"])
+    s, _ = _run_survey(
+        ["sore", "yes", "8", "sharp, left knee", "worse", "no", "no", "no", "yes", "no"]
+    )
     answers = s["survey_answers"]
     ok, why = _filing_would_accept(answers)
     assert ok, why
     assert answers["pain_severity"] == 8 and isinstance(answers["pain_severity"], int)
-    assert answers["pain_location"] == "left knee"
+    assert answers["pain_location"] == "sharp, left knee"
     assert answers["pain_trend"] == "worse"
     assert s["survey_follow_up"] == survey.FOLLOW_UP_URGENT
 
 
+def test_the_pain_location_prompt_asks_them_to_describe_it():
+    _, prompts = _walk(["sore", "yes", "4"])
+    assert "describe the pain" in prompts[-1].lower()
+
+
 def test_an_incision_yes_run_collects_the_required_description():
-    s, _ = _run_survey(["ok", "no", "no", "yes", "red and weeping"])
+    s, _ = _run_survey(["ok", "no", "no", "yes", "red and weeping", "no", "yes", "no"])
     ok, why = _filing_would_accept(s["survey_answers"])
     assert ok, why
 
 
+def test_legs_swollen_yes_asks_one_leg_or_both():
+    s, prompts = _walk(["ok", "no", "no", "no", "yes"])
+    assert s["survey_pending"] == ["swelling_description"]
+    assert prompts[-1] == messages.FOLLOWUP_TEXT["swelling_description"]
+    assert "one leg or both" in prompts[-1] and not prompts[-1].startswith("(")
+
+
+def test_swelling_in_both_legs_not_worse_is_routine_and_fileable():
+    s, _ = _run_survey(["ok", "no", "no", "no", "yes", "both ankles, about the same", "yes", "no"])
+    answers = s["survey_answers"]
+    assert answers["swelling_description"] == "both ankles, about the same"
+    ok, why = _filing_would_accept(answers)
+    assert ok, why
+    assert s["survey_follow_up"] == survey.FOLLOW_UP_ROUTINE
+
+
+def test_swelling_in_one_leg_is_urgent():
+    s, _ = _run_survey(["ok", "no", "no", "no", "yes", "just my left leg", "yes", "no"])
+    assert s["survey_follow_up"] == survey.FOLLOW_UP_URGENT
+
+
+def test_a_swelling_yes_without_a_description_never_files_as_complete():
+    # swelling_description is strict: an unreadable (empty) reply stays on it.
+    s = _survey_session(index=5, pending=["swelling_description"], retry_count=1)
+    d = _decide(s, "   ")
+    assert d.session_patch is None and "one leg or both" in d.reply
+
+
 def test_a_diabetic_run_is_fileable():
-    s, _ = _run_survey(["ok", "no", "no", "no", "in range"], ctx=_ctx(is_diabetic=True))
+    s, _ = _run_survey(
+        ["ok", "no", "no", "no", "no", "yes", "in range", "no"], ctx=_ctx(is_diabetic=True)
+    )
     assert s["survey_answers"]["blood_sugar_status"] == "in_range"
     ok, why = _filing_would_accept(s["survey_answers"])
     assert ok, why
 
 
+def test_the_sugar_question_asks_for_the_range():
+    _, prompts = _walk(["ok", "no", "no", "no", "no", "yes"], ctx=_ctx(is_diabetic=True))
+    assert prompts[-1].startswith("(7/8)")
+    assert "range of your blood sugars" in prompts[-1]
+
+
+def test_a_diabetic_reading_is_stored_in_their_own_words():
+    s, _ = _run_survey(
+        ["ok", "no", "no", "no", "no", "yes", "between 120 and 250", "no"],
+        ctx=_ctx(is_diabetic=True),
+    )
+    answers = s["survey_answers"]
+    assert answers["blood_sugar_status"] == "high"
+    assert answers["blood_sugar_reading"] == "between 120 and 250"
+    assert s["survey_follow_up"] == survey.FOLLOW_UP_URGENT
+    ok, why = _filing_would_accept(answers)
+    assert ok, why
+
+
 def test_a_diabetic_typing_a_reading_is_triaged():
     # Review S-10 pin, end to end: "250" used to be re-asked, then "unknown".
-    s, _ = _run_survey(["ok", "no", "no", "no", "250"], ctx=_ctx(is_diabetic=True))
+    s, _ = _run_survey(
+        ["ok", "no", "no", "no", "no", "yes", "250", "no"], ctx=_ctx(is_diabetic=True)
+    )
     assert s["survey_answers"]["blood_sugar_status"] == "high"
+    assert s["survey_answers"]["blood_sugar_reading"] == "250"
     assert s["survey_follow_up"] == survey.FOLLOW_UP_URGENT
+
+
+def test_a_non_diabetic_never_gets_a_sugar_reading():
+    s, _ = _run_survey(CLEAN)
+    assert "blood_sugar_reading" not in s["survey_answers"]
+    assert "blood_sugar_status" not in s["survey_answers"]
 
 
 def test_escalation_prose_survives_a_yes_no_parser():
     s, _ = _run_survey(
         ["ok", "no", "no", "No, but I'm really scared, please have a doctor call me"]
+        + ["no", "yes", "no"]
     )
     assert survey.triage(s["survey_answers"]).follow_up == survey.FOLLOW_UP_URGENT
 
 
 def test_raw_answers_are_keyed_by_field():
-    s, _ = _run_survey(["doing ok", "no", "yes", "no"])
+    s, _ = _run_survey(["doing ok", "no", "yes", "no", "no", "yes", "no"])
     raw = survey.raw_answers(s["survey_answers"])
     assert raw["overall_feeling"] == "doing ok"
     assert raw["fever_reported"] == "yes"
+    assert raw["legs_swollen"] == "no"
+
+
+# --- The questions loop ------------------------------------------------------
+
+UP_TO_QUESTIONS = CLEAN[:6]
+
+
+def test_no_questions_straight_away_finishes():
+    s, d = _run_survey([*UP_TO_QUESTIONS, "no"])
+    assert d is not None and d.reply is None
+    assert s["survey_answers"]["has_questions"] == "no"
+    assert "patient_questions" not in s["survey_answers"]
+
+
+@pytest.mark.parametrize("body", ["No thanks, I'm all set", "nope", "not right now", "none"])
+def test_other_ways_of_saying_no_questions(body):
+    s, d = _run_survey([*UP_TO_QUESTIONS, body])
+    assert d is not None
+    assert s["survey_answers"]["has_questions"] == "no"
+
+
+def test_yes_then_a_question_then_another_then_no():
+    s, prompts = _walk([*UP_TO_QUESTIONS, "yes"])
+    assert prompts[-1] == messages.FOLLOWUP_TEXT["patient_questions"]
+    assert s["survey_pending"] == ["patient_questions"]
+    assert s["survey_answers"]["has_questions"] == "yes"
+
+    s, prompts = _walk([*UP_TO_QUESTIONS, "yes", "When can I drive again"])
+    assert prompts[-1].startswith('Got it: "When can I drive again".')
+    assert prompts[-1].endswith(messages.ANOTHER_QUESTION)
+
+    s, prompts = _walk([*UP_TO_QUESTIONS, "yes", "When can I drive again", "Is it ok to shower"])
+    assert 'Got it: "Is it ok to shower"' in prompts[-1]
+
+    s, d = _run_survey(
+        [*UP_TO_QUESTIONS, "yes", "When can I drive again", "Is it ok to shower", "no"]
+    )
+    assert d is not None and d.effect is Effect.SUBMIT_SURVEY and d.reply is None
+    qs = s["survey_answers"]["patient_questions"]
+    assert [q["text"] for q in qs] == ["When can I drive again", "Is it ok to shower"]
+    assert all(pq.valid_entry(q) for q in qs)
+    assert qs[0]["priority"] == pq.PRIORITY_NEXT_DAY
+    ok, why = _filing_would_accept(s["survey_answers"])
+    assert ok, why
+    assert s["survey_follow_up"] == survey.FOLLOW_UP_ROUTINE
+
+
+def test_the_question_text_is_stored_only_in_patient_questions():
+    s, _ = _run_survey([*UP_TO_QUESTIONS, "yes", "When can I drive again", "no"])
+    answers = s["survey_answers"]
+    raw = survey.raw_answers(answers)
+    assert "When can I drive again" not in " ".join(str(v) for v in raw.values())
+    assert "patient_questions" not in raw
+    others = {k: v for k, v in answers.items() if k not in ("patient_questions", "_raw")}
+    assert "drive" not in str(others)
+
+
+def test_a_question_typed_straight_in_is_the_first_question():
+    s, prompts = _walk([*UP_TO_QUESTIONS, "Yes, when should I take my oxycodone?"])
+    assert s["survey_answers"]["has_questions"] == "yes"
+    assert [q["text"] for q in s["survey_answers"]["patient_questions"]] == [
+        "when should I take my oxycodone?"
+    ]
+    assert prompts[-1].startswith('Got it: "when should I take my oxycodone?".')
+    assert prompts[-1].endswith(messages.ANOTHER_QUESTION)
+
+
+def test_a_question_without_yes_or_a_question_mark_still_counts():
+    s, _ = _run_survey([*UP_TO_QUESTIONS, "can I go back to work next week", "no"])
+    qs = s["survey_answers"]["patient_questions"]
+    assert qs[0]["text"] == "can I go back to work next week"
+    assert s["survey_answers"]["has_questions"] == "yes"
+
+
+def test_no_but_is_never_a_no():
+    s, _ = _run_survey([*UP_TO_QUESTIONS, "No, but my incision itches a lot", "no"])
+    assert s["survey_answers"]["has_questions"] == "yes"
+    assert s["survey_answers"]["patient_questions"][0]["text"] == "my incision itches a lot"
+
+
+def test_a_bare_yes_to_another_asks_them_to_type_it():
+    s, prompts = _walk([*UP_TO_QUESTIONS, "yes", "When can I drive again", "yes"])
+    assert prompts[-1] == messages.FOLLOWUP_TEXT["patient_questions"]
+    assert len(s["survey_answers"]["patient_questions"]) == 1
+
+
+def test_a_sign_off_after_a_question_ends_the_loop():
+    s, d = _run_survey([*UP_TO_QUESTIONS, "yes", "When can I drive again", "ok thanks"])
+    assert d is not None
+    assert len(s["survey_answers"]["patient_questions"]) == 1
+
+
+def test_yes_then_no_still_files_as_has_questions():
+    s, d = _run_survey([*UP_TO_QUESTIONS, "yes", "no"])
+    assert d is not None
+    assert s["survey_answers"]["has_questions"] == "yes"
+    assert "patient_questions" not in s["survey_answers"]
+    # A nurse still calls: they said they had a question.
+    assert s["survey_follow_up"] == survey.FOLLOW_UP_ROUTINE
+
+
+def test_the_loop_stops_at_the_cap():
+    asks = [f"Question number {i} about my walker" for i in range(1, pq.MAX_QUESTIONS + 2)]
+    s, d = _run_survey([*UP_TO_QUESTIONS, "yes", *asks])
+    assert d is not None and d.effect is Effect.SUBMIT_SURVEY
+    qs = s["survey_answers"]["patient_questions"]
+    assert len(qs) == pq.MAX_QUESTIONS
+    assert qs[-1]["text"] == asks[pq.MAX_QUESTIONS - 1]
+    # The last one is acknowledged without offering another.
+    assert d.reply.startswith(f'Got it: "{asks[pq.MAX_QUESTIONS - 1]}')
+    assert "Any other" not in d.reply
+    ok, why = _filing_would_accept(s["survey_answers"])
+    assert ok, why
+
+
+def test_a_long_question_is_echoed_short_but_stored_whole():
+    long_q = "Can I " + "really " * 30 + "lift my grandchild"
+    s, prompts = _walk([*UP_TO_QUESTIONS, long_q])
+    assert s["survey_answers"]["patient_questions"][0]["text"] == long_q
+    echo = prompts[-1].split('"')[1]
+    assert echo.endswith("...") and len(echo) <= 60
+
+
+def test_a_medication_question_is_urgent_same_day():
+    s, d = _run_survey([*UP_TO_QUESTIONS, "yes", "Can I take ibuprofen with my other pills", "no"])
+    assert d.session_patch["survey_follow_up"] == survey.FOLLOW_UP_URGENT
+    assert s["survey_answers"]["patient_questions"][0]["category"] == pq.CAT_MEDICATION
+
+
+def test_a_question_never_gets_an_answer_from_the_line():
+    _, prompts = _walk([*UP_TO_QUESTIONS, "Should I stop taking my blood thinner"])
+    reply = prompts[-1]
+    assert reply == messages.question_noted("Should I stop taking my blood thinner")
+
+
+def test_c_in_the_loop_files_an_urgent_question():
+    s = _survey_session(
+        index=7,
+        pending=["patient_questions"],
+        answers={
+            "has_questions": "yes",
+            "patient_questions": [pq.record("how much insulin should I take")],
+        },
+    )
+    d = _decide(s, "C")
+    assert d.state == st.STATE_CLOSED and d.effect is Effect.SUBMIT_SURVEY
+
+
+def test_closings_always_carry_the_medication_reminder():
+    for closing in (
+        messages.survey_done_routine(),
+        messages.survey_done_urgent(),
+        messages.survey_done_routine(asked_questions=True),
+        messages.survey_done_urgent(asked_questions=True),
+    ):
+        assert messages.MEDICATION_LIST_REMINDER in closing
+        assert "911" in closing
+    assert messages.QUESTIONS_FOLLOW_UP in messages.survey_done_routine(asked_questions=True)
+    assert messages.QUESTIONS_FOLLOW_UP not in messages.survey_done_routine()
+
+
+def test_asked_questions_helper():
+    assert conversation.asked_questions({"patient_questions": [pq.record("when is my visit")]})
+    assert not conversation.asked_questions({"has_questions": "yes"})
+    assert not conversation.asked_questions({})
+
+
+def test_new_sms_copy_is_gsm7():
+    gsm = set(
+        "@\u00a3$\u00a5\u00e8\u00e9\u00f9\u00ec\u00f2\u00c7\n\u00d8\u00f8\r\u00c5\u00e5"
+        "_ !\"#%&'()*+,-./0123456789:;<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    )
+    texts = [
+        *messages.QUESTION_TEXT.values(),
+        *messages.FOLLOWUP_TEXT.values(),
+        messages.question_noted("When can I drive"),
+        messages.question_noted_last("When can I drive"),
+        messages.survey_done_routine(asked_questions=True),
+        messages.survey_done_urgent(asked_questions=True),
+    ]
+    for text in texts:
+        assert set(text) <= gsm, text
 
 
 def test_a_huge_digit_string_does_not_raise_in_any_state(now):
@@ -598,4 +928,6 @@ def test_a_huge_digit_string_does_not_raise_in_any_state(now):
     ):
         decide(session(state), body, now)
     _decide(_survey_session(index=1, pending=["pain_severity"]), body)
-    _decide(_survey_session(plan=survey.build_plan(_ctx(is_diabetic=True)), index=4), body)
+    _decide(_survey_session(plan=survey.build_plan(_ctx(is_diabetic=True)), index=6), body)
+    _decide(_survey_session(index=6), body)
+    _decide(_survey_session(index=7, pending=["patient_questions"]), body)

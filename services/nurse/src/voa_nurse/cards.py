@@ -319,6 +319,8 @@ def call_row(card: Card, c: dict) -> str:
     name = c.get("patient_name") or phone(c.get("to"))
     emoji, words = mark(c)
     meta = [words, triage.status_label(c), when(c.get("initiated_at"))]
+    if qs := triage.questions_summary(c):
+        meta.insert(1, qs)
     if c.get("patient_id"):
         meta.insert(0, f"MRN {c['patient_id']}")
     info = card.col(card.text(name, "h5"), card.text(" · ".join(meta), "caption"))
@@ -374,6 +376,7 @@ def follow_up_card(calls: list[dict], truncated: bool = False) -> Card:
                 f"MRN {c['patient_id']}" if c.get("patient_id") else None,
                 phone(c.get("to")),
                 f"called {when(c.get('initiated_at'))}",
+                triage.questions_summary(c),
             )
             if x
         )
@@ -425,7 +428,11 @@ def call_detail_card(c: dict) -> Card:
         )
     )
 
+    questions = triage.patient_questions(c)
+    uncaptured = triage.has_uncaptured_questions(c)
     findings = triage.findings_for(c)
+    if questions or uncaptured:  # listed in full in their own block below
+        findings = [f for f in findings if f["label"] != "Patient questions"]
     if findings and c.get("survey_responses"):
         card.put(card.divider(), card.text("Symptom review", "h5"))
         for f in findings:
@@ -436,6 +443,9 @@ def call_detail_card(c: dict) -> Card:
             if f.get("detail"):
                 parts.append(card.text(f["detail"], "caption"))
             card.put(card.row(card.text(LEVEL_MARK[f["level"]], "h4"), card.col(*parts)))
+
+    if questions or uncaptured:
+        patient_questions_block(card, questions)
 
     card.put(card.divider())
     timing = [f"Call: {triage.status_label(c)}", when(c.get("initiated_at"))]
@@ -473,6 +483,28 @@ def call_detail_card(c: dict) -> Card:
         card.button("Call back", event("propose_redial", call_sid=sid)),
         rec,
     )
+
+
+QUESTION_MARK = {triage.Q_IMMEDIATE: MARK["urgent"][0], triage.Q_NEXT_DAY: MARK["routine"][0]}
+
+
+def patient_questions_block(card: Card, questions: list[dict]) -> None:
+    """The patient's questions in their own words, immediate first. The automated
+    caller never answers them; a nurse does."""
+    card.put(card.divider(), card.text("Patient questions — nurse follow-up required", "h5"))
+    if not questions:
+        card.line("Patient has questions — none captured; call to ask.")
+        return
+    for q in questions:
+        card.put(
+            card.row(
+                card.text(QUESTION_MARK[q["priority"]], "h4"),
+                card.col(
+                    card.text(f"“{q['text']}”"),
+                    card.text(f"{q['category_label']} · {q['priority_label']}", "caption"),
+                ),
+            )
+        )
 
 
 def transcript_card(c: dict, t: dict, limit: int = 40) -> Card:

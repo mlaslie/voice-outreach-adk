@@ -28,7 +28,8 @@ export interface CallDoc {
   failure_code?: string;
   failure_message?: string;
   failure_reason?: string;
-  survey_responses?: Record<string, unknown>;
+  /** Known keys are typed; old calls lack the newer ones. Treat every key as optional. */
+  survey_responses?: SurveyResponses;
   placed_via?: string;
   /** The agent's own tier, kept when a nurse overrides `follow_up`. */
   agent_follow_up?: string | null;
@@ -38,6 +39,57 @@ export interface CallDoc {
   follow_up_history?: FollowUpEvent[];
   /** Nurse sign-off. Signing off a follow-up resolves it. */
   review?: CallReview | null;
+}
+
+export type YesNoUnknown = "yes" | "no" | "unknown";
+
+export type QuestionCategory =
+  | "medication"
+  | "symptom"
+  | "appointment"
+  | "activity"
+  | "diet"
+  | "paperwork_billing"
+  | "supplies"
+  | "recovery"
+  | "other";
+
+export type QuestionPriority = "urgent_same_day" | "routine_next_business_day";
+
+/** A question the patient asked the care team, in their own words. */
+export interface PatientQuestion {
+  text: string;
+  category: QuestionCategory;
+  priority: QuestionPriority;
+}
+
+/**
+ * Post-op questionnaire answers (voice and SMS). The 19 Oct 2026 version
+ * added legs_swollen, swelling_description, sleeping_well,
+ * blood_sugar_reading, has_questions and patient_questions; older calls
+ * lack them. Underscore keys are service bookkeeping, not answers.
+ */
+export interface SurveyResponses {
+  overall_feeling?: string;
+  pain_present?: YesNoUnknown | string;
+  pain_severity?: number | string;
+  pain_severity_note?: string;
+  /** Since 19 Oct 2026: the patient's description of the pain. */
+  pain_location?: string;
+  pain_trend?: "better" | "same" | "worse" | string;
+  fever_reported?: YesNoUnknown | string;
+  incision_concerns?: YesNoUnknown | string;
+  incision_description?: string;
+  legs_swollen?: YesNoUnknown | string;
+  /** One leg or both, getting worse? */
+  swelling_description?: string;
+  sleeping_well?: YesNoUnknown | string;
+  blood_sugar_status?: "high" | "low" | "in_range" | "unknown" | string;
+  /** The patient's own words, e.g. "between 120 and 250". */
+  blood_sugar_reading?: string;
+  has_questions?: "yes" | "no" | string;
+  patient_questions?: PatientQuestion[];
+  [key: string]: unknown;
 }
 
 export interface CallReview {

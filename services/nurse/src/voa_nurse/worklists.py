@@ -121,8 +121,12 @@ def clear_rationale(c: dict) -> str:
         denies.append("fever")
     if str(r.get("incision_concerns") or "").lower() == "no":
         denies.append("incision concerns")
+    if str(r.get("legs_swollen") or "").lower() == "no":
+        denies.append("leg swelling")
     if str(r.get("blood_sugar_status") or "") == "in_range":
         notes.append("BG in range")
+    if str(r.get("sleeping_well") or "").lower() == "no":
+        notes.append("not sleeping well")
     parts = []
     if denies:
         joined = ", ".join(denies[:-1]) + " and " + denies[-1] if len(denies) > 1 else denies[0]
@@ -848,7 +852,7 @@ async def view_called():
             card,
             cards.mark(c)[0],
             c.get("patient_name") or "",
-            [c.get("follow_up_reason") or "", _meta(c)],
+            [c.get("follow_up_reason") or "", triage.questions_summary(c), _meta(c)],
             view_btn(c),
         ),
     )
@@ -859,7 +863,7 @@ async def view_called():
             card,
             cards.mark(c)[0],
             c.get("patient_name") or "",
-            [c.get("follow_up_reason") or "", _meta(c)],
+            [c.get("follow_up_reason") or "", triage.questions_summary(c), _meta(c)],
             view_btn(c),
         ),
     )
@@ -959,7 +963,11 @@ async def view_needs(group: str = "now"):
                 card,
                 cards.mark(c)[0],
                 f"{name}: {triage.follow_up_label(c['follow_up'])}",
-                [reason, f"{_meta(c)} · called {when(c.get('initiated_at'))} · {due}{nurse}"],
+                [
+                    reason,
+                    triage.questions_summary(c),
+                    f"{_meta(c)} · called {when(c.get('initiated_at'))} · {due}{nurse}",
+                ],
                 card.button("View", event("view_call", call_sid=c["doc_id"])),
                 card.button("Change tier", event("wl_tier_form", call_sid=c["doc_id"])),
             ),
@@ -973,6 +981,7 @@ async def view_needs(group: str = "now"):
                 "patient": c.get("patient_name"),
                 "tier": c["follow_up"],
                 "reason": c.get("follow_up_reason"),
+                "questions_summary": triage.questions_summary(c),
                 "call_sid": c["doc_id"],
                 "due": due_text(c["follow_up"], triage.call_time(c)),
             }

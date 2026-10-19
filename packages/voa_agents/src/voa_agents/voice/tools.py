@@ -32,6 +32,7 @@ def _campaign(tool_context: ToolContext):
 
 log = logging.getLogger(__name__)
 
+#: Fallback when no campaign is in session state (tests, spikes).
 QUESTION_IDS = (
     "overall_feeling",
     "pain_present",
@@ -41,6 +42,11 @@ QUESTION_IDS = (
     "fever_reported",
     "incision_concerns",
     "incision_description",
+    "legs_swollen",
+    "swelling_description",
+    "sleeping_well",
+    "blood_sugar_status",
+    "has_questions",
 )
 OUTCOMES = (
     "questionnaire_completed",
@@ -52,7 +58,15 @@ OUTCOMES = (
     "voicemail_left",
 )
 MAX_DOB_ATTEMPTS = 2
-_MUST_BE_TYPED = {"pain_present", "pain_severity", "pain_trend", "incision_concerns"}
+_MUST_BE_TYPED = {
+    "pain_present",
+    "pain_severity",
+    "pain_trend",
+    "incision_concerns",
+    "has_questions",
+}
+# An unclear answer is recorded as "unknown" rather than re-asked.
+_UNKNOWN_OK = {"fever_reported", "legs_swollen", "sleeping_well", "blood_sugar_status"}
 
 
 def _yes(value: Any) -> bool:
@@ -103,15 +117,18 @@ async def record_answer(question_id: str, answer: str, tool_context: ToolContext
     """Record the caller's answer to one questionnaire question.
 
     Args:
-        question_id: One of overall_feeling, pain_present, pain_severity, pain_location,
-            pain_trend, fever_reported, incision_concerns, incision_description.
+        question_id: The id of the question from your instructions, e.g. overall_feeling,
+            pain_present, pain_severity, legs_swollen, sleeping_well or has_questions.
         answer: The caller's answer, briefly. Use "yes"/"no" for yes/no questions, a number
-            for pain_severity, and "better"/"same"/"worse" for pain_trend.
+            for pain_severity, "better"/"same"/"worse" for pain_trend, and the caller's own
+            numbers or words for blood_sugar_status.
     """
-    if question_id not in QUESTION_IDS:
+    campaign = _campaign(tool_context)
+    ids = tuple(q.id for q in campaign.questions) if campaign else QUESTION_IDS
+    if question_id not in ids:
         return {
             "status": "error",
-            "message": f"unknown question_id; use one of {', '.join(QUESTION_IDS)}",
+            "message": f"unknown question_id; use one of {', '.join(ids)}",
         }
     # Normalize with the same deterministic parsers the SMS survey uses, so voice and
     # text answers are typed identically and triage sees one vocabulary.
@@ -120,7 +137,7 @@ async def record_answer(question_id: str, answer: str, tool_context: ToolContext
     parsed: object = answer
     if question_id in survey._PARSERS:
         parsed = survey.parse_answer(question_id, answer)
-        if parsed is None and question_id == survey.Q_FEVER:
+        if parsed is None and question_id in _UNKNOWN_OK:
             parsed = "unknown"
         if parsed is None and question_id in _MUST_BE_TYPED:
             _audit(tool_context, "record_answer", question_id=question_id, status="unclear")
@@ -132,6 +149,9 @@ async def record_answer(question_id: str, answer: str, tool_context: ToolContext
             parsed = answer
     answers = dict(tool_context.state.get("answers", {}))
     answers[question_id] = parsed
+    if question_id == survey.Q_SUGAR:
+        # The status is for triage; the nurse wants the patient's own numbers.
+        answers[survey.F_SUGAR_READING] = answer.strip()[: survey.MAX_FREE_TEXT]
     raw = dict(answers.get(survey.RAW_KEY, {}))
     raw[question_id] = answer
     answers[survey.RAW_KEY] = raw
@@ -140,13 +160,93 @@ async def record_answer(question_id: str, answer: str, tool_context: ToolContext
     return {"status": "recorded"}
 
 
+async def record_patient_question(question: str, tool_context: ToolContext) -> dict:
+    """Record one question the caller has for the care team. Never answer it yourself.
+
+    Args:
+        question: A short summary of the caller's question, in their words,
+            e.g. "how much Tylenol can I take".
+
+    Returns:
+        status "recorded" (say back a short version, then ask if they have any other
+        questions) or "limit" (tell them the care team will go over the rest).
+    """
+    from voa_core import patient_questions, survey
+
+    if not (question or "").strip():
+        return {"status": "error", "message": "Pass the caller's question."}
+    answers = dict(tool_context.state.get("answers", {}))
+    qs = list(answers.get(survey.F_PATIENT_QUESTIONS, []))
+    if len(qs) >= patient_questions.MAX_QUESTIONS:
+        _audit(tool_context, "record_patient_question", status="limit")
+        return {
+            "status": "limit",
+            "say": "Tell them the care team will go over the rest of their questions, "
+            "then move on.",
+        }
+    entry = patient_questions.record(question)
+    qs.append(entry)
+    answers[survey.F_PATIENT_QUESTIONS] = qs
+    answers.setdefault(survey.Q_HAS_QUESTIONS, "yes")
+    tool_context.state["answers"] = answers
+    # Field names and the triage only: the question itself is PHI-adjacent.
+    _audit(
+        tool_context,
+        "record_patient_question",
+        status="recorded",
+        category=entry["category"],
+        priority=entry["priority"],
+        count=len(qs),
+    )
+    return {"status": "recorded", "count": len(qs)}
+
+
 def _missing(answers: dict[str, str]) -> list[str]:
-    need = ["overall_feeling", "pain_present", "fever_reported", "incision_concerns"]
+    need = [
+        "overall_feeling",
+        "pain_present",
+        "fever_reported",
+        "incision_concerns",
+        "legs_swollen",
+        "sleeping_well",
+        "has_questions",
+    ]
     if _yes(answers.get("pain_present")):
         need += ["pain_severity", "pain_location", "pain_trend"]
     if _yes(answers.get("incision_concerns")):
         need.append("incision_description")
+    if _yes(answers.get("legs_swollen")):
+        need.append("swelling_description")
     return [q for q in need if not str(answers.get(q, "")).strip()]
+
+
+_DEFAULT_SCRIPTS = {
+    "medication_reminder": "Before I let you go, please bring a list of your current "
+    "medications to your post-op follow-up clinic visit.",
+    "closing_questions": "Thank you for your questions. Our care team will follow up with you "
+    "to get them answered. Take care, goodbye.",
+    "closing_follow_up": "Thank you. One of our nurses will be in touch with you soon. "
+    "Take care, goodbye.",
+    "closing_no_follow_up": "Thank you, that's everything. Nothing else is required from you "
+    "today. Take care, goodbye.",
+}
+
+
+def closing_for(campaign, tier: str, asked_questions: bool) -> str:
+    """Medication-list reminder, then the questions / follow-up / all-clear goodbye."""
+
+    def s(key: str) -> str:
+        if campaign and key in campaign.scripts:
+            return campaign.scripts[key]
+        return _DEFAULT_SCRIPTS[key]
+
+    if asked_questions:
+        end = s("closing_questions")
+    elif tier in {"urgent_same_day", "routine_next_business_day"}:
+        end = s("closing_follow_up")
+    else:
+        end = s("closing_no_follow_up")
+    return f"{s('medication_reminder')} {end}"
 
 
 async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
@@ -223,12 +323,8 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
         return {"status": "incomplete", "problems": errors}
     tool_context.state["report"] = report
     _audit(tool_context, "submit_report", status="ok", outcome=outcome, follow_up=tier)
-    closing = (
-        "Thank you. One of our nurses will be in touch with you soon. Take care, goodbye."
-        if tier in {"urgent_same_day", "routine_next_business_day"}
-        else "Thank you, that's everything. Nothing else is required from you today. "
-        "Take care, goodbye."
-    )
+    asked = bool(answers.get("patient_questions")) or _yes(answers.get("has_questions"))
+    closing = closing_for(campaign, tier, asked)
     return (
         {"status": "ok", "closing": closing}
         if outcome == "questionnaire_completed"
@@ -252,7 +348,7 @@ async def end_call(reason: str, tool_context: ToolContext) -> dict:
 
 def build_tools() -> list[FunctionTool]:
     tools = []
-    for fn in (verify_identity, record_answer, submit_report, end_call):
+    for fn in (verify_identity, record_answer, record_patient_question, submit_report, end_call):
         tool = FunctionTool(fn)
         tool.behavior = types.Behavior.BLOCKING
         tools.append(tool)

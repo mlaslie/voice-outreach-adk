@@ -102,6 +102,7 @@ def brief(c: dict) -> dict:
         "follow_up": c.get("follow_up"),
         "follow_up_reason": c.get("follow_up_reason"),
         "placed": cards.when(c.get("initiated_at")),
+        **({"questions_summary": qs} if (qs := triage.questions_summary(c)) else {}),
     }
 
 
@@ -236,6 +237,12 @@ async def view_call(call_sid: str | None = None, patient: str | None = None):
         **brief(c),
         "verdict": triage.verdict_for(c),
         "findings": triage.findings_for(c),
+        # In the patient's words; each needs a nurse's answer, never the agent's.
+        "patient_questions": [
+            {k: q[k] for k in ("text", "category_label", "priority_label")}
+            for q in triage.patient_questions(c)
+        ],
+        "has_questions_none_captured": triage.has_uncaptured_questions(c),
         "patient_context": c.get("patient_context"),
         "phone": c.get("to"),
         "dob_verification": c.get("dob_verification_result"),

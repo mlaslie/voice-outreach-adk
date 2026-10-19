@@ -79,6 +79,9 @@ COMPLETED_REQUIRED_ANSWERS: tuple[str, ...] = (
     "pain_present",
     "fever_reported",
     "incision_concerns",
+    "legs_swollen",
+    "sleeping_well",
+    "has_questions",
 )
 PAIN_SUB_ANSWERS: tuple[str, ...] = ("pain_severity", "pain_location", "pain_trend")
 
@@ -134,7 +137,26 @@ def _completeness_errors(survey: Any) -> list[str]:
             "incision_concerns=yes requires incision_description. "
             "Ask the patient to describe what they see."
         )
+    if survey.get("legs_swollen") == "yes" and not survey.get("swelling_description"):
+        errors.append(
+            "legs_swollen=yes requires swelling_description. "
+            "Ask whether it is one leg or both and whether it is getting worse."
+        )
+    errors.extend(_questions_errors(survey))
     return errors
+
+
+def _questions_errors(survey: Mapping[str, Any]) -> list[str]:
+    from voa_core import patient_questions as pq
+
+    qs = survey.get("patient_questions")
+    if qs is None:
+        return []
+    if not isinstance(qs, list) or len(qs) > pq.MAX_QUESTIONS:
+        return [f"patient_questions must be a list of at most {pq.MAX_QUESTIONS} questions."]
+    if not all(pq.valid_entry(q) for q in qs):
+        return ["patient_questions entries must be {text, category, priority}."]
+    return []
 
 
 def _enum_error(payload: Mapping[str, Any], field: str, allowed: frozenset[str]) -> str:

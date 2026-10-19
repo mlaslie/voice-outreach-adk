@@ -1,4 +1,5 @@
 import { CallDoc } from "./types";
+import { categoryLabel, questionSummary } from "./patient-questions";
 
 /**
  * Turning a call into something a nurse can act on in a few seconds.
@@ -25,6 +26,24 @@ export interface Finding {
   /** Patient's own words, when they add colour the value can't. */
   detail?: string;
   level: FindingLevel;
+  /**
+   * The question did not exist when this call was made (questionnaire
+   * changed 19 Oct 2026). Still shown as "Not asked", but not counted as
+   * unanswered — an old all-clear call stays "Nothing abnormal".
+   */
+  predates?: boolean;
+}
+
+/** When the 19 Oct 2026 questions (legs, sleep, blood sugar reading, questions) went live. */
+export const QUESTIONNAIRE_V2_FROM = "2026-10-19T00:00:00Z";
+const V2_KEYS = ["legs_swollen", "swelling_description", "sleeping_well", "blood_sugar_reading", "has_questions", "patient_questions"];
+
+/** An old-questionnaire call: made before the change, and carrying none of the new keys. */
+export function predatesQuestionnaireV2(call: CallDoc): boolean {
+  const r = (call.survey_responses ?? {}) as Record<string, unknown>;
+  if (V2_KEYS.some((k) => r[k] !== undefined && r[k] !== null)) return false;
+  const when = call.initiated_at ? Date.parse(call.initiated_at) : NaN;
+  return Number.isFinite(when) && when < Date.parse(QUESTIONNAIRE_V2_FROM);
 }
 
 const s = (v: unknown): string | undefined => {
@@ -51,12 +70,14 @@ export function overallLevel(text: string): FindingLevel {
 
 /**
  * Ordered so the clinical answers come first — a nurse reads top-left to
- * bottom-right and should hit the acute stuff immediately.
+ * bottom-right and should hit the acute stuff immediately. The patient's
+ * questions for the care team come last (they also get their own section).
  */
 export function findingsFor(call: CallDoc): Finding[] {
   const r = (call.survey_responses ?? {}) as Record<string, unknown>;
   const has = (k: string) => k in r && r[k] !== undefined && r[k] !== null && r[k] !== "";
   const out: Finding[] = [];
+  const old = predatesQuestionnaireV2(call) || undefined;
 
   // --- Pain -------------------------------------------------------------
   const painPresent = s(r.pain_present)?.toLowerCase();
@@ -86,7 +107,8 @@ export function findingsFor(call: CallDoc): Finding[] {
     }
 
     const value = sev !== undefined ? `${sev} / 10` : note ? "No number given" : "Reported";
-    const detail = [loc && `at ${loc}`, trend && `${trend}`].filter(Boolean).join(" · ") || note;
+    // pain_location is now the patient's own description of the pain.
+    const detail = [loc, trend && `${trend}`].filter(Boolean).join(" · ") || note;
     out.push({ key: "pain", label: "Pain", value, detail, level });
   }
 
@@ -120,23 +142,60 @@ export function findingsFor(call: CallDoc): Finding[] {
     out.push({ key: "incision", label: "Incision", value: "Unsure", level: "unknown" });
   }
 
+  // --- Leg swelling (since 19 Oct 2026) ---------------------------------
+  // One leg, worsening, painful, red or warm can be a clot: alert. Both
+  // legs and stable is common after surgery: watch.
+  const legs = s(r.legs_swollen)?.toLowerCase();
+  if (!has("legs_swollen")) {
+    out.push({ key: "legs", label: "Leg swelling", value: "Not asked", level: "unasked", predates: old });
+  } else if (legs === "yes") {
+    const desc = s(r.swelling_description);
+    out.push({
+      key: "legs",
+      label: "Leg swelling",
+      value: "Swelling reported",
+      detail: desc,
+      level: desc && swellingIsConcerning(desc) ? "alert" : "watch",
+    });
+  } else if (legs === "no") {
+    out.push({ key: "legs", label: "Leg swelling", value: "No", level: "normal" });
+  } else {
+    out.push({ key: "legs", label: "Leg swelling", value: "Unsure", level: "unknown" });
+  }
+
+  // --- Sleep (since 19 Oct 2026) ----------------------------------------
+  const sleep = s(r.sleeping_well)?.toLowerCase();
+  if (!has("sleeping_well")) {
+    out.push({ key: "sleep", label: "Sleep", value: "Not asked", level: "unasked", predates: old });
+  } else if (sleep === "yes") {
+    out.push({ key: "sleep", label: "Sleep", value: "Sleeping well", level: "normal" });
+  } else if (sleep === "no") {
+    out.push({ key: "sleep", label: "Sleep", value: "Not sleeping well", level: "watch" });
+  } else {
+    out.push({ key: "sleep", label: "Sleep", value: "Unsure", level: "unknown" });
+  }
+
   // --- Blood sugar (diabetics only) -------------------------------------
   const ctx = (call.patient_context ?? {}) as Record<string, unknown>;
-  if (ctx.is_diabetic === true || has("blood_sugar_status")) {
+  if (ctx.is_diabetic === true || has("blood_sugar_status") || has("blood_sugar_reading")) {
     const bs = s(r.blood_sugar_status)?.toLowerCase();
+    const reading = s(r.blood_sugar_reading);
     if (!has("blood_sugar_status")) {
-      out.push({ key: "sugar", label: "Blood sugar", value: "Not asked", level: "unasked" });
+      out.push(reading
+        ? { key: "sugar", label: "Blood sugar", value: "Reading given", detail: reading, level: "unknown" }
+        : { key: "sugar", label: "Blood sugar", value: "Not asked", level: "unasked" });
     } else if (bs === "in_range") {
-      out.push({ key: "sugar", label: "Blood sugar", value: "In usual range", level: "normal" });
+      out.push({ key: "sugar", label: "Blood sugar", value: "In usual range", detail: reading, level: "normal" });
     } else if (bs === "high" || bs === "low") {
       out.push({
         key: "sugar",
         label: "Blood sugar",
         value: bs === "high" ? "Running high" : "Running low",
+        detail: reading,
         level: "alert",
       });
     } else {
-      out.push({ key: "sugar", label: "Blood sugar", value: "Unsure", level: "unknown" });
+      out.push({ key: "sugar", label: "Blood sugar", value: "Unsure", detail: reading, level: "unknown" });
     }
   }
 
@@ -170,7 +229,43 @@ export function findingsFor(call: CallDoc): Finding[] {
     });
   }
 
+  // --- Questions for the care team (last: not a clinical answer) --------
+  const q = questionSummary(call);
+  if (q.count > 0) {
+    const cats = Array.from(new Set(q.questions.map((x) => categoryLabel(x.category))));
+    out.push({
+      key: "questions",
+      label: "Questions for the care team",
+      value:
+        `${q.count} ${q.count === 1 ? "question" : "questions"}` +
+        (q.immediate ? ` · ${q.immediate} immediate` : ""),
+      detail: cats.join(", "),
+      level: q.immediate ? "alert" : "watch",
+    });
+  } else if (q.noneCaptured) {
+    out.push({
+      key: "questions",
+      label: "Questions for the care team",
+      value: "Yes — none captured",
+      detail: "Call to ask.",
+      level: "watch",
+    });
+  } else if (q.hasQuestions === "no") {
+    out.push({ key: "questions", label: "Questions for the care team", value: "None", level: "normal" });
+  } else {
+    out.push({ key: "questions", label: "Questions for the care team", value: "Not asked", level: "unasked", predates: old });
+  }
+
   return out;
+}
+
+/** Negated phrases ("not getting worse", "no redness") must not trip the alert words. */
+const NEGATED = /\b(?:not|no|isn'?t|aren'?t|hasn'?t|haven'?t|never|without|nor)\s+(?:any\s+|getting\s+|more\s+|really\s+|very\s+)*(?:worse|worsening|pain(?:ful)?|sore|tender|red(?:ness)?|warm(?:th)?|hot)\b/gi;
+const SWELLING_ALERT = /\b(one leg|one side|one calf|left|right|worse|worsening|pain|painful|sore|tender|hurts?|red|redness|warm|warmth|hot)\b/i;
+
+/** One-sided, worsening, painful, red or warm swelling: possible clot. */
+export function swellingIsConcerning(description: string): boolean {
+  return SWELLING_ALERT.test(description.replace(NEGATED, " "));
 }
 
 /** Counts for the "N things need attention" summary line. */
@@ -292,7 +387,7 @@ export interface FindingSummary {
  * dismiss a call the agent escalated.
  */
 export function summarize(findings: Finding[]): FindingSummary | null {
-  const c = countLevels(findings);
+  const c = countLevels(findings.filter((f) => !f.predates));
   if (c.alert > 0) {
     return { text: `${c.alert} need${c.alert === 1 ? "s" : ""} attention`, tone: "alert" };
   }

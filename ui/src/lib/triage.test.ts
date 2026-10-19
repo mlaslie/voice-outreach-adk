@@ -195,6 +195,7 @@ describe("summarize", () => {
       dob_verification_result: "verified",
       survey_responses: undefined,
     })));
+    // Made before 19 Oct 2026: the newer questions don't count as unanswered.
     expect(s?.text).toBe("3 not answered");
     expect(s?.tone).toBe("muted");
   });
@@ -241,5 +242,132 @@ describe("in their words", () => {
   it("keeps good answers normal and unknown words neutral", () => {
     expect(level("great")).toBe("normal");
     expect(level("fair")).toBe("unknown");
+  });
+});
+
+
+describe("19 Oct 2026 questionnaire", () => {
+  const q = (over: Record<string, unknown>) => call({ survey_responses: over });
+
+  it("old calls show the new questions as not asked", () => {
+    const c = q({ pain_present: "no", fever_reported: "no", incision_concerns: "no" });
+    expect(find(c, "legs")?.level).toBe("unasked");
+    expect(find(c, "sleep")?.level).toBe("unasked");
+    expect(find(c, "questions")?.value).toBe("Not asked");
+    expect(find(c, "legs")?.predates).toBe(true);
+  });
+
+  it("a new-questionnaire call that missed the new questions counts them as unanswered", () => {
+    const c = call({
+      initiated_at: "2026-10-20T10:00:00Z",
+      survey_responses: { pain_present: "no", fever_reported: "no", incision_concerns: "no" },
+    });
+    expect(find(c, "legs")?.predates).toBeUndefined();
+    expect(summarize(findingsFor(c))?.text).toBe("3 not answered");
+  });
+
+  it("a new call that answered everything normally clears", () => {
+    const c = call({
+      initiated_at: "2026-10-20T10:00:00Z",
+      survey_responses: {
+        pain_present: "no", fever_reported: "no", incision_concerns: "no",
+        legs_swollen: "no", sleeping_well: "yes", has_questions: "no",
+      },
+    });
+    expect(summarize(findingsFor(c))).toEqual({ text: "Nothing abnormal", tone: "good" });
+  });
+
+  it("pain location is shown as the patient's own description", () => {
+    const f = find(q({ pain_present: "yes", pain_severity: 5, pain_location: "a dull ache around the knee" }), "pain");
+    expect(f?.detail).toBe("a dull ache around the knee");
+  });
+
+  describe("leg swelling", () => {
+    it("no is normal", () => {
+      expect(find(q({ legs_swollen: "no" }), "legs")?.level).toBe("normal");
+    });
+    it("both legs, stable, is a watch", () => {
+      const f = find(q({ legs_swollen: "yes", swelling_description: "both ankles a bit puffy, about the same" }), "legs");
+      expect(f?.level).toBe("watch");
+      expect(f?.detail).toContain("both ankles");
+    });
+    it("yes with no description is a watch", () => {
+      expect(find(q({ legs_swollen: "yes" }), "legs")?.level).toBe("watch");
+    });
+    it.each([
+      "just the left leg",
+      "only my right calf",
+      "one leg, and it is getting worse",
+      "both, and they are painful",
+      "the calf is red and warm",
+    ])("alerts on '%s'", (desc) => {
+      expect(find(q({ legs_swollen: "yes", swelling_description: desc }), "legs")?.level).toBe("alert");
+    });
+    it("negated words do not alert", () => {
+      expect(find(q({ legs_swollen: "yes", swelling_description: "both legs, not getting worse, no pain" }), "legs")?.level)
+        .toBe("watch");
+    });
+    it("unknown is unsure", () => {
+      expect(find(q({ legs_swollen: "unknown" }), "legs")?.value).toBe("Unsure");
+    });
+  });
+
+  describe("sleep", () => {
+    it("not sleeping well is a watch", () => {
+      expect(find(q({ sleeping_well: "no" }), "sleep")).toMatchObject({ value: "Not sleeping well", level: "watch" });
+    });
+    it("sleeping well is normal", () => {
+      expect(find(q({ sleeping_well: "yes" }), "sleep")?.level).toBe("normal");
+    });
+  });
+
+  describe("blood sugar reading", () => {
+    it("shows the patient's words as detail", () => {
+      const f = find(q({ blood_sugar_status: "high", blood_sugar_reading: "between 120 and 250" }), "sugar");
+      expect(f?.level).toBe("alert");
+      expect(f?.detail).toBe("between 120 and 250");
+    });
+    it("a reading without a status still shows", () => {
+      const f = find(q({ blood_sugar_reading: "around 140" }), "sugar");
+      expect(f?.detail).toBe("around 140");
+      expect(f?.level).toBe("unknown");
+    });
+  });
+
+  describe("questions for the care team", () => {
+    it("has_questions no is a normal None", () => {
+      expect(find(q({ has_questions: "no" }), "questions")).toMatchObject({ value: "None", level: "normal" });
+    });
+    it("an immediate question is an alert", () => {
+      const f = find(q({
+        has_questions: "yes",
+        patient_questions: [
+          { text: "When is my follow-up?", category: "appointment", priority: "routine_next_business_day" },
+          { text: "Can I take ibuprofen?", category: "medication", priority: "urgent_same_day" },
+        ],
+      }), "questions");
+      expect(f?.level).toBe("alert");
+      expect(f?.value).toBe("2 questions · 1 immediate");
+      expect(f?.detail).toBe("Medication, Appointment");
+    });
+    it("routine questions only are a watch", () => {
+      const f = find(q({
+        has_questions: "yes",
+        patient_questions: [{ text: "When can I drive?", category: "activity", priority: "routine_next_business_day" }],
+      }), "questions");
+      expect(f).toMatchObject({ value: "1 question", level: "watch" });
+    });
+    it("yes with none captured is a watch telling the nurse to ask", () => {
+      expect(find(q({ has_questions: "yes", patient_questions: [] }), "questions"))
+        .toMatchObject({ value: "Yes — none captured", level: "watch" });
+    });
+    it("comes last, after the clinical answers", () => {
+      const fs = findingsFor(call({
+        dob_verification_result: "verified",
+        survey_responses: { pain_present: "no", overall_feeling: "fine", has_questions: "no", legs_swollen: "no" },
+      }));
+      expect(fs[fs.length - 1].key).toBe("questions");
+      expect(fs.findIndex((f) => f.key === "legs")).toBeLessThan(fs.findIndex((f) => f.key === "dob"));
+    });
   });
 });

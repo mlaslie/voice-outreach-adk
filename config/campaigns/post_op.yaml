@@ -12,12 +12,15 @@ scripts:
   opener: "Hello, this is an automated call from {org_name}. May I please speak with {patient_first_name} {patient_last_name}?"
   identity_prompt: "To protect your privacy, could you please tell me your date of birth?"
   identity_verified: "Thank you, that's verified."
-  consent: "I'm calling from {org_name}'s post-op care team to check on how you're doing after your recent procedure. This call may be recorded for quality. It takes about a minute. Is now a good time?"
+  consent: "I'm calling from {org_name}'s post-op care team to check on how you're doing after your recent procedure. This call may be recorded for quality. It takes a few minutes. Is now a good time?"
   wrong_person: "Thank you, we'll try again another time. Goodbye."
   identity_failed: "I'm sorry, I wasn't able to verify your identity. A member of our care team will reach out. Goodbye."
   reschedule: "No problem. We'll reach out again at a better time. Goodbye."
   emergency: "That sounds serious. Please hang up now and call nine one one. I'll make sure the care team is notified."
   no_medical_advice: "I'm an automated assistant, so I can't give medical advice, but I'll make sure a nurse follows up with you."
+  # Every completed call: said before the closing.
+  medication_reminder: "Before I let you go, please bring a list of your current medications to your post-op follow-up clinic visit."
+  closing_questions: "Thank you for your questions. Our care team will follow up with you to get them answered. Take care, goodbye."
   closing_follow_up: "Thank you. One of our nurses will be in touch with you soon. Take care, goodbye."
   closing_no_follow_up: "Thank you, that's everything. Nothing else is required from you today. Take care, goodbye."
   # No patient name or clinical detail on a voicemail: anyone may hear it.
@@ -26,10 +29,10 @@ scripts:
 # Order matters. `when` makes a question conditional on an earlier answer.
 questions:
   - id: overall_feeling
-    ask: "How are you feeling overall since your procedure?"
+    ask: "How are you feeling?"
     type: text
   - id: pain_present
-    ask: "Are you having any pain right now?"
+    ask: "Are you having any pain?"
     type: yes_no
   - id: pain_severity
     ask: "On a scale from zero to ten, how bad is the pain?"
@@ -37,7 +40,7 @@ questions:
     when: {pain_present: "yes"}
     note: "For a range, record the higher number."
   - id: pain_location
-    ask: "Where is the pain?"
+    ask: "Can you describe the pain for me, like where it is and what it feels like?"
     type: text
     when: {pain_present: "yes"}
   - id: pain_trend
@@ -55,11 +58,24 @@ questions:
     ask: "Can you describe what you see?"
     type: text
     when: {incision_concerns: "yes"}
+  - id: legs_swollen
+    ask: "Are your legs or feet swollen?"
+    type: yes_no_unknown
+  - id: swelling_description
+    ask: "Is it in one leg or both, and is it getting worse?"
+    type: text
+    when: {legs_swollen: "yes"}
+  - id: sleeping_well
+    ask: "Are you sleeping well?"
+    type: yes_no_unknown
   - id: blood_sugar_status
-    ask: "Have your blood sugars been in your usual range?"
-    type: choice
-    choices: [in_range, high, low, unknown]
+    ask: "What has the range of your blood sugars been?"
+    type: text
     when_patient: {is_diabetic: true}
+    note: "Record the numbers or words they say, e.g. \"120 to 250\"."
+  - id: has_questions
+    ask: "Do you have any questions for the care team?"
+    type: open_questions
 
 red_flags:
   - chest pain, pressure, tightness or squeezing
@@ -88,4 +104,4 @@ outcomes:
   - identity_verification_failed
   - emergency_ended
 
-custom_vocabulary: [incision, drainage, redness, Tylenol, ibuprofen, oxycodone]
+custom_vocabulary: [incision, drainage, redness, swollen, Tylenol, ibuprofen, oxycodone, insulin]

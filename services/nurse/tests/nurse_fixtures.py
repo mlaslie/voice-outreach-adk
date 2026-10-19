@@ -233,13 +233,32 @@ def nurse_day(now=None) -> dict:
         outcome="questionnaire_completed",
         follow_up="urgent_same_day",
         follow_up_reason="Pain uncontrolled on current regimen; out of prescribed medication.",
+        # Post-19 Oct 2026 questionnaire: swelling, sleep and questions (listed here
+        # routine first, so the card has to put the immediate one on top).
         survey_responses={
             "pain_present": "yes",
             "pain_severity": 8,
             "pain_trend": "same",
+            "pain_location": "a deep ache in the shoulder, worse at night",
             "fever_reported": "no",
             "incision_concerns": "no",
+            "legs_swollen": "yes",
+            "swelling_description": "just my right ankle, a bit puffier today",
+            "sleeping_well": "no",
             "overall_feeling": "poor",
+            "has_questions": "yes",
+            "patient_questions": [
+                {
+                    "text": "When is my follow-up appointment with the surgeon?",
+                    "category": "appointment",
+                    "priority": "routine_next_business_day",
+                },
+                {
+                    "text": "I ran out of my pain pills, can I get a refill?",
+                    "category": "medication",
+                    "priority": "urgent_same_day",
+                },
+            ],
         },
     )
     b.call(
@@ -259,8 +278,13 @@ def nurse_day(now=None) -> dict:
             "pain_trend": "better",
             "fever_reported": "no",
             "incision_concerns": "no",
+            "legs_swollen": "no",
+            "sleeping_well": "yes",
             "blood_sugar_status": "high",
+            "blood_sugar_reading": "between 210 and 240 most mornings",
             "overall_feeling": "good",
+            # Said yes, but no question was captured: a nurse calls to ask.
+            "has_questions": "yes",
         },
     )
     b.call(
@@ -279,7 +303,22 @@ def nurse_day(now=None) -> dict:
             "pain_trend": "better",
             "fever_reported": "no",
             "incision_concerns": "no",
+            "legs_swollen": "no",
+            "sleeping_well": "yes",
             "overall_feeling": "good",
+            "has_questions": "yes",
+            "patient_questions": [
+                {
+                    "text": "When can I start driving again?",
+                    "category": "activity",
+                    "priority": "routine_next_business_day",
+                },
+                {
+                    "text": "Can I go back to physical therapy next week?",
+                    "category": "activity",
+                    "priority": "routine_next_business_day",
+                },
+            ],
         },
     )
     b.call(

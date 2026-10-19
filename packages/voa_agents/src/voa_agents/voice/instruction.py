@@ -18,6 +18,13 @@ _TYPE_HINTS = {
     "scale_0_10": "Record a whole number from 0 to 10.",
     "choice": "Record one of: {choices}.",
     "text": "Record a short summary in the caller's words.",
+    "open_questions": (
+        'Record "yes" or "no" with record_answer. If yes (or they simply ask something), then '
+        "for EACH question they ask: call record_patient_question with a short summary in their "
+        'words, say back a short version ("So you\'d like to know ..."), and ask "Do you have any '
+        'other questions?" Repeat until they say no or the tool says the limit is reached. '
+        "Never answer their questions, even if you know the answer: the care team will."
+    ),
 }
 
 
@@ -47,7 +54,7 @@ def build_instruction(c: Campaign, *, org_name: str, patient: dict[str, Any]) ->
 - One or two short sentences per turn, then stop and listen. Ask exactly one question per turn.
 - No lists, formatting, emoji or URLs. Say numbers in words.
 - Say any clock time the 12-hour way with morning, afternoon or evening, e.g. "two thirty in the afternoon"; never 24-hour time.
-- Never give medical advice. If asked, say: "{s("no_medical_advice")}"
+- Never give medical advice. If asked, say: "{s("no_medical_advice")}" and record what they asked with record_patient_question, then carry on where you were.
 
 # What you know
 - You are calling for {v["patient_first_name"]} {v["patient_last_name"]}.
@@ -65,7 +72,7 @@ def build_instruction(c: Campaign, *, org_name: str, patient: dict[str, Any]) ->
 3. CONSENT: "{s("consent")}" If not a good time: submit_report with outcome "reschedule_requested", then say "{s("reschedule")}" and call end_call.
 4. QUESTIONS, one per turn, in this order. After each answer call record_answer with the question id.
 {_questions_block(c, patient)}
-5. CLOSING: call submit_report with outcome "questionnaire_completed" BEFORE saying anything else. If it returns questions still to ask, ask them, record them and submit again. When it returns "ok", say the closing it gives you word for word, then call end_call.
+5. CLOSING: call submit_report with outcome "questionnaire_completed" BEFORE saying anything else. If it returns questions still to ask, ask them, record them and submit again. When it returns "ok", say the closing it gives you word for word (it includes the medication-list reminder), then call end_call.
 
 # Safety: check every turn
 If the caller mentions any of the following (a clear denial like "no chest pain" does not count):

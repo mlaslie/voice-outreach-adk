@@ -19,6 +19,10 @@ from typing import Any
 
 from voa_core import reports
 from voa_core.lifecycle import TERMINAL_STATUSES
+from voa_core.patient_questions import CATEGORY_LABELS
+
+# Same-day swelling (one leg, worsening, painful): the backend's rule, for colour.
+from voa_core.survey import swelling_is_urgent
 
 STATUS_LABELS = {
     "success": "Completed",
@@ -163,6 +167,63 @@ def _n(v) -> float | None:
         return None
 
 
+# --------------------------------------------------------------------------- questions
+
+Q_IMMEDIATE = "urgent_same_day"
+Q_NEXT_DAY = "routine_next_business_day"
+#: How the priority of a patient question reads to a nurse.
+QUESTION_PRIORITY_LABELS = {Q_IMMEDIATE: "Immediate", Q_NEXT_DAY: "Next business day"}
+
+
+def patient_questions(call: dict) -> list[dict]:
+    """The patient's questions for the care team, immediate first, as
+    {text, category, category_label, priority, priority_label}.
+
+    Lenient with odd entries: a question with text is always shown. An unknown
+    priority is treated as Immediate (the backend's "unclear -> same day" rule),
+    an unknown category as Other.
+    """
+    raw = (call.get("survey_responses") or {}).get("patient_questions")
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for q in raw:
+        if isinstance(q, str):
+            q = {"text": q}
+        if not isinstance(q, dict) or not _s(q.get("text")):
+            continue
+        prio = q.get("priority") if q.get("priority") in QUESTION_PRIORITY_LABELS else Q_IMMEDIATE
+        cat = q.get("category") if q.get("category") in CATEGORY_LABELS else "other"
+        out.append(
+            {
+                "text": str(q["text"]).strip(),
+                "category": cat,
+                "category_label": CATEGORY_LABELS.get(cat, "Other"),
+                "priority": prio,
+                "priority_label": QUESTION_PRIORITY_LABELS[prio],
+            }
+        )
+    return sorted(out, key=lambda q: q["priority"] != Q_IMMEDIATE)  # stable: asked order kept
+
+
+def has_uncaptured_questions(call: dict) -> bool:
+    """The patient said they have questions but none was recorded."""
+    r = call.get("survey_responses") or {}
+    return str(r.get("has_questions") or "").lower() == "yes" and not patient_questions(call)
+
+
+def questions_summary(call: dict) -> str | None:
+    """ "2 questions · 1 immediate" for worklist rows; None when there is nothing to say."""
+    qs = patient_questions(call)
+    if qs:
+        n, n_now = len(qs), sum(q["priority"] == Q_IMMEDIATE for q in qs)
+        text = f"{n} question{'s' * (n != 1)}"
+        return f"{text} · {n_now} immediate" if n_now else text
+    if has_uncaptured_questions(call):
+        return "Has questions, none captured"
+    return None
+
+
 def findings_for(call: dict) -> list[dict]:
     """Each answer as {label, value, detail, level}; level is
     alert | watch | normal | unknown | unasked. Clinical answers first."""
@@ -201,7 +262,9 @@ def findings_for(call: dict) -> list[dict]:
             if note
             else "Reports pain"
         )
-        detail = " · ".join(x for x in (loc and f"at {loc}", trend) if x) or note
+        # Since 19 Oct 2026 pain_location is the patient's own description of the
+        # pain ("sharp, around the knee"); older calls hold a bare site. Quote both.
+        detail = " · ".join(x for x in (loc and f"“{loc}”", trend) if x) or note
         add("Pain", value, level, detail)
 
     fever = (_s(r.get("fever_reported")) or "").lower()
@@ -224,21 +287,71 @@ def findings_for(call: dict) -> list[dict]:
     else:
         add("Incision / site", "Patient unsure", "unknown")
 
+    # Questions added 19 Oct 2026: older calls lack them and read "Not asked".
+    legs = (_s(r.get("legs_swollen")) or "").lower()
+    swell = _s(r.get("swelling_description"))
+    if not has("legs_swollen"):
+        add("Leg swelling", "Not asked", "unasked")
+    elif legs == "yes":
+        level = "alert" if swell and swelling_is_urgent(swell) else "watch"
+        add("Leg swelling", "Reports leg swelling", level, swell and f"“{swell}”")
+    elif legs == "no":
+        add("Leg swelling", "Denies leg swelling", "normal")
+    else:
+        add("Leg swelling", "Patient unsure", "unknown")
+
+    sleep = (_s(r.get("sleeping_well")) or "").lower()
+    if not has("sleeping_well"):
+        add("Sleep", "Not asked", "unasked")
+    elif sleep == "yes":
+        add("Sleep", "Sleeping well", "normal")
+    elif sleep == "no":
+        add("Sleep", "Not sleeping well", "watch")
+    else:
+        add("Sleep", "Patient unsure", "unknown")
+
     ctx = call.get("patient_context") or {}
-    if ctx.get("is_diabetic") is True or has("blood_sugar_status"):
+    reading = _s(r.get("blood_sugar_reading"))
+    if ctx.get("is_diabetic") is True or has("blood_sugar_status") or reading:
         bs = (_s(r.get("blood_sugar_status")) or "").lower()
+        bg_detail = reading and f"Patient's reading: “{reading}”"
         if not has("blood_sugar_status"):
-            add("Blood glucose", "Not assessed", "unasked")
+            add(
+                "Blood glucose",
+                "Not assessed" if not reading else "Reading given, not rated",
+                "unasked" if not reading else "unknown",
+                bg_detail,
+            )
         elif bs == "in_range":
-            add("Blood glucose", "Within usual range", "normal")
+            add("Blood glucose", "Within usual range", "normal", bg_detail)
         elif bs in ("high", "low"):
             add(
                 "Blood glucose",
                 "Reports elevated BG" if bs == "high" else "Reports low BG",
                 "alert",
+                bg_detail,
             )
         else:
-            add("Blood glucose", "Patient unsure", "unknown")
+            add("Blood glucose", "Patient unsure", "unknown", bg_detail)
+
+    qs = patient_questions(call)
+    asked = (_s(r.get("has_questions")) or "").lower()
+    if qs:
+        n_now = sum(q["priority"] == Q_IMMEDIATE for q in qs)
+        add(
+            "Patient questions",
+            questions_summary(call),
+            "alert" if n_now else "watch",
+            "; ".join(f"{q['category_label']}: “{q['text']}”" for q in qs),
+        )
+    elif asked == "yes":
+        add("Patient questions", "Has questions, none captured", "watch", "Call to ask.")
+    elif asked == "no":
+        add("Patient questions", "No questions", "normal")
+    elif not has("has_questions"):
+        add("Patient questions", "Not asked", "unasked")
+    else:
+        add("Patient questions", "Patient unsure", "unknown")
 
     dob = (call.get("dob_verification_result") or "").lower()
     if dob:

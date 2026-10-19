@@ -34,6 +34,7 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 | The 2 registered test numbers | They must be on the allowlist before anything can be dialled | Dashboard → Allowlist, or `config/seed/allowlist.yaml` |
 | SMS number and webhook | A number has one inbound SMS webhook | PLAN.md §11.9; then `sms_from_number` and the webhook to `/twilio/sms` |
 | Clinical sign-off | Triage rules; the blood-sugar thresholds (<70 low, >180 high) were added during the port and are not from the source | `packages/voa_core/src/voa_core/survey.py` |
+| Clinical sign-off on the 19 Oct questionnaire criteria | Patient-question priorities, swelling and sleep rules were agreed with the product owner, not yet a clinician | `voa_core/patient_questions.py` (categories and patterns), `voa_core/survey.py` (`triage`, `_SWELLING_URGENT`) |
 | Nurse time format | Defaulted to 24-hour, the usual convention for hospital clinical documentation. Not yet confirmed against the client's nursing documentation policy | Ask their nurse informatics / clinical documentation team: "Does nursing documentation use 24-hour (military) time or 12-hour AM/PM?" Then set `site.nurse_time_format`, or flip it in dashboard Settings → Time display |
 | Nurse assistant registration in Gemini Enterprise | The service is deployed and verified over A2A; registration needs the GE app id and, for end-user identity, its OAuth client (`nurse_oauth_client_id`) | `services/nurse/README.md` |
 
@@ -88,3 +89,29 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 - **Patients: always 12-hour** ("Tue Oct 20, 2:30 PM"). SMS readbacks go through `timeparse.humanize` → `timefmt.patient_clock`; the voice instruction tells the agent to say times the 12-hour way. No setting changes this.
 - **Nurses: the clinic's `time_format`** (`12h` | `24h`). Default `site.nurse_time_format` (24h); overridden at runtime by `call_settings/display`, which the dashboard's Settings → Time display writes (`PUT /api/call-settings/display`). It applies to the console, the classic table, calling-hours messages from the API, and the nurse agent's cards and replies (the agent re-reads the setting at most once a minute).
 - **Pickers:** native `type="time"` / `datetime-local` inputs follow the OS locale and cannot be forced to 12h/24h, so the console uses its own date + time-dropdown picker whose labels follow the setting.
+
+## 19 Oct: new questionnaire (clinic request)
+
+**Order:** how are you feeling → pain (yes/no; if yes: 0–10, describe it, better/same/worse) → fever → incision (+ describe) → legs/feet swollen (if yes: one leg or both, getting worse?) → sleeping well → blood sugar range (diabetic only; the patient's words are kept as `blood_sugar_reading`) → "Do you have any questions for the care team?"
+
+**Kept although the clinic list dropped them:** fever and incision (infection screening drives most same-day follow-ups) and the 0–10 pain score (triage needs a number). Decided with the product owner.
+
+**Patient questions.**
+- The agent repeats back a short summary, asks "any other questions?" (up to 5), and never answers them.
+- Each question is classified deterministically by `voa_core/patient_questions.py`:
+  - **Immediate (same day):** medication (which, when, how much, missed dose, stop/start, side effects, refills), and symptoms or complications.
+  - **Next business day:** appointments, activity, diet, paperwork or billing, supplies, recovery timeline.
+  - **Fits nothing:** immediate.
+  - Any immediate match wins over a routine one.
+- A "yes" with no question captured is next business day.
+- Questions are not scanned by the "wants a human" prose rule ("when will I see my doctor?" is a question, not a request to be called).
+
+**Other new rules.**
+- Legs/feet swollen: next business day. One leg, getting worse, or painful/red/warm: same day. Calf swelling with pain stays an emergency red flag.
+- Not sleeping well alone: informational.
+
+**Closing.**
+- Every completed call says the medication-list reminder ("bring a list of your current medications to your post-op follow-up clinic visit").
+- Then: "the care team will follow up to get your questions answered" if they asked any; otherwise the follow-up or all-clear goodbye.
+
+**Old calls** lack the new keys and render as "not asked". Completed reports now require `legs_swollen`, `sleeping_well` and `has_questions`.

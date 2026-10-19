@@ -16,6 +16,7 @@ import { TranscriptViewer } from "@/components/transcript-viewer";
 import { RecordingPlayer } from "@/components/recording-player";
 import { CallTexts } from "@/components/call-texts";
 import { SurveyAnswers } from "@/components/survey-answers";
+import { PatientQuestionsSection } from "@/components/patient-questions";
 import { cn } from "@/lib/utils";
 import { Avatar, Pill, Tone, ago, clock } from "./parts";
 import { ClinicDateTimeInput } from "./clinic-time-input";
@@ -233,6 +234,8 @@ function Body({
                 </div>
               </Section>
             ) : null}
+
+            {call ? <PatientQuestionsSection call={call} /> : null}
 
             {findings.length ? (
               <Section title="Top answers">

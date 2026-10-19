@@ -34,6 +34,9 @@ COMPLETE_ANSWERS = {
     "pain_trend": "better",
     "fever_reported": "no",
     "incision_concerns": "no",
+    "legs_swollen": "no",
+    "sleeping_well": "yes",
+    "has_questions": "no",
 }
 
 
@@ -175,7 +178,16 @@ def test_completed_requires_populated_answers(empty):
 
 
 @pytest.mark.parametrize(
-    "drop", ["overall_feeling", "pain_present", "fever_reported", "incision_concerns"]
+    "drop",
+    [
+        "overall_feeling",
+        "pain_present",
+        "fever_reported",
+        "incision_concerns",
+        "legs_swollen",
+        "sleeping_well",
+        "has_questions",
+    ],
 )
 def test_completed_requires_every_wellness_answer(drop):
     answers = {k: v for k, v in COMPLETE_ANSWERS.items() if k != drop}

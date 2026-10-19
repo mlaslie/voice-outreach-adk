@@ -102,6 +102,10 @@ def standard_replies(agent_text: str, p: Patient) -> str | None:
     t = agent_text.lower()
     if "nine one one" in t or "911" in t or "goodbye" in t:
         return None
+    if "other questions" in t or "any more questions" in t:
+        return "No, that's all."
+    if "questions" in t:
+        return "No, I don't have any questions."
     if "date of birth" in t or "birth" in t:
         return "March fifteenth, nineteen fifty."
     if re.search(r"is that (right|correct)", t):
@@ -122,6 +126,12 @@ def standard_replies(agent_text: str, p: Patient) -> str | None:
         return "No, no fever."
     if "incision" in t:
         return "No, it looks fine."
+    if "one leg or both" in t:
+        return "Both feet, just a little puffy at night."
+    if "swollen" in t or "swelling" in t:
+        return "No, no swelling."
+    if "sleeping" in t or "sleep" in t:
+        return "Yes, I'm sleeping pretty well."
     if "feeling" in t:
         return "Pretty good, just a little sore."
     return "Okay."
@@ -164,6 +174,20 @@ def wrong_person_replies(agent_text: str, p: Patient) -> str | None:
     return None if "goodbye" in t else "Okay."
 
 
+def questions_replies(agent_text: str, p: Patient) -> str | None:
+    """Asks a medication question (same day) and a driving question (next business day)."""
+    t = agent_text.lower()
+    if "other questions" in t or "any more questions" in t:
+        if not p.flags.get("asked_second"):
+            p.flags["asked_second"] = True
+            return "Yes, when will I be able to drive again?"
+        return "No, that's everything."
+    if "questions" in t and not p.flags.get("asked_first"):
+        p.flags["asked_first"] = True
+        return "Yes. How much Tylenol can I take, and how often?"
+    return standard_replies(agent_text, p)
+
+
 def negated_red_flag_replies(agent_text: str, p: Patient) -> str | None:
     if "feeling" in agent_text.lower():
         return "Pretty good, honestly. No chest pain or anything like that, just a bit sore."
@@ -177,6 +201,9 @@ SCENARIOS = {
     "red_flag": Scenario("red_flag", "emergency_ended", reply=red_flag_replies),
     "wrong_person": Scenario(
         "wrong_person", "unable_to_reach_wrong_person", reply=wrong_person_replies
+    ),
+    "patient_questions": Scenario(
+        "patient_questions", "questionnaire_completed", reply=questions_replies
     ),
     # Review C-6: a clear denial is not a red flag.
     "negated_red_flag": Scenario(
