@@ -139,7 +139,7 @@ Deploy first, set `VOA_NURSE_PUBLIC_URL` to the assigned https URL, redeploy, th
 agents-cli publish gemini-enterprise \
   --registration-type a2a --deployment-target cloud_run \
   --agent-card-url https://<nurse-service-url>/.well-known/agent-card.json \
-  --gemini-enterprise-app-id <GE_APP_ID> --display-name "Post-op Follow-up Assistant"
+  --gemini-enterprise-app-id <GE_APP_ID> --display-name "Post-op Calling Agent (ADK)"
 ```
 
 Gemini Enterprise stores the card at registration. After changing it (URL, declared

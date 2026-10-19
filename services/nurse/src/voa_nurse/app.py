@@ -50,7 +50,7 @@ MAX_BODY = 32 * 1024 * 1024
 
 def agent_card(settings: NurseSettings) -> AgentCard:
     return AgentCard(
-        name="Post-op Follow-up Assistant",
+        name=settings.display_name,
         description=(
             f"Post-discharge follow-up for {settings.patient_population}: see who needs RN "
             "follow-up and why, review each automated check-in call (symptom review, "
@@ -118,7 +118,10 @@ def build_deps(
     model=None,
 ) -> Deps:
     cards.configure(
-        timezone=cfg.site.timezone, dashboard_url=settings.dashboard_url, brand=settings.brand_color
+        timezone=cfg.site.timezone,
+        dashboard_url=settings.dashboard_url,
+        brand=settings.brand_color,
+        display_name=settings.display_name,
     )
     if store is None:
         store = (

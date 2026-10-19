@@ -127,7 +127,7 @@ async def test_greeting_streams_submitted_working_one_artifact_completed(a):
     parts = reply_parts(q)
     assert all(isinstance(p.root, DataPart) for p in parts)
     assert {p.root.metadata["mimeType"] for p in parts} == {"application/json+a2ui"}
-    assert "Post-op follow-up" in reply_text(q)
+    assert "Post-op Calling Agent (ADK)" in reply_text(q)
     assert a.model.requests == []  # deterministic: no model call
 
 

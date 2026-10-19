@@ -111,3 +111,10 @@ async def test_large_bodies_are_accepted_up_to_32mb():
     from voa_nurse.app import MAX_BODY
 
     assert MAX_BODY == 32 * 1024 * 1024
+
+
+def test_display_name_on_card_and_home(monkeypatch):
+    from voa_nurse.app import agent_card
+
+    assert agent_card(make_settings()).name == "Post-op Calling Agent (ADK)"
+    assert agent_card(make_settings(display_name="Staging copy")).name == "Staging copy"

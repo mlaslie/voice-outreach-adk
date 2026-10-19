@@ -30,13 +30,21 @@ PAGE = 8
 BRAND = "#22873B"
 TZ = ZoneInfo("America/New_York")
 DASHBOARD_URL = ""
+DISPLAY_NAME = "Post-op Calling Agent (ADK)"
 
 
-def configure(*, timezone: str, dashboard_url: str = "", brand: str = "#22873B") -> None:
-    global BRAND, TZ, DASHBOARD_URL
+def configure(
+    *,
+    timezone: str,
+    dashboard_url: str = "",
+    brand: str = "#22873B",
+    display_name: str = DISPLAY_NAME,
+) -> None:
+    global BRAND, TZ, DASHBOARD_URL, DISPLAY_NAME
     TZ = ZoneInfo(timezone)
     DASHBOARD_URL = dashboard_url.rstrip("/")
     BRAND = brand
+    DISPLAY_NAME = display_name
 
 
 # Colour status markers, one per verdict tone. Colour comes from emoji: the v0.9

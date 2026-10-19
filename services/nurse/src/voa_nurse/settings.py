@@ -18,6 +18,9 @@ class NurseSettings(BaseSettings):
 
     # The deployed https URL of this service. It goes into the agent card, and
     # Gemini Enterprise POSTs to whatever the card says (never leave localhost).
+    # Shown in Gemini Enterprise (agent card) and on the home card, so a tester can
+    # tell this agent apart from the CX-Agent-Studio one ("Post-op calling assistant").
+    display_name: str = "Post-op Calling Agent (ADK)"
     public_url: str = "http://localhost:8080"
     # OAuth client id of the authorization resource configured on the Gemini
     # Enterprise agent. Empty = end-user identity is not resolved.

@@ -355,7 +355,7 @@ async def view_home():
         "next_day": len(b["next_day"]),
         "cleared": len(b["cleared"]),
     }
-    card = Card(f"{cards.greeting()}. Post-op follow-up", "phone")
+    card = Card(f"{cards.greeting()}. {cards.DISPLAY_NAME}", "phone")
     card.is_menu = True
     worst = b["now"][0]["follow_up"] if b["now"] else None
     if worst == "emergency":
