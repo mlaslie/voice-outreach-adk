@@ -57,6 +57,26 @@ TWILIO_RETRYABLE_CODES: frozenset[int] = frozenset({20429, 14107})
 _MAX_CODE_DIGITS = 9  # S-10: int() on an unbounded digit run raised on huge inputs
 
 
+#: Plain-language reasons for the Twilio codes an operator can fix, shown on the
+#: call in the console ("Text not sent: ...").
+TWILIO_CODE_REASONS: dict[int, str] = {
+    8021: "the Twilio API key is not allowed to send messages; add Messaging permissions "
+    "to the key in the Twilio Console",
+    20003: "Twilio rejected the credentials (wrong or revoked key)",
+    21408: "sending to this country/region is not enabled on the Twilio account",
+    21606: "the sending number cannot send SMS",
+    21608: "a Twilio trial account can only text verified numbers",
+    21610: "the recipient replied STOP; texts are blocked until they reply START",
+    21612: "the carrier cannot route a text from this number to that one",
+    30034: "the sending number is not registered to an A2P 10DLC campaign",
+}
+
+
+def twilio_reason(code: Any) -> str | None:
+    c = _code(code)
+    return TWILIO_CODE_REASONS.get(c) if c is not None else None
+
+
 class SmsSendError(Exception):
     """The provider did not accept the message.
 
@@ -102,8 +122,11 @@ def classify_twilio_error(status: Any, code: Any) -> SmsSendError:
         return SmsSendError("recipient unsubscribed at the carrier", code=c, opted_out=True)
     if c in TWILIO_RETRYABLE_CODES or st == 429:
         return SmsSendError(f"provider rate limited (code {c})", code=c)
-    if c in TWILIO_PERMANENT_CODES:
-        return SmsSendError(f"provider rejected the message (code {c})", code=c, permanent=True)
+    why = twilio_reason(c)
+    if c in TWILIO_PERMANENT_CODES or why:
+        return SmsSendError(
+            why or f"provider rejected the message (code {c})", code=c, permanent=True
+        )
     if st is not None and 400 <= st < 500 and st != 408:
         return SmsSendError(f"provider rejected the message (code {c})", code=c, permanent=True)
     return SmsSendError(f"provider error (code {c}, status {st})", code=c)

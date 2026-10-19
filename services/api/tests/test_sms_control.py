@@ -109,3 +109,25 @@ def test_dry_run_is_not_gated_and_no_switch_means_no_check():
     client, api, _ = make()
     run(_send(api))
     assert len(api.sms.sent) == 1
+
+
+def test_a_missing_key_permission_reads_clearly_on_the_call():
+    from voa_providers.sms import SmsSendError, classify_twilio_error
+
+    err = classify_twilio_error(403, 8021)
+    assert err.permanent and "Messaging permissions" in str(err)
+
+    class Refusing:
+        name = "twilio"
+        sent: list = []
+
+        async def send(self, to, body):
+            raise classify_twilio_error(403, 8021)
+
+    client, api = shared("https://gw.example.org/twilio/sms")
+    api.sms = Refusing()
+    with pytest.raises(sms_service.SendBlocked) as e:
+        run(_send(api))
+    assert e.value.reason.startswith("Twilio refused the message: the Twilio API key")
+    assert "(code 8021)" in e.value.reason
+    assert isinstance(err, SmsSendError)

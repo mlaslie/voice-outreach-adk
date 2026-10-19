@@ -81,6 +81,7 @@ While the verdict is pending, the agent cannot take any exit except the emergenc
 | Symptom | Cause | Status |
 |---|---|---|
 | `allUsers` binding refused | The org policy has domain-restricted sharing | Public services use `invoker_iam_disabled` instead |
+| A follow-up text shows "Text not sent: ... (code 8021)" | The Twilio API key the system uses lacks Messaging permissions (calls still work: the key has voice permissions) | Twilio Console → API keys → the key → add Messaging (send) permissions; no redeploy needed |
 | A smoke run right after a deploy shows a 500 with 0 ms latency | The request hit the previous revision while Cloud Run drained it (the log line names the old revision) | Transient; rerun the smoke test a minute later |
 | First call after a deploy has a slow first agent audio (about 20 s once) | A cold Live connection on a freshly replaced instance | Typical latency is about 1 s |
 | Query fails with "requires an index" | A Firestore composite index is missing | The store sorts client-side when filter and sort fields differ; don't add composite queries without declaring the index in Terraform |

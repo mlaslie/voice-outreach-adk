@@ -635,8 +635,14 @@ async def send_sms(
             except Exception:
                 log.warning("carrier opt-out not recorded", extra={"event": "sms.optout_failed"})
             raise SendBlocked("Recipient has opted out at the carrier.") from None
+        from voa_providers.sms import twilio_reason
+
+        why = twilio_reason(exc.code)
         raise SendBlocked(
-            f"Provider refused the message (code {exc.code}).", retryable=not exc.permanent
+            f"Twilio refused the message: {why} (code {exc.code})."
+            if why
+            else f"Provider refused the message (code {exc.code}).",
+            retryable=not exc.permanent,
         ) from None
     except Exception:
         await budget.release(api.store, BUDGET_NAME, s.max_sms_per_hour)
