@@ -176,6 +176,7 @@ def test_missed_call_invites_once_per_cooldown_and_the_switch_reopens_it():
     dup = client.post("/tasks/sms-missed-call", json={"call_id": CALL})
     assert dup.json()["queued"] is False  # named task: a duplicate collapses
     assert drain(client, api, kind="send_invite")[0].json() == {"sent": True}
+    assert run(api.store.get("calls", CALL))["sms_follow_up"]["status"] == "sent"
     body = api.sms.bodies(PHONE)[0]
     assert "Acme Health" in body and "Jordan" in body and "Rivera" not in body
     assert "Reply STOP" in body and "3 = answer by text" in body
@@ -205,6 +206,9 @@ def test_no_invite_without_consent_and_no_invite_for_an_answered_call():
     assert s["state"] == st.STATE_CLOSED and "consent" in s["last_error"]
     assert s["last_invite_at"] is None  # rolled back: nothing was said
     assert s["expires_at"] == sms.NEVER  # terminal: out of the expiry scan (C-13)
+    # The call says why no text went out, so a nurse can see it on the voicemail.
+    stamp = run(api.store.get("calls", CALL))["sms_follow_up"]
+    assert stamp["status"] == "not_sent" and stamp["reason"].startswith("No SMS consent")
 
     seed_call(api, call_id=CALL2, status="success")
     r = client.post("/tasks/sms-missed-call", json={"call_id": CALL2})

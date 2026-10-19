@@ -1365,11 +1365,28 @@ async def send_invite(api: Api, payload: dict) -> dict:
             extra={"event": "sms.invite_blocked", "reason": exc.reason, "to": mask_phone(phone)},
         )
         if exc.resume_at is not None:
+            await _mark_follow_up(api, call_id, "deferred", exc.reason)
             return await _defer_invite(api, payload, exc.resume_at)
         if exc.retryable:
             raise Retryable(exc.reason) from None
+        await _mark_follow_up(api, call_id, "not_sent", exc.reason)
         return {"blocked": exc.reason}
+    await _mark_follow_up(api, call_id, "sent")
     return {"sent": True}
+
+
+async def _mark_follow_up(api: Api, call_id: str, status: str, reason: str = "") -> None:
+    """Say on the call whether its follow-up text went out, and if not why: a
+    nurse looking at a voicemail otherwise cannot tell a skipped text (no consent,
+    the other system has the number, ...) from one that is on its way."""
+    try:
+        await api.store.merge(
+            CALLS,
+            call_id,
+            {"sms_follow_up": {"status": status, "reason": reason[:300], "at": _ts(api)}},
+        )
+    except Exception:
+        log.warning("could not stamp sms follow-up", extra={"event": "sms.follow_up_stamp_failed"})
 
 
 # --------------------------------------------------------------------------- dialling

@@ -267,6 +267,20 @@ function Body({
                   <Item k="When" v={call.ended_at ? `${clock(call.ended_at)} · ${ago(call.ended_at, now)}` : "—"} />
                   <Item k="Duration" v={call.channel === "sms" ? "—" : formatDuration(call.duration_seconds)} />
                   <Item k="Identity check" v={call.dob_verification_result ?? "—"} />
+                  {call.sms_follow_up ? (
+                    <div className="col-span-2">
+                      <Item
+                        k="Follow-up text"
+                        v={
+                          call.sms_follow_up.status === "sent"
+                            ? "Sent"
+                            : call.sms_follow_up.status === "deferred"
+                              ? `Waiting to send: ${call.sms_follow_up.reason ?? "outside texting hours"}`
+                              : `Not sent: ${call.sms_follow_up.reason ?? "unknown reason"}`
+                        }
+                      />
+                    </div>
+                  ) : null}
                 </dl>
               </Section>
             ) : null}

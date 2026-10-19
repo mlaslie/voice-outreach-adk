@@ -153,6 +153,11 @@ export function CompletedView({
                           <span className="truncate font-display text-[15px] font-semibold text-ink">{i.patientName}</span>
                           <Pill tone={k.tone} icon={k.icon}>{k.label}</Pill>
                           {i.textSent ? <Pill tone="info" icon={Send}>Text sent</Pill> : null}
+                          {i.textSkipped ? (
+                            <span title={`Follow-up text not sent: ${i.textSkipped}`}>
+                              <Pill tone="warn" icon={Send}>Text not sent</Pill>
+                            </span>
+                          ) : null}
                           {i.textReplied ? <Pill tone="good" icon={MessageCircleReply}>Replied</Pill> : null}
                           {i.callback ? (
                             <Pill tone="teal" icon={CalendarClock}>

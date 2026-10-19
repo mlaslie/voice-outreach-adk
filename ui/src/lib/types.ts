@@ -1,5 +1,13 @@
+/** Whether a missed call's follow-up text went out, and if not why (set by the API). */
+export interface SmsFollowUpStamp {
+  status: "sent" | "not_sent" | "deferred";
+  reason?: string;
+  at?: string;
+}
+
 export interface CallDoc {
   doc_id: string;
+  sms_follow_up?: SmsFollowUpStamp;
   call_sid?: string;
   to: string;
   from: string;

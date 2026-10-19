@@ -163,3 +163,8 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - `sms_dry_run = false`, and `VOA__TELEPHONY__SMS_PROVIDER = "twilio"`. With the old default (`fake` from app.yaml), turning dry-run off would have sent nothing, silently.
   - Real texts are still limited to allowlisted numbers with SMS consent, and only while this system has the shared number.
   - The "Test by text" simulator refuses to run while dry-run is off.
+- **"No text after a voicemail" (19 Oct).**
+  - The follow-up texts were refused for lack of SMS consent: the calls went to a number with no consent recorded. The sending path worked as designed, but nothing on screen said why.
+  - Calls now carry `sms_follow_up: {status: sent | not_sent | deferred, reason, at}`.
+  - The console shows "Text not sent" (with the reason) on Call status rows, and a "Follow-up text" line in the call details.
+  - Consent is recorded in the classic dashboard's Allowlist dialog.

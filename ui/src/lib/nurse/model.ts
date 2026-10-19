@@ -226,6 +226,8 @@ export interface CompletedItem {
   durationSec?: number;
   /** A follow-up text went out after this call. */
   textSent: boolean;
+  /** Why this call's follow-up text was not sent (no consent, the other system has the number, ...). */
+  textSkipped?: string;
   /** The patient wrote back. */
   textReplied: boolean;
   optedOut: boolean;
@@ -287,7 +289,8 @@ export function completedItems(
       at: c.ended_at ?? c.updated_at ?? c.initiated_at,
       kind: kindOf(c),
       durationSec: c.duration_seconds,
-      textSent: !!session?.last_invite_at,
+      textSent: c.sms_follow_up?.status === "sent" || (!c.sms_follow_up && !!session?.last_invite_at),
+      textSkipped: c.sms_follow_up?.status === "not_sent" ? c.sms_follow_up.reason || "Not sent." : undefined,
       textReplied: !!session?.last_inbound_at,
       optedOut: session?.state === "opted_out",
       followUp: c.follow_up,
