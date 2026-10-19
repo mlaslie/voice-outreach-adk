@@ -25,6 +25,7 @@ import { getStatusLabel } from "@/lib/status";
 import { formatPhone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Avatar, ChipOption, EmptyState, FilterChips, Panel, Pill, Tone, clock, countdown, isSameDay } from "./parts";
+import { splitMeridiem } from "@/lib/time";
 
 type Filter = "all" | ScheduleOrigin;
 
@@ -303,8 +304,10 @@ function ScheduleRow({
         ) : (
           <>
             <div className="font-display text-lg font-semibold tabular-nums leading-none text-ink">
-              {clock(item.when).replace(/\s?(AM|PM)$/i, "")}
-              <span className="ml-0.5 text-[11px] font-medium text-ink-muted">{clock(item.when).match(/AM|PM/i)?.[0]}</span>
+              {splitMeridiem(clock(item.when)).time}
+              {splitMeridiem(clock(item.when)).meridiem
+                ? <span className="ml-0.5 text-[11px] font-medium text-ink-muted">{splitMeridiem(clock(item.when)).meridiem}</span>
+                : null}
             </div>
             <div className="mt-1 text-[11px] text-ink-muted">{due?.text}</div>
           </>

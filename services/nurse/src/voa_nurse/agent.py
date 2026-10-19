@@ -95,9 +95,11 @@ def build_agent(
 
     def instruction(_ctx: ReadonlyContext) -> str:
         today = datetime.now(cards.TZ).strftime("%A %B %-d, %Y")
+        clock = "24-hour (e.g. 14:30)" if cards.TIME_FORMAT == "24h" else "12-hour (e.g. 2:30 PM)"
         return (
             f"{base}\n\nClinic time zone: {cards.TZ.key}. Today is {today}. "
-            "Dates without a year are the most recent past one."
+            "Dates without a year are the most recent past one. "
+            f"Write clock times the clinic's way: {clock}."
         )
 
     return Agent(

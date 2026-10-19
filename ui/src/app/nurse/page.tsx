@@ -13,6 +13,7 @@ import { useCallsStream } from "@/hooks/use-calls-stream";
 import { useCallList } from "@/hooks/use-call-list";
 import { useFollowUps } from "@/hooks/use-followups";
 import { useCallRuns } from "@/hooks/use-call-runs";
+import { setTimeFormat } from "@/lib/time";
 
 /**
  * The nurse console. The classic dashboard at / is unchanged.
@@ -35,6 +36,10 @@ function Router() {
 
 function Sample() {
   const data = useMemo(() => demoData(), []);
+  const [settings, setSettings] = useState<CallSettingsResponse>(
+    () => ({ recall: DEFAULT_RECALL, timezone: "America/New_York", display: { time_format: "24h" } }),
+  );
+  useEffect(() => { setTimeFormat("24h"); }, []);
   const actions = useMemo<NurseActions>(() => {
     const explain = async () => {
       toast.info("Sample data: nothing is sent. Switch to live data to act for real.");
@@ -49,6 +54,12 @@ function Sample() {
       updateRun: explain,
       cancelRun: explain,
       saveRecall: explain,
+      // Sample mode: the toggle changes the format locally so the design can be seen both ways.
+      saveDisplay: async (body) => {
+        setSettings((s) => ({ ...s, display: body }));
+        setTimeFormat(body.time_format);
+        toast.info("Sample data: time display changed in this tab only.");
+      },
       cancelEntries: explain,
       rescheduleEntry: explain,
       setFollowUp: async (sid, body) => {
@@ -62,7 +73,6 @@ function Sample() {
       refresh: () => {},
     };
   }, [data]);
-  const settings = useMemo<CallSettingsResponse>(() => ({ recall: DEFAULT_RECALL, timezone: "America/New_York" }), []);
   return <NurseConsole data={data} mode="demo" actions={actions} settings={settings} />;
 }
 
@@ -77,6 +87,10 @@ function Live() {
   useEffect(() => {
     api.getCallSettings().then(setSettings).catch(() => {});
   }, []);
+  // Nurse-facing times follow the clinic's setting (default 24-hour).
+  useEffect(() => {
+    if (settings) setTimeFormat(settings.display?.time_format ?? "24h");
+  }, [settings]);
 
   const refresh = useCallback(() => {
     refreshCalls();
@@ -138,6 +152,9 @@ function Live() {
     },
     async saveRecall(body) {
       setSettings(await api.setRecallSettings(body));
+    },
+    async saveDisplay(body) {
+      setSettings(await api.setDisplaySettings(body));
     },
     async resetCompleted() {
       await api.resetCallList();

@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { setTimeFormat } from "../time";
 import { inCallingWindow, isoToZonedInput, nextCallingSlot, windowText, zonedInputToIso } from "./window";
 import { RecallSettings } from "../types";
 
@@ -29,9 +30,18 @@ describe("calling hours (clinic time zone)", () => {
     expect(nextCallingSlot(Date.parse("2030-01-07T10:05:00-05:00"), W, NY)).toBe("2030-01-07T15:15:00.000Z");
   });
 
-  it("describes the window in plain words", () => {
+  afterEach(() => setTimeFormat("24h"));
+
+  it("describes the window in plain words, 12-hour", () => {
+    setTimeFormat("12h");
     expect(windowText(W)).toBe("Mon–Sat, 9:00 AM–5:00 PM");
     expect(windowText({ ...W, days: [0, 2, 4] })).toBe("Mon, Wed, Fri, 9:00 AM–5:00 PM");
+  });
+
+  it("describes the window in plain words, 24-hour", () => {
+    setTimeFormat("24h");
+    expect(windowText(W)).toBe("Mon–Sat, 09:00–17:00");
+    expect(windowText({ ...W, days: [0, 1, 2, 3, 4, 5, 6], window_start: "08:30", window_end: "20:00" })).toBe("Every day, 08:30–20:00");
   });
 });
 

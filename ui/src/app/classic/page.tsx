@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { api } from "@/lib/api";
+import { setTimeFormat, useTimeFormat } from "@/lib/time";
 import { useCallsStream } from "@/hooks/use-calls-stream";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { ActiveCallsStrip } from "@/components/active-calls-strip";
@@ -17,6 +19,11 @@ type View = "calls" | "list" | "followups";
 
 export default function DashboardPage() {
   const { calls, connState, refresh, loading } = useCallsStream();
+  // Staff times follow the clinic's 12h/24h setting; on failure keep the default.
+  useTimeFormat();
+  useEffect(() => {
+    api.getCallSettings().then((s) => setTimeFormat(s.display?.time_format ?? "24h")).catch(() => {});
+  }, []);
   const [view, setView] = useState<View>("calls");
   const [selectedCallSid, setSelectedCallSid] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");

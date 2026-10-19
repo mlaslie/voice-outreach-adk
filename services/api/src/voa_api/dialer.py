@@ -47,7 +47,10 @@ def check_calling_hours(api: Api, hours: compliance.RecallSettings | None) -> No
         return
     tz = api.cfg.site.timezone
     if not compliance.in_calling_window(api.now(), hours, tz):
-        raise OutsideCallingHours(f"Outside calling hours ({compliance.window_text(hours, tz)}).")
+        fmt = api.cfg.site.nurse_time_format  # sync path: the configured default
+        raise OutsideCallingHours(
+            f"Outside calling hours ({compliance.window_text(hours, tz, fmt)})."
+        )
 
 
 async def runtime_allowlist(api: Api) -> list[str] | None:

@@ -122,6 +122,7 @@ def build_deps(
         dashboard_url=settings.dashboard_url,
         brand=settings.brand_color,
         display_name=settings.display_name,
+        time_format=cfg.site.nurse_time_format,
     )
     if store is None:
         store = (

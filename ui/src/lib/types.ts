@@ -216,9 +216,16 @@ export interface RecallSettings {
   max_recalls: number;
 }
 
+/** How nurse-facing times render (patients always get 12-hour). */
+export interface DisplaySettings {
+  time_format: "12h" | "24h";
+}
+
 export interface CallSettingsResponse {
   recall: RecallSettings;
   timezone: string;
+  /** Optional until every backend serves it; treat missing as 24h. */
+  display?: DisplaySettings;
 }
 
 export interface CallRunInput {

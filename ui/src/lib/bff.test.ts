@@ -33,6 +33,7 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["DELETE", `call-runs/${ID32}`],
     ["GET", "call-settings"],
     ["PUT", "call-settings/recall"],
+    ["PUT", "call-settings/display"],
     ["GET", "allowlist"],
     ["POST", "allowlist"],
     ["DELETE", "allowlist/%2B12025550123"],
@@ -58,6 +59,8 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", "place-call"],
     ["POST", "calls/stream"],
     ["PUT", "call-settings"],
+    ["GET", "call-settings/display"],
+    ["PUT", "call-settings/display/x"],
     ["POST", "follow-ups/open"],
     ["POST", "tasks/tick"], // the endpoint that dials people on a timer
     ["POST", "sms/tasks/tick"],

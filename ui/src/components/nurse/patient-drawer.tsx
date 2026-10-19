@@ -18,6 +18,8 @@ import { CallTexts } from "@/components/call-texts";
 import { SurveyAnswers } from "@/components/survey-answers";
 import { cn } from "@/lib/utils";
 import { Avatar, Pill, Tone, ago, clock } from "./parts";
+import { ClinicDateTimeInput } from "./clinic-time-input";
+import { fmtDateTime } from "@/lib/time";
 
 export interface DrawerSubject {
   name: string;
@@ -189,7 +191,7 @@ function Body({
               <Section title="Scheduled">
                 <div className="flex items-center gap-2 text-[14px] text-ink">
                   <CalendarClock className="h-4 w-4 text-brand" />
-                  {new Date(s.scheduledFor).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })} at {clock(s.scheduledFor)}
+                  {fmtDateTime(s.scheduledFor, { weekday: "long", month: "short", day: "numeric", sep: " at " })}
                 </div>
               </Section>
             ) : null}
@@ -197,7 +199,7 @@ function Body({
             {call?.review?.status === "signed_off" ? (
               <div className="rounded-2xl bg-brand/[0.07] px-4 py-3 text-[13px] text-ink ring-1 ring-inset ring-brand/20">
                 <span className="font-semibold">{call.review.resolved ? "Follow-up resolved and signed off" : "Signed off"}</span>
-                {" "}by {call.review.by ?? "nurse"}{call.review.at ? ` · ${new Date(call.review.at).toLocaleString()}` : ""}
+                {" "}by {call.review.by ?? "nurse"}{call.review.at ? ` · ${fmtDateTime(call.review.at, { month: "short", day: "numeric", year: "numeric" })}` : ""}
                 {call.review.note ? <div className="mt-1 text-ink-soft">{call.review.note}</div> : null}
               </div>
             ) : call?.review?.status === "superseded" ? (
@@ -205,7 +207,7 @@ function Body({
                 {call.review.resolved
                   ? <>Resolved together with a later report by {call.review.by ?? "nurse"}</>
                   : <>Closed: a later report for this patient replaced it and was signed off by {call.review.by ?? "nurse"}</>}
-                {call.review.at ? ` · ${new Date(call.review.at).toLocaleString()}` : ""}.
+                {call.review.at ? ` · ${fmtDateTime(call.review.at, { month: "short", day: "numeric", year: "numeric" })}` : ""}.
                 {call.review.resolved ? " Sent to the EHR as closed with that note." : " Not sent to the EHR."}
                 {call.review.resolved && call.review.note ? <div className="mt-1 text-ink-soft">{call.review.note}</div> : null}
               </div>
@@ -371,7 +373,7 @@ function CancelledSection({
   };
 
   const runText = (r: CallRun) =>
-    `${new Date(r.scheduled_for).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${clock(r.scheduled_for)}` +
+    `${fmtDateTime(r.scheduled_for, { weekday: "short", month: "short", day: "numeric", sep: " · " })}` +
     `${r.label ? ` — ${r.label}` : ""} (${r.entry_ids.length} ${r.entry_ids.length === 1 ? "patient" : "patients"})`;
 
   return (
@@ -379,13 +381,13 @@ function CancelledSection({
       <div className="rounded-2xl bg-brand-orange/10 p-4 ring-1 ring-inset ring-brand-orange/30">
         <div className="flex items-center gap-2 text-[13px] font-semibold text-ink">
           <XCircle className="h-4 w-4 text-brand-coral-dark" />
-          Call cancelled {new Date(cancel.at).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+          Call cancelled {fmtDateTime(cancel.at, { weekday: "short", month: "short", day: "numeric" })}
           {cancel.by ? <span className="font-normal text-ink-soft">by {cancel.by}</span> : null}
         </div>
         <p className="mt-2 text-[14px] leading-relaxed text-ink">{cancel.reason}</p>
         {cancel.run_scheduled_for ? (
           <p className="mt-1 text-[12px] text-ink-muted">
-            Was planned for {new Date(cancel.run_scheduled_for).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}.
+            Was planned for {fmtDateTime(cancel.run_scheduled_for, { weekday: "short", month: "short", day: "numeric" })}.
           </p>
         ) : null}
       </div>
@@ -419,14 +421,14 @@ function CancelledSection({
             <span className="min-w-0 flex-1">
               <span className="block text-[13px] font-semibold text-ink">New run at</span>
               <span className="mt-1.5 flex flex-wrap gap-2">
-                <input type="datetime-local" value={when} onChange={(e) => { setWhen(e.target.value); setMode("new"); }}
-                  className="rounded-lg bg-mist/60 px-2 py-1.5 text-[13px] text-ink ring-1 ring-inset ring-black/[0.06]" />
+                <ClinicDateTimeInput value={when} onChange={(v) => { setWhen(v); setMode("new"); }} label="New run"
+                  inputClassName="rounded-lg bg-mist/60 px-2 py-1.5 text-[13px] text-ink ring-1 ring-inset ring-black/[0.06]" />
                 <input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={80} placeholder="Name (optional)"
                   className="min-w-0 flex-1 rounded-lg bg-mist/60 px-2 py-1.5 text-[13px] text-ink ring-1 ring-inset ring-black/[0.06]" />
               </span>
               {mode === "new" && iso && Intl.DateTimeFormat().resolvedOptions().timeZone !== tz ? (
                 <span className="mt-1 block text-[11px] text-ink-muted">
-                  = {new Date(iso).toLocaleString(undefined, { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" })} clinic time
+                  = {fmtDateTime(iso, { timeZone: tz, weekday: "short", sep: " " })} clinic time
                 </span>
               ) : null}
               {mode === "new" && inPast ? (
@@ -581,7 +583,7 @@ function FollowUpControl({
               {[...history].reverse().map((h, i) => (
                 <li key={`${h.at}-${i}`}>
                   <span className="font-semibold text-ink">{getFollowUpLabel(h.from ?? undefined)} → {getFollowUpLabel(h.to)}</span>
-                  <span className="text-ink-muted"> · {h.set_by ?? "nurse"} · {new Date(h.at).toLocaleString()}</span>
+                  <span className="text-ink-muted"> · {h.set_by ?? "nurse"} · {fmtDateTime(h.at, { month: "short", day: "numeric", year: "numeric" })}</span>
                   <div className="text-ink">{h.reason}</div>
                 </li>
               ))}

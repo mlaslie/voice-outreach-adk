@@ -20,7 +20,8 @@ import { DEFAULT_RECALL } from "./recall-settings";
 import { NurseActions } from "@/lib/nurse/actions";
 import { formatPhone } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { clock } from "./parts";
+import { ClinicDateTimeInput, INPUT_LOOK } from "./clinic-time-input";
+import { fmtDateTime } from "@/lib/time";
 
 /**
  * Create or edit a call run: a date/time and the patients to call then.
@@ -126,7 +127,7 @@ export function RunDialog({
         if (actions.live) toast.success(removing ? "Run removed" : "Run updated");
       } else {
         await actions.createRun({ scheduled_for: iso!, entry_ids: ids, label: label.trim() || null });
-        if (actions.live) toast.success(`Run scheduled for ${new Date(iso!).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })}`);
+        if (actions.live) toast.success(`Run scheduled for ${fmtDateTime(iso!, { weekday: "short", sep: " " })}`);
       }
       onOpenChange(false);
     } catch (e) {
@@ -151,10 +152,11 @@ export function RunDialog({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="run-when">Date and time *</Label>
-              <Input id="run-when" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
+              <ClinicDateTimeInput id="run-when" label="Run" value={when} onChange={setWhen}
+                inputClassName={INPUT_LOOK} />
               {iso && Intl.DateTimeFormat().resolvedOptions().timeZone !== tz ? (
                 <p className="text-xs text-ink-muted">
-                  = {new Date(iso).toLocaleString(undefined, { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" })} clinic time
+                  = {fmtDateTime(iso, { timeZone: tz, weekday: "short", sep: " " })} clinic time
                 </p>
               ) : null}
               {inPast ? (
@@ -229,7 +231,7 @@ export function RunDialog({
                       ) : null}
                       {other ? (
                         <span className="shrink-0 text-[11px] text-ink-muted">
-                          in run {new Date(other.scheduled_for).toLocaleDateString(undefined, { month: "short", day: "numeric" })} {clock(other.scheduled_for)}
+                          in run {fmtDateTime(other.scheduled_for, { month: "short", day: "numeric", sep: " " })}
                         </span>
                       ) : null}
                     </label>

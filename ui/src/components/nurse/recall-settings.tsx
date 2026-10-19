@@ -8,6 +8,8 @@ import { NurseActions } from "@/lib/nurse/actions";
 import { cn } from "@/lib/utils";
 import { DEFAULT_CALLING_HOURS } from "@/lib/nurse/window";
 import { Panel } from "./parts";
+import { ClinicTimeSelect } from "./clinic-time-input";
+import { fmtHHMM, useTimeFormat } from "@/lib/time";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -27,6 +29,7 @@ export function RecallSettingsPanel({
   timezone?: string;
   actions: NurseActions;
 }) {
+  useTimeFormat(); // re-render the example sentence when the format changes
   const [form, setForm] = useState<RecallSettings>(settings ?? DEFAULT_RECALL);
   const [busy, setBusy] = useState(false);
   useEffect(() => { if (settings) setForm(settings); }, [settings]);
@@ -104,11 +107,11 @@ export function RecallSettingsPanel({
         <div>
           <div className="text-[12px] font-semibold text-ink-soft">Between</div>
           <div className="mt-1.5 flex items-center gap-2 text-[13px] text-ink-soft">
-            <input type="time" value={form.window_start} disabled={!form.enabled}
-              onChange={(e) => setForm((f) => ({ ...f, window_start: e.target.value }))} className={field} aria-label="Window start" />
+            <ClinicTimeSelect value={form.window_start} disabled={!form.enabled} step={30}
+              onChange={(v) => setForm((f) => ({ ...f, window_start: v }))} className={field} aria-label="Window start" />
             and
-            <input type="time" value={form.window_end} disabled={!form.enabled}
-              onChange={(e) => setForm((f) => ({ ...f, window_end: e.target.value }))} className={field} aria-label="Window end" />
+            <ClinicTimeSelect value={form.window_end} disabled={!form.enabled} step={30}
+              onChange={(v) => setForm((f) => ({ ...f, window_end: v }))} className={field} aria-label="Window end" />
           </div>
           <p className="mt-1.5 text-[11px] text-ink-muted">
             Clinic time{timezone ? ` (${timezone.replace("_", " ")})` : ""}. These hours and days are also the only times a
@@ -138,7 +141,7 @@ export function RecallSettingsPanel({
           <span className="text-brand-red-dark">{problems.join(" ")}</span>
         ) : form.enabled ? (
           <span>
-            Example: a call missed at 4:30 PM is retried {describe(form)}.
+            Example: a call missed at {fmtHHMM("16:30")} is retried {describe(form)}.
           </span>
         ) : (
           <span>Missed calls are not retried automatically; the follow-up text still goes out.</span>
@@ -155,7 +158,7 @@ export function RecallSettingsPanel({
   );
 }
 
-/** A plain-language example of where a 4:30 PM miss lands. */
+/** A plain-language example of where a 16:30 miss lands. */
 function describe(f: RecallSettings): string {
   const missed = 16 * 60 + 30;
   const start = toMin(f.window_start);
@@ -175,5 +178,5 @@ const toMin = (hhmm: string) => {
 const fmt = (m: number) => {
   const h = Math.floor(m / 60) % 24;
   const mm = String(m % 60).padStart(2, "0");
-  return `${((h + 11) % 12) + 1}:${mm} ${h < 12 ? "AM" : "PM"}`;
+  return fmtHHMM(`${String(h).padStart(2, "0")}:${mm}`);
 };

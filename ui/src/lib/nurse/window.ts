@@ -1,4 +1,5 @@
 import { RecallSettings } from "../types";
+import { fmtHHMM } from "../time";
 
 /**
  * Clinic calling hours — the Auto-recall window (Settings), which also limits
@@ -87,17 +88,12 @@ function offsetMs(ms: number, tz: string): number {
   return asUtc - Math.floor(ms / 60_000) * 60_000;
 }
 
-/** "Mon–Sat, 9:00 AM–5:00 PM" */
+/** "Mon–Sat, 09:00–17:00" (24h) or "Mon–Sat, 9:00 AM–5:00 PM" (12h). */
 export function windowText(w: RecallSettings): string {
   const days = [...w.days].sort();
   const contiguous = days.every((d, i) => i === 0 || d === days[i - 1] + 1);
   const dayText = days.length === 7 ? "Every day"
     : contiguous && days.length > 2 ? `${DAY_NAMES[days[0]]}–${DAY_NAMES[days[days.length - 1]]}`
     : days.map((d) => DAY_NAMES[d]).join(", ");
-  return `${dayText}, ${fmt(w.window_start)}–${fmt(w.window_end)}`;
-}
-
-function fmt(hhmm: string): string {
-  const [h, m] = hhmm.split(":").map(Number);
-  return `${((h + 11) % 12) + 1}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+  return `${dayText}, ${fmtHHMM(w.window_start)}–${fmtHHMM(w.window_end)}`;
 }

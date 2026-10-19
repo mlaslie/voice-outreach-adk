@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useTimeFormat } from "@/lib/time";
 import {
   Activity,
   AlertTriangle,
@@ -65,6 +66,8 @@ export function NurseConsole({
   /** Live sources that failed to load: shown, never read as "nothing to do". */
   unavailable?: string[];
 }) {
+  // Re-render the whole console when the clinic's 12h/24h setting changes.
+  useTimeFormat();
   const [view, setView] = useState<View>("schedule");
   const [query, setQuery] = useState("");
   const [drawer, setDrawer] = useState<DrawerSubject | null>(null);

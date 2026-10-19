@@ -7,7 +7,8 @@ from typing import Any
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from voa_core import budget, compliance
+from pydantic import BaseModel
+from voa_core import budget, compliance, timefmt
 from voa_core.store import new_id, now_iso
 
 from .auth import acting_user
@@ -63,6 +64,25 @@ async def recall_settings(api: Api) -> compliance.RecallSettings:
 
 def _tz(api: Api) -> str:
     return api.cfg.site.timezone
+
+
+async def nurse_time_format(api: Api) -> timefmt.TimeFormat:
+    """The clinic's nurse-facing time format: Settings override, else site config."""
+    doc = await api.store.get(SETTINGS, "display") or {}
+    return timefmt.coerce(doc.get("time_format"), api.cfg.site.nurse_time_format)
+
+
+async def hours_text(api: Api, cfg: compliance.RecallSettings) -> str:
+    """Calling hours for a nurse-facing message, in the clinic's time format."""
+    return compliance.window_text(cfg, _tz(api), await nurse_time_format(api))
+
+
+async def _settings_body(api: Api, recall: compliance.RecallSettings | None = None) -> dict:
+    return {
+        "recall": (recall or await recall_settings(api)).model_dump(),
+        "timezone": _tz(api),
+        "display": {"time_format": await nurse_time_format(api)},
+    }
 
 
 def _parse_when(raw: str) -> datetime:
@@ -280,7 +300,8 @@ async def reschedule(entry_id: str, body: Reschedule, request: Request):
         when = _parse_when(target["scheduled_for"])
         if not compliance.in_calling_window(when, cfg, _tz(api)):
             raise HTTPException(
-                400, f"That run is outside calling hours ({compliance.window_text(cfg, _tz(api))})."
+                400,
+                f"That run is outside calling hours ({await hours_text(api, cfg)}).",
             )
         ids = [*target.get("entry_ids", []), entry_id]
         if len(ids) > api.cfg.dialing.max_dials_per_run:
@@ -295,7 +316,8 @@ async def reschedule(entry_id: str, body: Reschedule, request: Request):
             raise HTTPException(400, "scheduled_for must be in the future.")
         if not compliance.in_calling_window(when, cfg, _tz(api)):
             raise HTTPException(
-                400, f"Outside calling hours ({compliance.window_text(cfg, _tz(api))})."
+                400,
+                f"Outside calling hours ({await hours_text(api, cfg)}).",
             )
         run_id, scheduled = new_id(), when.isoformat()
         await api.store.set(
@@ -412,7 +434,8 @@ async def _require_hours(api: Api, when: datetime) -> None:
     cfg = await recall_settings(api)
     if not compliance.in_calling_window(when, cfg, _tz(api)):
         raise HTTPException(
-            400, f"Outside calling hours ({compliance.window_text(cfg, _tz(api))})."
+            400,
+            f"Outside calling hours ({await hours_text(api, cfg)}).",
         )
 
 
@@ -547,8 +570,7 @@ async def delete_run(run_id: str, request: Request):
 
 @router.get("/call-settings")
 async def get_settings(request: Request):
-    api = _api(request)
-    return {"recall": (await recall_settings(api)).model_dump(), "timezone": _tz(api)}
+    return await _settings_body(_api(request))
 
 
 @router.put("/call-settings/recall")
@@ -557,7 +579,22 @@ async def put_recall(body: compliance.RecallSettings, request: Request):
     await api.store.set(
         SETTINGS, "recall", {**body.model_dump(), "updated_by": acting_user(request)}
     )
-    return {"recall": body.model_dump(), "timezone": _tz(api)}
+    return await _settings_body(api, body)
+
+
+class DisplaySettings(BaseModel):
+    """How times show to nurses. Patients always get 12-hour times."""
+
+    time_format: timefmt.TimeFormat
+
+
+@router.put("/call-settings/display")
+async def put_display(body: DisplaySettings, request: Request):
+    api = _api(request)
+    await api.store.set(
+        SETTINGS, "display", {**body.model_dump(), "updated_by": acting_user(request)}
+    )
+    return await _settings_body(api)
 
 
 # --------------------------------------------------------------------------- allowlist

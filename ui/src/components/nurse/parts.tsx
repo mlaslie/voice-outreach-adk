@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { fmtClock } from "@/lib/time";
 import { LOGO_URL, ORG_NAME } from "@/lib/site";
 import { initials } from "@/lib/nurse/model";
 
@@ -219,8 +220,9 @@ export function BrandMark({ className }: { className?: string }) {
 // Time
 // ---------------------------------------------------------------------------
 
-export function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+/** "14:30" / "2:30 PM", per the clinic's time display setting. */
+export function clock(iso: string, timeZone?: string): string {
+  return fmtClock(iso, { timeZone });
 }
 
 export function ago(iso: string, now: Date): string {

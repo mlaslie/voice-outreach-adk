@@ -28,6 +28,7 @@ import {
   upcoming,
 } from "@/lib/followups";
 import { formatPhone, formatTime, relativeTime } from "@/lib/format";
+import { fmtDateTime } from "@/lib/time";
 
 /**
  * The Follow-ups tab: who is mid-conversation, who has a callback booked,
@@ -349,7 +350,7 @@ export function FollowUpsView() {
                         {formatPhone(cb.phone)}
                       </td>
                       <td className="px-4 py-2.5 tabular-nums">
-                        {formatTime(cb.run_at)}
+                        {fmtDateTime(cb.run_at, { weekday: "short" })}
                         <span className="ml-2 text-xs text-ink-muted">
                           {relativeTime(cb.run_at)}
                         </span>
@@ -443,7 +444,11 @@ export function FollowUpsView() {
                       <Chip label={sessionLabel(s.state)} />
                     </td>
                     <td className="px-4 py-2.5 text-ink-soft">
-                      {s.scheduled_for_text || <span className="text-ink-muted">—</span>}
+                      {s.scheduled_for
+                        ? <span title={s.scheduled_for_text ? `Patient was told: “${s.scheduled_for_text}”` : undefined}>
+                            {fmtDateTime(s.scheduled_for, { weekday: "short", month: "short", day: "numeric" })}
+                          </span>
+                        : s.scheduled_for_text || <span className="text-ink-muted">—</span>}
                     </td>
                     <td className="px-4 py-2.5 text-ink-soft text-xs">
                       {s.updated_at ? relativeTime(s.updated_at) : "—"}

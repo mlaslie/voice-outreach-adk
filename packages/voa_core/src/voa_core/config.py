@@ -67,6 +67,10 @@ class SiteConfig(_Strict):
     privacy_url: str = "https://example.org/privacy"
     terms_url: str = "https://example.org/terms"
     timezone: str = "America/New_York"
+    #: How times show to NURSES (dashboard, nurse agent cards, calling-hours
+    #: messages) until the dashboard's Settings change it. Patients always get
+    #: 12-hour times. Set it to what the clinic's nursing documentation uses.
+    nurse_time_format: Literal["12h", "24h"] = "24h"
 
 
 class TelephonyConfig(_Strict):

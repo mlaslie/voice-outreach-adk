@@ -2,14 +2,15 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { CalendarClock, CalendarPlus, CheckCircle2, Pencil, PhoneCall, Plus, RotateCcw, ShieldAlert, ShieldCheck, Trash2, X } from "lucide-react";
+import { CalendarClock, CalendarPlus, CheckCircle2, Clock, Pencil, PhoneCall, Plus, RotateCcw, ShieldAlert, ShieldCheck, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { AllowlistResponse, CallListEntry, CallRun, CallSettingsResponse } from "@/lib/types";
 import { NurseActions } from "@/lib/nurse/actions";
 import { isAllowed } from "@/lib/nurse/allowlist";
 import { formatPhone } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { EmptyState, Panel, Pill, Tone, clock, countdown } from "./parts";
+import { EmptyState, Panel, Pill, Tone, countdown } from "./parts";
+import { fmtDateTime, fmtHHMM, TimeFormat, useTimeFormat } from "@/lib/time";
 import { EntryDialog } from "./entry-dialog";
 import { RunDialog } from "./run-dialog";
 import { DEFAULT_RECALL, RecallSettingsPanel } from "./recall-settings";
@@ -45,7 +46,7 @@ export function SettingsView({
   for (const r of runs) if (r.status === "scheduled") for (const id of r.entry_ids) runOf.set(id, r);
 
   const cancelRun = async (r: CallRun) => {
-    const when = new Date(r.scheduled_for).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const when = fmtDateTime(r.scheduled_for, { weekday: "short", month: "short", day: "numeric" });
     if (!window.confirm(`Cancel the ${when} run (${r.entry_ids.length} ${r.entry_ids.length === 1 ? "patient" : "patients"})? Nobody in it will be called.`)) return;
     setBusy(r.run_id);
     try {
@@ -153,7 +154,7 @@ export function SettingsView({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-display text-[15px] font-semibold tabular-nums text-ink">
-                        {new Date(r.scheduled_for).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · {clock(r.scheduled_for)}
+                        {fmtDateTime(r.scheduled_for, { weekday: "short", month: "short", day: "numeric", sep: " · " })}
                       </span>
                       {r.label ? <span className="text-[13px] font-semibold text-ink-soft">{r.label}</span> : null}
                       {r.auto_recall ? <Pill tone="teal">Automatic</Pill> : null}
@@ -212,7 +213,7 @@ export function SettingsView({
                 <li key={r.run_id} className="flex flex-wrap items-center gap-2">
                   <CheckCircle2 className="h-3.5 w-3.5 text-brand" />
                   <span className="tabular-nums text-ink">
-                    {new Date(r.scheduled_for).toLocaleDateString(undefined, { month: "short", day: "numeric" })} {clock(r.scheduled_for)}
+                    {fmtDateTime(r.scheduled_for, { month: "short", day: "numeric", sep: " " })}
                   </span>
                   {r.label ? <span>{r.label}</span> : null}
                   <span>· dialled {r.dialled ?? 0} of {r.entry_ids.length}</span>
@@ -226,6 +227,8 @@ export function SettingsView({
       </Panel>
 
       <RecallSettingsPanel settings={settings?.recall ?? null} timezone={settings?.timezone} actions={actions} />
+
+      <TimeDisplayPanel saved={settings?.display?.time_format ?? null} actions={actions} />
 
       {/* ---- Patients ---- */}
       <Panel className="flex flex-wrap items-center gap-3 px-5 py-3.5">
@@ -284,7 +287,7 @@ export function SettingsView({
                     {runOf.get(e.entry_id) ? (
                       <span className="inline-flex items-center gap-1.5 tabular-nums text-ink">
                         <CalendarClock className="h-3.5 w-3.5" />
-                        {new Date(runOf.get(e.entry_id)!.scheduled_for).toLocaleDateString(undefined, { month: "short", day: "numeric" })} {clock(runOf.get(e.entry_id)!.scheduled_for)}
+                        {fmtDateTime(runOf.get(e.entry_id)!.scheduled_for, { month: "short", day: "numeric", sep: " " })}
                       </span>
                     ) : (
                       <span className="text-ink-muted" title="Not in a scheduled run. Add them to one, or call by hand.">Not in a run</span>
@@ -392,5 +395,57 @@ function StatusPill({ entry, allowed }: { entry: CallListEntry; allowed?: boolea
       {entry.attempts > 0 ? <span className="text-[11px] text-ink-muted">{entry.attempts} {entry.attempts === 1 ? "attempt" : "attempts"}{entry.last_call_status ? ` · ${entry.last_call_status}` : ""}</span> : null}
       {entry.last_error ? <span className="text-[11px] text-brand-coral-dark">{entry.last_error}</span> : null}
     </div>
+  );
+}
+
+/** Settings → Time display: 12- or 24-hour clocks for nurses. */
+function TimeDisplayPanel({ saved, actions }: { saved: TimeFormat | null; actions: NurseActions }) {
+  const current = useTimeFormat();
+  const value = saved ?? current;
+  const [busy, setBusy] = useState(false);
+  const choose = async (f: TimeFormat) => {
+    if (f === value || busy) return;
+    setBusy(true);
+    try {
+      await actions.saveDisplay({ time_format: f });
+      if (actions.live) toast.success(f === "24h" ? "Times now show as 24-hour" : "Times now show as 12-hour");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not save the setting.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const OPTIONS: { f: TimeFormat; label: string }[] = [
+    { f: "12h", label: `12-hour · ${fmtHHMM("14:30", "12h")}` },
+    { f: "24h", label: `24-hour · ${fmtHHMM("14:30", "24h")}` },
+  ];
+  return (
+    <Panel className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+      <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand-deep">
+        <Clock className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <h3 className="font-display text-[15px] font-semibold text-ink">Time display</h3>
+        <p className="text-[12px] text-ink-muted">
+          How times show for nurses in this console and the Gemini Enterprise agent. Patients always hear and read 12-hour times.
+        </p>
+      </div>
+      <div role="radiogroup" aria-label="Time display" className="ml-auto inline-flex rounded-full bg-mist/70 p-1 ring-1 ring-inset ring-black/[0.06]">
+        {OPTIONS.map(({ f, label }) => (
+          <button
+            key={f}
+            type="button"
+            role="radio"
+            aria-checked={value === f}
+            disabled={busy}
+            onClick={() => choose(f)}
+            className={cn("rounded-full px-3.5 py-1.5 text-[12px] font-semibold tabular-nums transition-colors disabled:opacity-60",
+              value === f ? "bg-brand-deep text-white shadow-sm" : "text-ink-soft hover:text-ink")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </Panel>
   );
 }

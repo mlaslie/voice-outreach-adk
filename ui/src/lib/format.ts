@@ -1,3 +1,5 @@
+import { fmtClock } from "./time";
+
 export function formatPhone(phone: string): string {
   // Mask middle digits: +1•••••4567
   if (!phone) return phone;
@@ -24,9 +26,10 @@ export function relativeTime(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
+/** Clock time with seconds, in the clinic's 12h/24h setting. */
 export function formatTime(iso?: string): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleTimeString();
+  return fmtClock(iso, { seconds: true });
 }
 
 export function elapsedSince(iso?: string): string {

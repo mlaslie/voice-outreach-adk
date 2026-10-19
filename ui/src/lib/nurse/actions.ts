@@ -1,5 +1,5 @@
 import {
-  CallDoc, CallListEntry, CallListEntryInput, CallRun, CallRunInput, FollowUpOverrideRequest, RecallSettings, RescheduleTarget,
+  CallDoc, CallListEntry, CallListEntryInput, CallRun, CallRunInput, DisplaySettings, FollowUpOverrideRequest, RecallSettings, RescheduleTarget,
 } from "../types";
 
 /**
@@ -31,6 +31,8 @@ export interface NurseActions {
   rescheduleEntry(entryId: string, target: RescheduleTarget): Promise<void>;
   /** Save the auto-recall settings. */
   saveRecall(body: RecallSettings): Promise<void>;
+  /** Save how times show for nurses (12- or 24-hour). */
+  saveDisplay(body: DisplaySettings): Promise<void>;
   /** A nurse changes the follow-up tier, with a reason. Returns the updated call. */
   setFollowUp(callSid: string, body: FollowUpOverrideRequest): Promise<CallDoc>;
   /** Re-read everything (after an action). */

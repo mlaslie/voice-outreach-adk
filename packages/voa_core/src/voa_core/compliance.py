@@ -19,6 +19,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from . import timefmt
+
 # ---------------------------------------------------------------------------
 # Booleans from loosely typed stores
 # ---------------------------------------------------------------------------
@@ -216,9 +218,11 @@ def in_calling_window(when: datetime, cfg: RecallSettings, tz_name: str) -> bool
     return local.weekday() in cfg.days and cfg.window_start <= hhmm < cfg.window_end
 
 
-def window_text(cfg: RecallSettings, tz_name: str) -> str:
+def window_text(cfg: RecallSettings, tz_name: str, fmt: timefmt.TimeFormat = "24h") -> str:
+    """Nurse-facing: the window in the clinic's time format."""
     days = ", ".join(DAY_NAMES[d] for d in cfg.days)
-    return f"{days}, {cfg.window_start}–{cfg.window_end} ({tz_name})"
+    start, end = timefmt.hhmm(cfg.window_start, fmt), timefmt.hhmm(cfg.window_end, fmt)
+    return f"{days}, {start}–{end} ({tz_name})"
 
 
 def next_recall_slot(after: datetime, cfg: RecallSettings, tz_name: str) -> datetime | None:

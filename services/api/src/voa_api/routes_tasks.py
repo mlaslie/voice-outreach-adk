@@ -615,7 +615,7 @@ async def cron_dispatch_due(request: Request):
     Calling hours are checked HERE, at dial time, not only when a run is created:
     outside them nothing is dialled and due runs move to the next opening (B-8).
     A nurse's "Call now" is not this path."""
-    from .routes_list import recall_settings
+    from .routes_list import hours_text, recall_settings
 
     api: Api = request.app.state.api
     # Take out anyone who has since booked a time by text. Never allowed to stop
@@ -641,7 +641,7 @@ async def cron_dispatch_due(request: Request):
         return {
             "started": False,
             "call_run_id": None,
-            "reason": f"Outside calling hours ({compliance.window_text(cfg, tz)})"
+            "reason": f"Outside calling hours ({await hours_text(api, cfg)})"
             + (f"; moved {len(moved)} due run(s) to the next opening." if moved else "."),
         }
     # Scheduled call runs first; one per tick. A failure here must not stop the

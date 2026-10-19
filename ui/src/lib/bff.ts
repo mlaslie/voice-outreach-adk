@@ -65,6 +65,7 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp]> = [
   // Settings
   ["GET", /^call-settings$/],
   ["PUT", /^call-settings\/recall$/],
+  ["PUT", /^call-settings\/display$/],
 
   // Outbound allowlist
   ["GET", /^allowlist$/],

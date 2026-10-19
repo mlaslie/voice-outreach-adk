@@ -20,7 +20,10 @@ its tier (with a reason), which the API records with who and why.
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import datetime, timedelta
+
+from voa_core import timefmt
 
 from . import cards, triage
 from .actions import backend, match_patients, propose, resolve, which_patient
@@ -94,7 +97,7 @@ def due_text(tier: str, raised: datetime | None) -> str:
         span = f"{mins // 60}h {mins % 60}m" if mins >= 60 else f"{mins}m"
         return f"overdue {span}"
     day = "today" if due.date() == now.date() else due.strftime("%a")
-    return f"due {day} {due.strftime('%-I:%M %p')}"
+    return f"due {day} {cards.clock(due)}"
 
 
 def clear_rationale(c: dict) -> str:
@@ -610,6 +613,25 @@ DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 DEFAULT_HOURS = {"window_start": "09:00", "window_end": "17:00", "days": [0, 1, 2, 3, 4, 5]}
 
 
+_FORMAT_TTL_S = 60.0
+_format_checked_at = -_FORMAT_TTL_S
+
+
+async def refresh_time_format(api) -> None:
+    """Follow the clinic's nurse time format (dashboard Settings), at most once a
+    minute. On a backend error the last known format stays."""
+    global _format_checked_at
+    now = time.monotonic()
+    if now - _format_checked_at < _FORMAT_TTL_S:
+        return
+    _format_checked_at = now
+    try:
+        display = (await api.get_call_settings()).get("display") or {}
+    except BackendError:
+        return
+    cards.set_time_format(timefmt.coerce(display.get("time_format"), cards.TIME_FORMAT))
+
+
 async def _calling_hours() -> dict:
     """The clinic's calling hours, which the API also enforces on every reschedule."""
     try:
@@ -629,7 +651,9 @@ def in_hours(t: datetime, hours: dict) -> bool:
 
 def hours_text(hours: dict) -> str:
     days = ", ".join(DAY_NAMES[d] for d in sorted(hours["days"]))
-    return f"{days}, {hours['window_start']}–{hours['window_end']}"
+    start = timefmt.hhmm(hours["window_start"], cards.TIME_FORMAT)
+    end = timefmt.hhmm(hours["window_end"], cards.TIME_FORMAT)
+    return f"{days}, {start}–{end}"
 
 
 def next_slot(after: datetime, hours: dict) -> datetime | None:

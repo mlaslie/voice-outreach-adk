@@ -10,6 +10,7 @@ import {
   CallRun,
   CallRunInput,
   CallSettingsResponse,
+  DisplaySettings,
   RecallSettings,
   RescheduleTarget,
   CallsListResponse,
@@ -194,6 +195,11 @@ export const api = {
   /** Decides when patients are dialled. */
   setRecallSettings(body: RecallSettings): Promise<CallSettingsResponse> {
     return request<CallSettingsResponse>("/call-settings/recall", json("PUT", body));
+  },
+
+  /** How times show for nurses (console + Gemini Enterprise agent). */
+  setDisplaySettings(body: DisplaySettings): Promise<CallSettingsResponse> {
+    return request<CallSettingsResponse>("/call-settings/display", json("PUT", body));
   },
 
   // ---- Outbound allowlist -------------------------------------------------

@@ -1,12 +1,16 @@
 import { CallDoc, TranscriptTurn } from "./types";
 import { formatDuration, formatPhone } from "./format";
 import { getStatusLabel } from "./status";
+import { fmtClock, fmtDateTime } from "./time";
 
+/** Turn time with seconds, in the clinic's 12h/24h setting. */
 function stamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "--:--:--";
-  return d.toLocaleTimeString([], { hour12: false });
+  return fmtClock(d, { seconds: true });
 }
+
+const FULL_DATE = { weekday: "short", month: "short", day: "numeric", year: "numeric" } as const;
 
 /** Slug safe for a filename, derived from the patient or the call SID. */
 export function transcriptFilename(call?: CallDoc | null): string {
@@ -33,7 +37,7 @@ export function transcriptToText(call: CallDoc | null | undefined, turns: Transc
     ["Patient ID", call?.patient_id],
     ["Phone", call?.to ? formatPhone(call.to) : undefined],
     ["Call SID", call?.doc_id],
-    ["Started", call?.initiated_at ? new Date(call.initiated_at).toLocaleString() : undefined],
+    ["Started", call?.initiated_at ? fmtDateTime(call.initiated_at, FULL_DATE) : undefined],
     ["Duration", call?.duration_seconds != null ? formatDuration(call.duration_seconds) : undefined],
     ["Status", call ? getStatusLabel(call.call_status) : undefined],
     ["Outcome", call?.outcome],
@@ -58,7 +62,7 @@ export function transcriptToText(call: CallDoc | null | undefined, turns: Transc
     }
   }
 
-  lines.push("", `Exported ${new Date().toLocaleString()}`);
+  lines.push("", `Exported ${fmtDateTime(new Date(), FULL_DATE)}`);
   return lines.join("\n");
 }
 

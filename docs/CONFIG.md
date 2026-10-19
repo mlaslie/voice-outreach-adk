@@ -27,6 +27,7 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `site.privacy_url` | `VOA__SITE__PRIVACY_URL` | str | `'https://example.org/privacy'` |  |
 | `site.terms_url` | `VOA__SITE__TERMS_URL` | str | `'https://example.org/terms'` |  |
 | `site.timezone` | `VOA__SITE__TIMEZONE` | str | `'America/New_York'` |  |
+| `site.nurse_time_format` | `VOA__SITE__NURSE_TIME_FORMAT` | Literal | `'24h'` |  |
 | `telephony.voice_provider` | `VOA__TELEPHONY__VOICE_PROVIDER` | Literal | `'browser'` |  |
 | `telephony.sms_provider` | `VOA__TELEPHONY__SMS_PROVIDER` | Literal | `'fake'` |  |
 | `telephony.public_base_url` | `VOA__TELEPHONY__PUBLIC_BASE_URL` | str | `''` |  |

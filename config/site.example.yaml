@@ -6,6 +6,10 @@ site:
   org_name: Acme Health
   support_email: support@example.org
   timezone: America/New_York
+  # Times shown to nurses (dashboard, nurse agent cards): "24h" or "12h". Use what the
+  # clinic's nursing documentation uses; Settings in the dashboard can change it later.
+  # Patients always hear and read 12-hour times.
+  nurse_time_format: "24h"
 telephony:
   voice_provider: twilio          # twilio | browser | fake
   sms_provider: fake

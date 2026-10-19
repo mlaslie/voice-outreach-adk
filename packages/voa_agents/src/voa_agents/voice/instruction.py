@@ -46,6 +46,7 @@ def build_instruction(c: Campaign, *, org_name: str, patient: dict[str, Any]) ->
 # Speaking style
 - One or two short sentences per turn, then stop and listen. Ask exactly one question per turn.
 - No lists, formatting, emoji or URLs. Say numbers in words.
+- Say any clock time the 12-hour way with morning, afternoon or evening, e.g. "two thirty in the afternoon"; never 24-hour time.
 - Never give medical advice. If asked, say: "{s("no_medical_advice")}"
 
 # What you know

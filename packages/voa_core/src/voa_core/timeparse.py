@@ -19,6 +19,8 @@ import re
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
+from . import timefmt
+
 
 @dataclass(frozen=True)
 class SchedulingPolicy:
@@ -473,7 +475,6 @@ def humanize(when: datetime.datetime, now: datetime.datetime | None = None) -> s
     December is otherwise ambiguous, and the read-back is the safeguard.
     """
     current_year = (now or datetime.datetime.now(when.tzinfo)).year
-    hour12 = when.hour % 12 or 12
-    meridiem = "AM" if when.hour < 12 else "PM"
     year = f" {when.year}" if when.year != current_year else ""
-    return f"{when:%a %b} {when.day}{year}, {hour12}:{when:%M} {meridiem}"
+    # Patient-facing: always 12-hour, whatever the clinic's nurse time format.
+    return f"{when:%a %b} {when.day}{year}, {timefmt.patient_clock(when)}"

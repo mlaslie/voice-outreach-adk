@@ -3,6 +3,7 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ClinicDateTimeInput, INPUT_LOOK } from "@/components/nurse/clinic-time-input";
 import { CallListEntryInput, PlaceCallRequest } from "@/lib/types";
 
 const DOB_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -127,12 +128,13 @@ export function PatientFields({
       {showSchedule && (
         <div className="space-y-1.5">
           <Label htmlFor={id("scheduled_for")}>Planned call time</Label>
-          <Input
+          <ClinicDateTimeInput
             id={id("scheduled_for")}
-            type="datetime-local"
+            label="Planned call"
             value={form.scheduled_for}
-            onChange={(e) => onChange("scheduled_for", e.target.value)}
+            onChange={(v) => onChange("scheduled_for", v)}
             onBlur={() => onBlur("scheduled_for")}
+            inputClassName={INPUT_LOOK}
           />
           {errors.scheduled_for && <p className="text-xs text-brand-red-dark">{errors.scheduled_for}</p>}
           <p className="text-xs text-ink-soft">

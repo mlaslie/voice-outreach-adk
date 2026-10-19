@@ -21,6 +21,8 @@ import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
+from voa_core import timefmt
+
 from . import triage
 
 V09_BASIC = "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
@@ -31,6 +33,9 @@ BRAND = "#22873B"
 TZ = ZoneInfo("America/New_York")
 DASHBOARD_URL = ""
 DISPLAY_NAME = "Post-op Calling Agent (ADK)"
+# Clinic-wide nurse time format ("12h" | "24h"). configure() sets the config default;
+# worklists.refresh_time_format() follows the dashboard's Settings at runtime.
+TIME_FORMAT: timefmt.TimeFormat = "24h"
 
 
 def configure(
@@ -39,12 +44,24 @@ def configure(
     dashboard_url: str = "",
     brand: str = "#22873B",
     display_name: str = DISPLAY_NAME,
+    time_format: timefmt.TimeFormat = "24h",
 ) -> None:
-    global BRAND, TZ, DASHBOARD_URL, DISPLAY_NAME
+    global BRAND, TZ, DASHBOARD_URL, DISPLAY_NAME, TIME_FORMAT
     TZ = ZoneInfo(timezone)
     DASHBOARD_URL = dashboard_url.rstrip("/")
     BRAND = brand
     DISPLAY_NAME = display_name
+    TIME_FORMAT = time_format
+
+
+def set_time_format(fmt: timefmt.TimeFormat) -> None:
+    global TIME_FORMAT
+    TIME_FORMAT = fmt
+
+
+def clock(dt) -> str:
+    """A clinic-local clock time in the clinic's nurse time format."""
+    return timefmt.clock(dt, TIME_FORMAT)
 
 
 # Colour status markers, one per verdict tone. Colour comes from emoji: the v0.9
@@ -88,24 +105,25 @@ def local(iso) -> datetime | None:
 
 
 def when(iso, with_date: bool = True) -> str:
-    """Clinic-local time the way a nurse scans it: "Today 2:05 PM", "Yesterday 9:10 AM",
-    otherwise "10/03/2026 2:05 PM". Missing -> "—"; garbled -> shown as is."""
+    """Clinic-local time the way a nurse scans it: "Today 14:05", "Yesterday 09:10",
+    otherwise "10/03/2026 14:05" (12-hour clinics: "Today 2:05 PM").
+    Missing -> "—"; garbled -> shown as is."""
     if not iso:
         return "—"
     dt = local(iso)
     if dt is None:
         return str(iso)
-    clock = dt.strftime("%-I:%M %p")
+    hm = clock(dt)
     if not with_date:
-        return clock
+        return hm
     days = (datetime.now(TZ).date() - dt.date()).days
     if days == 0:
-        return f"Today {clock}"
+        return f"Today {hm}"
     if days == 1:
-        return f"Yesterday {clock}"
+        return f"Yesterday {hm}"
     if days == -1:
-        return f"Tomorrow {clock}"
-    return f"{dt:%m/%d/%Y} {clock}"
+        return f"Tomorrow {hm}"
+    return f"{dt:%m/%d/%Y} {hm}"
 
 
 def us_date(iso_date) -> str:

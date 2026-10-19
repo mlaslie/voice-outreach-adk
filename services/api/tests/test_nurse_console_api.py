@@ -930,3 +930,28 @@ def test_the_recording_streams_exactly_its_bytes(monkeypatch, headers, status, l
     assert r.status_code == status
     assert r.content == data[lo:hi]
     assert int(r.headers["content-length"]) == len(r.content)
+
+
+# =========================================================================== nurse time format
+
+
+def test_the_nurse_time_format_defaults_from_config_and_is_changed_in_settings():
+    client, api, _ = make()
+    assert client.get("/api/call-settings", headers=NURSE).json()["display"] == {
+        "time_format": "24h"
+    }
+    r = client.put("/api/call-settings/display", json={"time_format": "12h"}, headers=NURSE)
+    assert r.status_code == 200 and r.json()["display"]["time_format"] == "12h"
+    assert client.get("/api/call-settings", headers=NURSE).json()["display"]["time_format"] == "12h"
+    saved = run(api.store.get("call_settings", "display"))
+    assert saved["updated_by"] == "rn@example.org"
+    bad = client.put("/api/call-settings/display", json={"time_format": "military"}, headers=NURSE)
+    assert bad.status_code == 422
+
+
+def test_calling_hours_messages_use_the_nurse_time_format():
+    client, api, clock = make()
+    client.put("/api/call-settings/display", json={"time_format": "12h"}, headers=NURSE)
+    clock.at = NIGHT
+    r = client.post("/cron/dispatch-due").json()
+    assert "9:00 AM–5:00 PM" in r["reason"], r
