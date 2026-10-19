@@ -886,3 +886,47 @@ def test_a_test_call_link_never_opened_is_closed_by_the_cron():
     assert run(api.store.get("calls", "browser_" + "a" * 16))["call_status"] == "canceled"
     assert "call_status" not in run(api.store.get("calls", "browser_" + "b" * 16))
     assert run(api.store.get("calls", "browser_" + "c" * 16))["call_status"] == "success"
+
+
+# =========================================================================== recording playback
+
+
+class _Blob:
+    """Like google.cloud.storage.Blob: download_as_bytes(end=) is INCLUSIVE."""
+
+    def __init__(self, data):
+        self.data, self.size = data, len(data)
+
+    def download_as_bytes(self, start=0, end=None):
+        return self.data[start : (self.size if end is None else end + 1)]
+
+
+@pytest.mark.parametrize(
+    ("headers", "status", "lo", "hi"),
+    [
+        ({}, 200, 0, None),
+        ({"Range": "bytes=100-299999"}, 206, 100, 300000),
+        ({"Range": "bytes=-50"}, 206, -50, None),
+    ],
+)
+def test_the_recording_streams_exactly_its_bytes(monkeypatch, headers, status, lo, hi):
+    import google.cloud.storage as gcs
+
+    data = bytes(range(256)) * 2000  # 512 000 bytes: two full chunks and a partial
+    blob = _Blob(data)
+
+    class _Client:
+        def __init__(self, project=None):
+            pass
+
+        def bucket(self, name):
+            return type("B", (), {"get_blob": lambda self, n: blob})()
+
+    monkeypatch.setattr(gcs, "Client", _Client)
+    client, api, _ = make()
+    cid = "CA" + "d" * 32
+    run(api.store.set("calls", cid, {"recording_uri": f"gs://bucket/recordings/{cid}.wav"}))
+    r = client.get(f"/api/calls/{cid}/recording", headers={**NURSE, **headers})
+    assert r.status_code == status
+    assert r.content == data[lo:hi]
+    assert int(r.headers["content-length"]) == len(r.content)

@@ -179,7 +179,9 @@ async def recording(call_id: str, request: Request):
         pos, step = start, 256 * 1024
         while pos <= end:
             stop = min(pos + step - 1, end)
-            yield blob.download_as_bytes(start=pos, end=stop + 1)
+            # GCS ``end`` is inclusive (the last byte). end=stop+1 sent one extra byte per
+            # chunk, overran Content-Length and every playback failed with a 502.
+            yield blob.download_as_bytes(start=pos, end=stop)
             pos = stop + 1
 
     headers = {

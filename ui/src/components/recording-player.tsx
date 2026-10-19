@@ -18,7 +18,7 @@ export function RecordingPlayer({ callSid, hasRecording }: RecordingPlayerProps)
   if (error) {
     return (
       <p className="text-sm text-ink-soft">
-        Recording not available yet — GE CX may still be writing it.
+        Recording could not be loaded. If the call just ended it may still be uploading; try again in a minute.
       </p>
     );
   }
