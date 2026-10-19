@@ -337,7 +337,7 @@ export function SettingsView({
               ? "Any number may be dialled on this deployment."
               : `The agent only dials numbers on the approved list (${allowlist.count}). A patient whose number is not on it is refused at dial time and marked blocked.`}
           </span>
-          <Link href="/" className="ml-auto rounded-full bg-white px-3.5 py-1.5 font-semibold text-brand-deep ring-1 ring-black/[0.08] hover:bg-brand/[0.06]">
+          <Link href="/classic" className="ml-auto rounded-full bg-white px-3.5 py-1.5 font-semibold text-brand-deep ring-1 ring-black/[0.08] hover:bg-brand/[0.06]">
             Manage approved numbers
           </Link>
         </Panel>

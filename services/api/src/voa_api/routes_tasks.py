@@ -3,7 +3,8 @@
 /tasks/dial            dial one call-list entry (waits for a free call slot by returning 503)
 /tasks/call-terminal   a call reached a terminal status: settle its entry and run, auto-recall,
                        and hand missed calls to the SMS follow-up
-/cron/dispatch-due     every minute: dial scheduled runs and entries whose time has come
+/cron/dispatch-due     every minute: dial scheduled runs and entries whose time has come;
+                       close browser test calls whose link was never opened
 
 Two rules from the old proxy's backlog are enforced here, at dial time:
 
@@ -575,6 +576,38 @@ async def _dispatch_due_call_run(api: Api) -> dict | None:
     return None
 
 
+# A browser test-call link lives 5 minutes. One never opened leaves a call doc with
+# no status, which the dashboards show as "in flight" forever (seen 19 Oct: two
+# smoke-test links still "Queued" two days later).
+UNUSED_TEST_CALL_AFTER = timedelta(minutes=15)
+
+
+async def close_unused_test_calls(api: Api) -> int:
+    """Mark test calls whose link was never used as canceled. Returns how many."""
+    cutoff = now_iso(api.now() - UNUSED_TEST_CALL_AFTER)
+    now = now_iso(api.now())
+    closed = 0
+    for cid, d in await api.store.query(CALLS, [Where("placed_via", "==", "test_call")]):
+        if d.get("call_status") or d.get("answered_at"):
+            continue
+        if (d.get("updated_at") or d.get("initiated_at") or now) > cutoff:
+            continue
+        await api.store.merge(
+            CALLS,
+            cid,
+            {
+                "call_status": lifecycle.CANCELED,
+                "ended_at": now,
+                "updated_at": now,
+                "outcome_note": "test-call link never opened",
+            },
+        )
+        closed += 1
+    if closed:
+        log.info("unused test calls closed", extra={"event": "test_call.expired", "count": closed})
+    return closed
+
+
 @router.post("/cron/dispatch-due")
 async def cron_dispatch_due(request: Request):
     """Every minute (Cloud Scheduler). Claims due scheduled runs; always 200.
@@ -591,6 +624,12 @@ async def cron_dispatch_due(request: Request):
         await drop_text_booked_from_recalls(api)
     except Exception:
         log.exception("could not drop text-booked patients", extra={"event": "recall.drop_failed"})
+    try:
+        await close_unused_test_calls(api)
+    except Exception:
+        log.exception(
+            "could not close unused test calls", extra={"event": "test_call.expire_failed"}
+        )
     current = await api.store.get(LIST_RUNS, CURRENT_RUN)
     if current and current.get("status") == "running":
         return {"started": False, "reason": "a run is in progress"}

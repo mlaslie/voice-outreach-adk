@@ -349,7 +349,7 @@ function Sidebar({
               mode === "demo" ? "bg-white text-brand-deep" : "text-white/70 hover:text-white")}>Sample</Link>
           </div>
         </div>
-        <Link href="/" className="flex items-center gap-2 rounded-2xl px-3.5 py-2.5 text-[13px] font-semibold text-white/70 transition-colors hover:bg-white/10 hover:text-white">
+        <Link href="/classic" className="flex items-center gap-2 rounded-2xl px-3.5 py-2.5 text-[13px] font-semibold text-white/70 transition-colors hover:bg-white/10 hover:text-white">
           <LayoutGrid className="h-4 w-4" /> Classic dashboard
         </Link>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
-import { RefreshCw, Phone, Headphones } from "lucide-react";
+import Link from "next/link";
+import { RefreshCw, Phone, Headphones, LayoutDashboard } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,12 @@ export function DashboardHeader({ connState, onRefresh, onPlaceCall }: Dashboard
       </div>
       <div className="flex items-center gap-3">
         <LiveIndicator state={connState} />
+        <Link href="/nurse">
+          <Button variant="outline" size="sm" tabIndex={-1}>
+            <LayoutDashboard className="h-4 w-4 mr-1.5" />
+            Nurse console
+          </Button>
+        </Link>
         <Button variant="outline" size="sm" onClick={onRefresh}>
           <RefreshCw className="h-4 w-4 mr-1.5" />
           Refresh

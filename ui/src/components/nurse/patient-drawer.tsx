@@ -155,7 +155,7 @@ function Body({
             <Phone className="h-3.5 w-3.5" /> Call {formatPhone(s.phone)}
           </a>
           {call ? (
-            <a href="/" className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-2 text-[13px] font-semibold text-white ring-1 ring-white/20 transition-colors hover:bg-white/15">
+            <a href="/classic" className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-2 text-[13px] font-semibold text-white ring-1 ring-white/20 transition-colors hover:bg-white/15">
               Full record <ArrowUpRight className="h-3.5 w-3.5" />
             </a>
           ) : null}

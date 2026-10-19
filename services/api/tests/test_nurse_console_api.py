@@ -855,3 +855,34 @@ def test_a_recall_run_left_empty_is_deleted_on_the_next_tick():
     _run(api, "8" * 32, NOW + timedelta(hours=2), [a], auto_recall=True)
     client.post("/cron/dispatch-due")
     assert run(api.store.get("call_runs", "8" * 32)) is None
+
+
+# =========================================================================== unused test calls
+
+
+def test_a_test_call_link_never_opened_is_closed_by_the_cron():
+    client, api, clock = make()
+    old = now_iso(NOW - timedelta(minutes=20))
+    fresh = now_iso(NOW - timedelta(minutes=2))
+    base = {"placed_via": "test_call", "to": "browser"}
+    run(
+        api.store.set(
+            "calls", "browser_" + "a" * 16, {**base, "initiated_at": old, "updated_at": old}
+        )
+    )
+    run(
+        api.store.set(
+            "calls", "browser_" + "b" * 16, {**base, "initiated_at": fresh, "updated_at": fresh}
+        )
+    )
+    run(
+        api.store.set(
+            "calls",
+            "browser_" + "c" * 16,
+            {**base, "initiated_at": old, "updated_at": old, "call_status": "success"},
+        )
+    )
+    client.post("/cron/dispatch-due")
+    assert run(api.store.get("calls", "browser_" + "a" * 16))["call_status"] == "canceled"
+    assert "call_status" not in run(api.store.get("calls", "browser_" + "b" * 16))
+    assert run(api.store.get("calls", "browser_" + "c" * 16))["call_status"] == "success"
