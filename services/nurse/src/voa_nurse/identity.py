@@ -49,6 +49,13 @@ class IdentityResolver:
 
     async def resolve(self, headers: Mapping[str, str]) -> str | None:
         if not self.client_id:
+            # Say why nobody can be identified; otherwise the allowlist gate refuses
+            # every user with no trace of the cause in the logs.
+            has_bearer = any(k.lower() == "authorization" for k in headers)
+            log.warning(
+                "identity not resolved: VOA_NURSE_OAUTH_CLIENT_ID is not set",
+                extra={"event": "nurse.identity.not_configured", "bearer_present": has_bearer},
+            )
             return None
         lower = {k.lower(): v for k, v in headers.items()}
         auth = lower.get("authorization", "")
