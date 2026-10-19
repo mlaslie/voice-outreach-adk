@@ -33,4 +33,5 @@ check 201 "$(code -X POST "$API/api/allowlist" -d '{"phone":"+12025550177","labe
 check 200 "$(code -X DELETE "$API/api/allowlist/%2B12025550177")" "DELETE /api/allowlist/{phone}"
 echo "softphone conversation via API-minted token:"
 (cd "$ROOT" && uv run python scripts/e2e/softphone_smoke.py "$SOFTPHONE" 2>&1 | grep -E "^(caller|first|SMOKE)") || fail=1
+if [[ $fail == 0 ]]; then echo "API SMOKE: ALL CHECKS PASSED"; else echo "API SMOKE: FAILED (see FAIL lines above)"; fi
 exit $fail
