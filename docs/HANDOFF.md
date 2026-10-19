@@ -159,3 +159,7 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 **The GE-CX side** is built by the GE-CX session from the same contract (its own repo; this session doesn't edit it).
 - Until GE-CX has its send rule, don't trigger GE-CX texts (including missed-call invites) while ADK is active.
 - This system still sends in dry-run: after taking control it receives replies but doesn't answer them by text, until `sms_dry_run = false`.
+- **SMS sending turned on (19 Oct, owner's go-ahead).**
+  - `sms_dry_run = false`, and `VOA__TELEPHONY__SMS_PROVIDER = "twilio"`. With the old default (`fake` from app.yaml), turning dry-run off would have sent nothing, silently.
+  - Real texts are still limited to allowlisted numbers with SMS consent, and only while this system has the shared number.
+  - The "Test by text" simulator refuses to run while dry-run is off.
