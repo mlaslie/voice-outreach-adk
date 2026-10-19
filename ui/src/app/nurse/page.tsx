@@ -14,6 +14,7 @@ import { useCallList } from "@/hooks/use-call-list";
 import { useFollowUps } from "@/hooks/use-followups";
 import { useCallRuns } from "@/hooks/use-call-runs";
 import { setTimeFormat } from "@/lib/time";
+import { applyOverrideLocally } from "@/lib/follow-up-reasons";
 
 /**
  * The nurse console. The classic dashboard at / is unchanged.
@@ -35,7 +36,8 @@ function Router() {
 }
 
 function Sample() {
-  const data = useMemo(() => demoData(), []);
+  // State, so a sample follow-up change shows everywhere in this tab.
+  const [data, setData] = useState(() => demoData());
   const [settings, setSettings] = useState<CallSettingsResponse>(
     () => ({ recall: DEFAULT_RECALL, timezone: "America/New_York", display: { time_format: "24h" } }),
   );
@@ -66,9 +68,9 @@ function Sample() {
         await explain();
         const call = data.calls.find((c) => (c.call_sid ?? c.doc_id) === sid);
         if (!call) throw new Error("Unknown call");
-        const event = { at: new Date().toISOString(), from: call.follow_up ?? null, to: body.follow_up, reason: body.reason, set_by: "you (sample)" };
-        return { ...call, follow_up: body.follow_up, agent_follow_up: call.agent_follow_up ?? call.follow_up ?? null,
-          follow_up_override: event, follow_up_history: [...(call.follow_up_history ?? []), event] };
+        const updated = applyOverrideLocally(call, body, "you (sample)", new Date().toISOString());
+        setData((d) => ({ ...d, calls: d.calls.map((c) => (c.doc_id === updated.doc_id ? updated : c)) }));
+        return updated;
       },
       refresh: () => {},
     };

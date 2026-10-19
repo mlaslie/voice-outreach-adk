@@ -167,6 +167,114 @@ def _n(v) -> float | None:
         return None
 
 
+# --------------------------------------------------------------------------- reasons
+
+#: Every tier a reason can carry, most urgent first.
+REASON_TIER_ORDER: tuple[str, ...] = (
+    "emergency",
+    "urgent_same_day",
+    "routine_next_business_day",
+    "informational",
+    "none",
+)
+REASON_SOURCES = {"triage": "triage", "agent": "automated caller", "nurse": "nurse"}
+
+
+def _reason_list(raw: Any) -> list[dict]:
+    """Normalise a ``follow_up_reasons`` list: entries with text only, most urgent
+    first (stable, so the backend's own order breaks ties). An unknown tier sorts
+    last and is kept, never dropped."""
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for r in raw:
+        if isinstance(r, str):
+            r = {"text": r}
+        if not isinstance(r, dict) or not _s(r.get("text")):
+            continue
+        tier = r.get("tier") if isinstance(r.get("tier"), str) else None
+        out.append(
+            {
+                "tier": tier,
+                "text": str(r["text"]).strip(),
+                "source": r.get("source") if r.get("source") in REASON_SOURCES else "triage",
+                "set_by": _s(r.get("set_by")),
+                "at": _s(r.get("at")),
+            }
+        )
+    rank = {t: i for i, t in enumerate(REASON_TIER_ORDER)}
+    return sorted(out, key=lambda r: rank.get(r["tier"], len(rank)))
+
+
+def _single(text: Any, tier: Any) -> list[dict]:
+    t = _s(text)
+    if not t:
+        return []
+    return [
+        {
+            "tier": tier if isinstance(tier, str) else None,
+            "text": t.strip(),
+            "source": "agent",
+            "set_by": None,
+            "at": None,
+        }
+    ]
+
+
+def follow_up_reasons(call: dict) -> list[dict]:
+    """Why this call needs (or does not need) a nurse, as
+    [{tier, text, source, set_by, at}], most urgent first.
+
+    Calls made before ``follow_up_reasons`` existed carry one sentence in
+    ``follow_up_reason``: it becomes one reason. Its tier is the agent's own
+    (``agent_follow_up``) when a nurse has since changed the call's tier, so the
+    agent's words are never shown under the nurse's tier."""
+    reasons = _reason_list(call.get("follow_up_reasons"))
+    if reasons:
+        return reasons
+    tier = call.get("follow_up")
+    if call.get("follow_up_override") and "agent_follow_up" in call:
+        tier = call.get("agent_follow_up")
+    return _single(call.get("follow_up_reason"), tier)
+
+
+def agent_original_reasons(call: dict) -> list[dict]:
+    """The automated assessment's reasons, kept by the API when a nurse replaced
+    them; empty when no nurse has replaced them."""
+    if "agent_follow_up_reasons" not in call and "agent_follow_up_reason" not in call:
+        return []
+    return _reason_list(call.get("agent_follow_up_reasons")) or _single(
+        call.get("agent_follow_up_reason"), call.get("agent_follow_up")
+    )
+
+
+def reasons_set_by_nurse(reasons: list[dict]) -> bool:
+    return any(r["source"] == "nurse" for r in reasons)
+
+
+def reason_summary(call: dict) -> str:
+    """The most urgent reason, plus "+N more" when there are others; "" if none."""
+    reasons = follow_up_reasons(call)
+    if not reasons:
+        return ""
+    more = len(reasons) - 1
+    return reasons[0]["text"] + (f" · +{more} more" if more else "")
+
+
+def reasons_data(reasons: list[dict]) -> list[dict]:
+    """For the model: tier label, text and who gave the reason."""
+    return [
+        {
+            "tier": r["tier"],
+            "tier_label": follow_up_label(r["tier"]),
+            "text": r["text"],
+            "source": REASON_SOURCES[r["source"]],
+            **({"set_by": r["set_by"]} if r["set_by"] else {}),
+        }
+        for r in reasons
+    ]
+
+
 # --------------------------------------------------------------------------- questions
 
 Q_IMMEDIATE = "urgent_same_day"
@@ -395,7 +503,7 @@ def verdict_for(call: dict) -> dict:
     """{headline, reason, tone, action_required}: taken from the voice agent's tier,
     never re-derived. Tone and precedence are the backend's (voa_core.reports)."""
     v = reports.verdict_for(call)
-    own = call.get("follow_up_reason") or ""
+    own = call.get("follow_up_reason") or reason_summary(call)
     if v.tone in _HEADLINES:
         headline, default = _HEADLINES[v.tone]
         return {

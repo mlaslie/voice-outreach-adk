@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { RefreshCw, Phone, Headphones, LayoutDashboard } from "lucide-react";
+import { useState } from "react";
+import { RefreshCw, Phone, Headphones, LayoutDashboard, MessageSquareText } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { LiveIndicator } from "@/components/live-indicator";
+import { SmsTestDialog } from "@/components/sms-test-dialog";
 
 interface DashboardHeaderProps {
   connState: "live" | "polling" | "disconnected";
@@ -14,6 +16,7 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ connState, onRefresh, onPlaceCall }: DashboardHeaderProps) {
+  const [smsTestOpen, setSmsTestOpen] = useState(false);
   return (
     <div className="flex items-start justify-between">
       <div>
@@ -48,11 +51,21 @@ export function DashboardHeader({ connState, onRefresh, onPlaceCall }: Dashboard
           <Headphones className="h-4 w-4 mr-1.5" />
           Test in browser
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          title="Play the patient in the text follow-up (dry run: nothing is sent to a phone)"
+          onClick={() => setSmsTestOpen(true)}
+        >
+          <MessageSquareText className="h-4 w-4 mr-1.5" />
+          Test by text
+        </Button>
         <Button size="sm" onClick={onPlaceCall}>
           <Phone className="h-4 w-4 mr-1.5" />
           Place a Call
         </Button>
       </div>
+      <SmsTestDialog open={smsTestOpen} onOpenChange={setSmsTestOpen} />
     </div>
   );
 }

@@ -20,7 +20,10 @@ export interface CallDoc {
   /** How the answers arrived. Absent or "voice" for a normal call. */
   channel?: "voice" | "sms";
   follow_up?: string;
+  /** One sentence. Since Oct 2026 triage writes "Patient reports X. Also noted: Y (noted)."; after a nurse change, "Nurse: a; b." */
   follow_up_reason?: string;
+  /** Every finding with its own tier, most urgent first. Absent on older calls (fall back to follow_up_reason). */
+  follow_up_reasons?: FollowUpReason[];
   dob_verification_result?: string;
   recording_uri?: string;
   recording_url?: string;
@@ -33,6 +36,10 @@ export interface CallDoc {
   placed_via?: string;
   /** The agent's own tier, kept when a nurse overrides `follow_up`. */
   agent_follow_up?: string | null;
+  /** The agent's own reasons, kept when a nurse replaces the reasons list. */
+  agent_follow_up_reasons?: FollowUpReason[];
+  /** The agent's own sentence, kept when a nurse replaces the reasons list. */
+  agent_follow_up_reason?: string | null;
   /** The latest nurse change to the tier, if any. */
   follow_up_override?: FollowUpEvent;
   /** Every nurse change to the tier, oldest first. */
@@ -107,18 +114,42 @@ export interface CallReview {
   reopened_because?: string;
 }
 
+export type FollowUpReasonTier =
+  | "emergency"
+  | "urgent_same_day"
+  | "routine_next_business_day"
+  | "informational"
+  | "none";
+
+/** One reason a call needs (or does not need) follow-up. */
+export interface FollowUpReason {
+  tier: FollowUpReasonTier | string;
+  text: string;
+  /** triage: automatic, from the patient's answers; agent: the voice agent; nurse: a nurse's change. */
+  source?: "triage" | "agent" | "nurse" | string;
+  /** Answer keys the finding came from, e.g. ["sleeping_well"]. */
+  fields?: string[];
+  set_by?: string;
+  at?: string;
+}
+
 /** One nurse change to a call's follow-up tier. */
 export interface FollowUpEvent {
   at: string;
   from?: string | null;
   to: string;
+  /** The note on the change (defaults to the reasons joined). */
   reason: string;
+  /** The reasons the nurse chose, when the change carried a list. */
+  reasons?: string[];
   set_by?: string;
 }
 
+/** At least one of `reason` (a note, >= 3 chars) or `reasons` (1-10, each <= 200 chars). */
 export interface FollowUpOverrideRequest {
   follow_up: string;
-  reason: string;
+  reason?: string;
+  reasons?: string[];
   set_by?: string;
 }
 

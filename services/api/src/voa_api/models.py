@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from voa_core.compliance import coerce_bool
 
 E164 = re.compile(r"^\+[1-9]\d{6,14}$")
@@ -74,9 +74,30 @@ class CallListEntryInput(PlaceCallRequest):
 
 
 class FollowUpOverride(_In):
+    """A nurse changes a call's follow-up. ``reasons`` (one or more, e.g. "medication
+    question" and "not sleeping well") replace the call's reasons list; ``reason`` is
+    the note on the change and defaults to the reasons joined."""
+
     follow_up: str
-    reason: str = Field(min_length=3, max_length=500)
+    reason: str | None = Field(default=None, min_length=3, max_length=500)
+    reasons: list[str] | None = Field(default=None, max_length=10)
     set_by: str | None = None
+
+    @field_validator("reasons")
+    @classmethod
+    def _reasons(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return None
+        out = list(dict.fromkeys(" ".join(r.split()) for r in v if r and r.strip()))
+        if not out or any(len(r) > 200 for r in out):
+            raise ValueError("give 1-10 reasons of at most 200 characters")
+        return out
+
+    @model_validator(mode="after")
+    def _some_reason(self) -> FollowUpOverride:
+        if not self.reason and not self.reasons:
+            raise ValueError("give a reason or reasons")
+        return self
 
 
 class SignOff(_In):

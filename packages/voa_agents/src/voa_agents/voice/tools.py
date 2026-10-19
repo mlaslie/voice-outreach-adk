@@ -289,29 +289,32 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
         _audit(tool_context, "submit_report", status="incomplete", missing=missing)
         return {"status": "incomplete", "ask_these_questions": missing}
 
+    from voa_core import reports
+
     if outcome == "emergency_ended":
         tier, reason = "emergency", "red flag reported during call"
+        reasons = reports.single_reason(tier, reason)
     elif outcome == "identity_verification_failed":
         tier, reason = "urgent_same_day", "identity could not be verified"
+        reasons = reports.single_reason(tier, reason)
     elif outcome == "questionnaire_completed":
         from voa_core import survey
 
         t = survey.triage(answers)
-        tier, reason = t.follow_up, t.reason
+        tier, reason, reasons = t.follow_up, t.reason, t.reasons
     else:
-        tier, reason = "none", outcome.replace("_", " ")
+        tier, reason, reasons = "none", outcome.replace("_", " "), []
 
     report = {
         "outcome": outcome,
         "follow_up": tier,
         "follow_up_reason": reason,
+        "follow_up_reasons": reasons,
         "dob_verification_result": tool_context.state.get("dob_verification_result", "skipped"),
         "survey_responses": {k: v for k, v in answers.items() if not k.startswith("_")},
     }
     # Same validator the store applies: if it would reject the report, tell the model
     # now (while the caller is still on the line) instead of failing silently later.
-    from voa_core import reports
-
     _clean, errors = reports.validate_report(
         {
             **report,

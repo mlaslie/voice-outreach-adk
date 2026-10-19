@@ -22,6 +22,8 @@ import { getFollowUpLabel } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { QuestionCountPill } from "@/components/patient-questions";
 import { Avatar, ChipOption, EmptyState, FilterChips, Panel, Pill, Tone, ago, clock, isSameDay } from "./parts";
+import { ReasonSummaryLine } from "@/components/follow-up-reasons";
+import { reasonsFor } from "@/lib/follow-up-reasons";
 
 export const KIND: Record<CompletedKind, { label: string; tone: Tone; icon: React.ComponentType<{ className?: string }> }> = {
   completed_phone: { label: "Completed · phone", tone: "good", icon: CheckCircle2 },
@@ -169,10 +171,10 @@ export function CompletedView({
                               <span className="mx-1.5 text-rule">•</span>
                               <span className="text-ink">Cancelled{i.cancel.by ? ` by ${i.cancel.by}` : ""}: {i.cancel.reason}</span>
                             </>
-                          ) : i.call?.follow_up_reason ? (
+                          ) : reasonsFor(i.call).length ? (
                             <>
                               <span className="mx-1.5 text-rule">•</span>
-                              <span className="text-ink">{i.call.follow_up_reason}</span>
+                              <ReasonSummaryLine call={i.call} className="max-w-full align-middle text-ink" />
                             </>
                           ) : null}
                         </div>

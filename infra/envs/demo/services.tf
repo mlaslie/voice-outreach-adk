@@ -23,6 +23,7 @@ locals {
     VOA__SERVICES__NURSE_AGENT_SA          = module.sa.emails["${local.p}-nurse"]
     VOA__DIALING__ALLOWLIST                = var.static_allowlist
     VOA__SMS__DRY_RUN                      = tostring(var.sms_dry_run)
+    VOA__SMS__SURVEY_ENABLED               = tostring(var.sms_survey_enabled)
     VOA__SMS__FROM_NUMBER                  = var.sms_from_number
     VOA__SMS__VOICE_NUMBER                 = var.twilio_from_number
     VOA__SERVICES__RECORDINGS_BUCKET       = module.recordings.name

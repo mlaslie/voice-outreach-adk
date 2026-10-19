@@ -369,7 +369,7 @@ def follow_up_card(calls: list[dict], truncated: bool = False) -> Card:
     card.line("Highest acuity first", "caption")
     for c in outstanding[:PAGE]:
         card.put(card.divider())
-        reason = c.get("follow_up_reason") or triage.verdict_for(c)["reason"]
+        reason = triage.reason_summary(c) or triage.verdict_for(c)["reason"]
         meta = " · ".join(
             x
             for x in (
@@ -421,12 +421,17 @@ def call_detail_card(c: dict) -> Card:
             if n is not None and n >= 0:
                 proc += f" · called POD {n}"
         card.line(proc, "caption")
+    reasons = triage.follow_up_reasons(c) if triage.is_assessment(c) else []
     card.put(
         card.row(
             card.text(MARK[v["tone"]][0], "h2"),
-            card.col(card.text(v["headline"], "h4"), card.text(v["reason"])),
+            card.col(
+                card.text(v["headline"], "h4"),
+                None if reasons else card.text(v["reason"]),  # listed in full below
+            ),
         )
     )
+    nurse_set = follow_up_reasons_block(card, c, reasons)
 
     questions = triage.patient_questions(c)
     uncaptured = triage.has_uncaptured_questions(c)
@@ -457,7 +462,10 @@ def call_detail_card(c: dict) -> Card:
         timing.append(c.get("failure_reason") or c["failure_message"])
     card.line(" · ".join(timing), "caption")
     override = c.get("follow_up_override") or {}
-    if override:
+    note_repeats_reasons = nurse_set and (override.get("reason") or "") == "; ".join(
+        r["text"] for r in reasons
+    )
+    if override and not note_repeats_reasons:
         card.line(
             f"Tier set by {override.get('set_by') or 'nurse'} {when(override.get('at'))}: "
             f"{override.get('reason') or ''}",
@@ -483,6 +491,53 @@ def call_detail_card(c: dict) -> Card:
         card.button("Call back", event("propose_redial", call_sid=sid)),
         rec,
     )
+
+
+REASON_TONE = {
+    "emergency": "emergency",
+    "urgent_same_day": "urgent",
+    "routine_next_business_day": "routine",
+    "informational": "info",
+    "none": "clear",
+}
+
+
+def reason_mark(tier: str | None) -> tuple[str, str]:
+    """The colour marker and words for one reason's tier (the verdict's own MARKs)."""
+    if tier in REASON_TONE:
+        return MARK[REASON_TONE[tier]]
+    return ("❔", "Tier not recorded")
+
+
+def _reason_rows(card: Card, reasons: list[dict]) -> None:
+    for r in reasons:
+        emoji, words = reason_mark(r["tier"])
+        card.put(
+            card.row(
+                card.text(emoji, "h4"), card.col(card.text(r["text"]), card.text(words, "caption"))
+            )
+        )
+
+
+def follow_up_reasons_block(card: Card, c: dict, reasons: list[dict]) -> bool:
+    """Every reason for the follow-up, each with its own tier, most urgent first.
+    When a nurse set them: who and when, then the automated assessment's original
+    reasons underneath. Returns whether a nurse set them."""
+    if not reasons:
+        return False
+    nurse = triage.reasons_set_by_nurse(reasons)
+    head = "Reasons for follow-up" + (", most urgent first" if len(reasons) > 1 else "")
+    card.put(card.divider(), card.text(head, "h5"))
+    if nurse:
+        override = c.get("follow_up_override") or {}
+        who = reasons[0]["set_by"] or override.get("set_by") or "nurse"
+        at = reasons[0]["at"] or override.get("at")
+        card.line(f"Set by {who}" + (f" {when(at)}" if at else ""), "caption")
+    _reason_rows(card, reasons)
+    if nurse and (original := triage.agent_original_reasons(c)):
+        card.line("Automated assessment's original reasons", "caption")
+        _reason_rows(card, original)
+    return nurse
 
 
 QUESTION_MARK = {triage.Q_IMMEDIATE: MARK["urgent"][0], triage.Q_NEXT_DAY: MARK["routine"][0]}

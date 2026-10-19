@@ -11,6 +11,8 @@ Dashboard (UI service account, like every other ``/api`` route; shapes match
   POST   /api/sms/consent                       {phone, granted}
   GET    /api/sms/settings                      {settings, defaults}
   POST   /api/sms/settings                      {settings}
+  POST   /api/sms/test/start   {phone, diabetic?}  dry-run simulator (sms_simulator.py)
+  POST   /api/sms/test/reply   {phone, body}       409 unless sms.dry_run
 
 Cloud Tasks / Scheduler (tasks-invoker only; 503 = retry, 2xx = done):
 
@@ -34,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from voa_core.logging import mask_phone
 
 from . import sms_service as sms
+from . import sms_simulator
 from .auth import acting_user, require_caller, task_callers
 from .context import Api
 from .models import PlaceCallRequest
@@ -71,6 +74,16 @@ class ConsentInput(_In):
 class SettingInput(_In):
     name: str
     value: bool
+
+
+class SimStartInput(_In):
+    phone: str = Field(max_length=20)
+    diabetic: bool = False
+
+
+class SimReplyInput(_In):
+    phone: str = Field(max_length=20)
+    body: str = Field(max_length=sms.MAX_INBOUND_CHARS)
 
 
 def _phone_or_400(phone: str) -> str:
@@ -180,6 +193,29 @@ async def set_setting(body: SettingInput, request: Request):
     except KeyError:
         raise HTTPException(400, f"Unknown setting {body.name!r}.") from None
     return {"settings": values}
+
+
+@dashboard.post("/test/start")
+async def simulator_start(body: SimStartInput, request: Request):
+    """Dry-run simulator: stage a missed call for the fictional test patient and
+    send the invite into the thread. Never sends a text (409 unless dry-run)."""
+    api: Api = request.app.state.api
+    try:
+        return await sms_simulator.start(
+            api, body.phone, diabetic=body.diabetic, by=acting_user(request)
+        )
+    except sms_simulator.SimulatorError as exc:
+        raise HTTPException(exc.status, exc.detail) from None
+
+
+@dashboard.post("/test/reply")
+async def simulator_reply(body: SimReplyInput, request: Request):
+    """Dry-run simulator: one patient message through the real inbound handler."""
+    api: Api = request.app.state.api
+    try:
+        return await sms_simulator.reply(api, body.phone, body.body)
+    except sms_simulator.SimulatorError as exc:
+        raise HTTPException(exc.status, exc.detail) from None
 
 
 # --------------------------------------------------------------------------- tasks

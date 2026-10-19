@@ -62,6 +62,7 @@ CLIENT_FIELDS: frozenset[str] = frozenset(
         "dob_verification_result",
         "follow_up",
         "follow_up_reason",
+        "follow_up_reasons",
         "outcome",
         "survey_responses",
     }
@@ -91,6 +92,7 @@ CALL_DOC_REPORT_FIELDS: tuple[str, ...] = (
     "outcome",
     "follow_up",
     "follow_up_reason",
+    "follow_up_reasons",
     "dob_verification_result",
     "recording_uri",
     "recording_url",
@@ -159,6 +161,32 @@ def _questions_errors(survey: Mapping[str, Any]) -> list[str]:
     return []
 
 
+MAX_REASONS = 20
+MAX_REASON_CHARS = 200
+REASON_SOURCES: frozenset[str] = frozenset({"triage", "agent", "nurse"})
+
+
+def reasons_errors(reasons: Any) -> list[str]:
+    """``follow_up_reasons``: every reason a call needs (or does not need) a nurse,
+    each with its own tier: [{tier, text, source, fields?}]."""
+    if not isinstance(reasons, list) or len(reasons) > MAX_REASONS:
+        return [f"follow_up_reasons must be a list of at most {MAX_REASONS} reasons."]
+    for r in reasons:
+        if not (
+            isinstance(r, Mapping)
+            and r.get("tier") in FOLLOW_UP_TIERS
+            and isinstance(r.get("text"), str)
+            and 0 < len(r["text"]) <= MAX_REASON_CHARS
+            and r.get("source", "triage") in REASON_SOURCES
+        ):
+            return ["follow_up_reasons entries must be {tier, text, source}."]
+    return []
+
+
+def single_reason(tier: str, text: str, source: str = "agent") -> list[dict[str, Any]]:
+    return [{"tier": tier, "text": text[:MAX_REASON_CHARS], "source": source, "fields": []}]
+
+
 def _enum_error(payload: Mapping[str, Any], field: str, allowed: frozenset[str]) -> str:
     value = payload.get(field)
     if value is None or (isinstance(value, str) and value in allowed):
@@ -210,6 +238,8 @@ def validate_report(
 
     if payload.get("outcome") == "questionnaire_completed":
         errors.extend(_completeness_errors(payload.get("survey_responses")))
+    if (reasons := payload.get("follow_up_reasons")) is not None:
+        errors.extend(reasons_errors(reasons))
 
     if errors:
         return None, errors

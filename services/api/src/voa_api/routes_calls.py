@@ -209,16 +209,28 @@ async def follow_up_override(call_id: str, body: FollowUpOverride, request: Requ
         withdraw.clear()
         if doc is None:
             return None
+        note = body.reason or "; ".join(body.reasons or [])
         event = {
             "at": now,
             "from": doc.get("follow_up"),
             "to": body.follow_up,
-            "reason": body.reason,
+            "reason": note,
             "set_by": by,
         }
         new = dict(doc)
         if "agent_follow_up" not in new:
             new["agent_follow_up"] = doc.get("follow_up")  # the agent's own tier is kept
+        if body.reasons:
+            event["reasons"] = list(body.reasons)
+            if "agent_follow_up_reasons" not in new:
+                # The agent's own findings and sentence are kept for the record.
+                new["agent_follow_up_reasons"] = doc.get("follow_up_reasons") or []
+                new["agent_follow_up_reason"] = doc.get("follow_up_reason")
+            new["follow_up_reasons"] = [
+                {"tier": body.follow_up, "text": r, "source": "nurse", "set_by": by, "at": now}
+                for r in body.reasons
+            ]
+            new["follow_up_reason"] = "Nurse: " + "; ".join(body.reasons) + "."
         new["follow_up"] = body.follow_up
         new["follow_up_override"] = event
         new["follow_up_history"] = [*doc.get("follow_up_history", []), event]

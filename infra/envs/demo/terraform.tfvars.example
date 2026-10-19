@@ -10,3 +10,7 @@ name_prefix        = "voa"
 
 # Throwaway test projects only: allows terraform destroy to remove data.
 # protect_data = false
+
+# SMS follow-up. Option 3 (the questionnaire by text) stays off until its copy
+# is registered with the carrier; sms_dry_run (default true) logs instead of sending.
+sms_survey_enabled = false

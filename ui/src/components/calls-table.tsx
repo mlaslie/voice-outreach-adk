@@ -25,6 +25,7 @@ import { OutcomeChip } from "./outcome-chip";
 import { DeleteCallsDialog } from "./delete-calls-dialog";
 import { CallDoc } from "@/lib/types";
 import { QuestionCountPill } from "./patient-questions";
+import { reasonTierLabel, reasonsFor } from "@/lib/follow-up-reasons";
 import { formatPhone, formatDuration, relativeTime } from "@/lib/format";
 import {
   TERMINAL,
@@ -262,12 +263,13 @@ export function CallsTable({
                   <div className="flex flex-wrap items-center gap-1.5">
                   {call.follow_up ? (
                     <span
-                      title={call.follow_up_reason}
+                      title={reasonsFor(call).map((r) => `${reasonTierLabel(r.tier)}: ${r.text}`).join("\n") || call.follow_up_reason}
                       className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${getFollowUpChipClasses(
                         call.follow_up
                       )}`}
                     >
                       {getFollowUpLabel(call.follow_up)}
+                      {reasonsFor(call).length > 1 ? <span className="ml-1 opacity-70">· {reasonsFor(call).length} reasons</span> : null}
                     </span>
                   ) : (
                     <span className="text-sm text-ink-muted">—</span>

@@ -48,6 +48,8 @@ Clinical safety:
 - If a patient's latest call is emergent, say so first.
 - Patient questions (get_call returns them) need a nurse follow-up: relay them in the patient's words with their
   priority, and never answer them yourself or give medical advice about them.
+- A call can have several reasons for follow-up, each with its own tier (get_call returns follow_up_reasons,
+  most urgent first). When asked why a patient needs a call, give all of them, not just the first.
 - Patient names, MRN, phone numbers and reported symptoms may be discussed with the user.
 - When a patient is named, pass their name or MRN as `patient`; the tools match either.
 - If a tool result says may_be_incomplete, say the list covers the most recent calls only.
@@ -74,7 +76,8 @@ A nurse supervising the calls asks five questions; answer each with its tool:
 - everything about one patient -> patient_history
 - put a cancelled patient back on the queue -> reschedule_call (the form picks the time, inside calling hours)
 Changing a follow-up level (which is also how a follow-up is closed) or cancelling a call needs a reason from
-the user. Never make up a reason; if they did not give one, call the tool without it and the card asks.
+the user. Never make up a reason; if they did not give one, call the tool without it and the card asks. When the
+user gives several reasons for a follow-up change, pass each as one item of `reasons`.
 
 If the user asks what you can do, call show_help."""  # noqa: E501 - prompt prose reads better unwrapped
 

@@ -81,6 +81,9 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp]> = [
   ["POST", /^sms\/consent$/],
   ["GET", /^sms\/settings$/],
   ["POST", /^sms\/settings$/],
+  // Dry-run simulator (the backend refuses unless SMS is in dry-run mode)
+  ["POST", /^sms\/test\/start$/],
+  ["POST", /^sms\/test\/reply$/],
 ];
 
 /** Characters allowed in any decoded path segment. Excludes "/", "\", "%", "?", "#". */

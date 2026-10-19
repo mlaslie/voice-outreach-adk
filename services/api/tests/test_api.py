@@ -210,6 +210,53 @@ def test_follow_up_override_keeps_agent_tier_and_history():
     )
 
 
+def test_a_nurse_sets_several_reasons_and_the_agents_are_kept():
+    client, api = make()
+    cid = "CA" + "c" * 32
+    agent = [{"tier": "urgent_same_day", "text": "question asked (medication)", "source": "triage"}]
+    run(
+        api.store.set(
+            "calls",
+            cid,
+            {
+                "follow_up": "urgent_same_day",
+                "follow_up_reason": "Patient reports question asked (medication).",
+                "follow_up_reasons": agent,
+                "initiated_at": NOW.isoformat(),
+            },
+        )
+    )
+    r = client.post(
+        f"/api/calls/{cid}/follow-up",
+        json={
+            "follow_up": "routine_next_business_day",
+            "reasons": ["Medication refill request", "Not sleeping well", "Not sleeping well"],
+        },
+        headers={"X-Acting-User": "nurse@example.org"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert [x["text"] for x in body["follow_up_reasons"]] == [
+        "Medication refill request",
+        "Not sleeping well",
+    ]
+    assert {x["source"] for x in body["follow_up_reasons"]} == {"nurse"}
+    assert body["agent_follow_up_reasons"] == agent
+    assert body["follow_up_reason"] == "Nurse: Medication refill request; Not sleeping well."
+    assert body["follow_up_history"][-1]["reasons"] == [
+        "Medication refill request",
+        "Not sleeping well",
+    ]
+    # A second change keeps the agent's originals, not the first nurse's list.
+    client.post(
+        f"/api/calls/{cid}/follow-up",
+        json={"follow_up": "informational", "reasons": ["Discussed by phone"]},
+    )
+    assert run(api.store.get("calls", cid))["agent_follow_up_reasons"] == agent
+    # Neither a reason nor reasons: refused.
+    assert client.post(f"/api/calls/{cid}/follow-up", json={"follow_up": "none"}).status_code == 422
+
+
 def test_transcript_list_and_delete():
     client, api = make()
     cid = "CA" + "b" * 32

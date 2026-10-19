@@ -136,7 +136,11 @@ async def test_change_tier_needs_a_different_tier_and_a_reason(t):
     (p,) = await t.proposals.pending()
     assert "Routine" in (await actions.execute(p.id)).as_text()
     assert t.backend.writes == [
-        ("tier", sid, "routine_next_business_day", "Called back; improving.")
+        (
+            "tier",
+            sid,
+            {"follow_up": "routine_next_business_day", "reason": "Called back; improving."},
+        )
     ]
 
 

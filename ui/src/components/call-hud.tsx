@@ -24,6 +24,8 @@ import { useCallDetail } from "@/hooks/use-call-detail";
 import { CallDoc } from "@/lib/types";
 import { formatPhone, formatDuration, formatTime, relativeTime } from "@/lib/format";
 import { Finding, FindingLevel, findingsFor, summarize, verdictFor } from "@/lib/triage";
+import { FollowUpReasonList } from "@/components/follow-up-reasons";
+import { reasonsFor } from "@/lib/follow-up-reasons";
 
 /**
  * Full-screen triage view for a single call.
@@ -209,7 +211,11 @@ export function CallHud({ callSid, liveDoc, onOpenChange }: CallHudProps) {
                     <DialogTitle className="text-2xl font-bold leading-tight">
                       {verdict?.headline}
                     </DialogTitle>
-                    <p className={`text-sm mt-0.5 ${tone.sub}`}>{verdict?.reason}</p>
+                    {reasonsFor(doc).length ? (
+                      <FollowUpReasonList call={doc} variant="band" className="mt-2" />
+                    ) : (
+                      <p className={`text-sm mt-0.5 ${tone.sub}`}>{verdict?.reason}</p>
+                    )}
                   </div>
                 </div>
                 <div className="text-right shrink-0 pr-8">

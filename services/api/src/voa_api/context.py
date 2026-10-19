@@ -32,7 +32,10 @@ CALL_LIST, CALL_RUNS, LIST_RUNS, SETTINGS, ALLOWLIST = (
 #: Signed-off results waiting for the EHR integration (one per call).
 EHR_OUTBOX = "ehr_outbox"
 
-CALL_ID_RE = re.compile(r"^(CA[0-9a-f]{32}|browser_[0-9a-f]{16}|local_[0-9a-f]{16,32})$")
+# smstest_: a call doc staged by the dry-run SMS simulator (sms_simulator.py).
+CALL_ID_RE = re.compile(
+    r"^(CA[0-9a-f]{32}|browser_[0-9a-f]{16}|local_[0-9a-f]{16,32}|smstest_[0-9a-f]{16})$"
+)
 HEX32_RE = re.compile(r"^[0-9a-f]{32}$")
 
 

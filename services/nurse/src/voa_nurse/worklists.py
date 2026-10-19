@@ -372,7 +372,7 @@ async def view_home():
                 card.text(MARK["emergency"][0], "h3"),
                 card.col(
                     card.text(f"Emergency reported: {e.get('patient_name')}", "h4"),
-                    card.text(e.get("follow_up_reason") or "", "body"),
+                    card.text(triage.reason_summary(e), "body"),
                 ),
             )
         )
@@ -852,7 +852,7 @@ async def view_called():
             card,
             cards.mark(c)[0],
             c.get("patient_name") or "",
-            [c.get("follow_up_reason") or "", triage.questions_summary(c), _meta(c)],
+            [triage.reason_summary(c), triage.questions_summary(c), _meta(c)],
             view_btn(c),
         ),
     )
@@ -863,7 +863,7 @@ async def view_called():
             card,
             cards.mark(c)[0],
             c.get("patient_name") or "",
-            [c.get("follow_up_reason") or "", triage.questions_summary(c), _meta(c)],
+            [triage.reason_summary(c), triage.questions_summary(c), _meta(c)],
             view_btn(c),
         ),
     )
@@ -953,7 +953,7 @@ async def view_needs(group: str = "now"):
         return card, {"patients": [], "may_be_incomplete": snap["truncated"]}
     card.line(cards.mark_summary(items) + " · most urgent first", "caption")
     for c in items[:10]:
-        reason = c.get("follow_up_reason") or triage.verdict_for(c)["reason"]
+        reason = triage.reason_summary(c) or triage.verdict_for(c)["reason"]
         due = due_text(c["follow_up"], triage.call_time(c))
         nurse = " · tier set by nurse" if c.get("follow_up_override") else ""
         name = c.get("patient_name") or phone(c.get("to"))
@@ -981,6 +981,10 @@ async def view_needs(group: str = "now"):
                 "patient": c.get("patient_name"),
                 "tier": c["follow_up"],
                 "reason": c.get("follow_up_reason"),
+                "all_reasons": [
+                    f"{r['tier_label']}: {r['text']}"
+                    for r in triage.reasons_data(triage.follow_up_reasons(c))
+                ],
                 "questions_summary": triage.questions_summary(c),
                 "call_sid": c["doc_id"],
                 "due": due_text(c["follow_up"], triage.call_time(c)),
@@ -1028,6 +1032,19 @@ async def view_cleared():
 # --- change tier with a reason ---------------------------------------------------------------
 
 
+REASON_FIELDS = 3  # reason lines on the form; the tool takes up to MAX_REASONS
+MAX_REASONS = 10  # the API's limit
+MAX_REASON_CHARS = 200
+
+
+def clean_reasons(reasons) -> list[str]:
+    """Whitespace collapsed, blanks and repeats dropped, order kept."""
+    if isinstance(reasons, str):
+        reasons = [reasons]
+    out = [" ".join(str(r).split()) for r in reasons or [] if isinstance(r, str | int | float)]
+    return list(dict.fromkeys(r for r in out if r))
+
+
 async def tier_form(call_sid: str, prefill: dict | None = None, problems: list[str] = ()):
     c = await backend().get_call(call_sid)
     name = c.get("patient_name") or phone(c.get("to"))
@@ -1038,6 +1055,8 @@ async def tier_form(call_sid: str, prefill: dict | None = None, problems: list[s
         else ""
     )
     card.line(f"Now: {triage.follow_up_label(c.get('follow_up'))}{agent_said}", "caption")
+    if summary := triage.reason_summary(c):
+        card.line(f"Current reasons: {summary}", "caption")
     for p in problems:
         card.line(f"(!) {p}")
     card.put(
@@ -1049,11 +1068,11 @@ async def tier_form(call_sid: str, prefill: dict | None = None, problems: list[s
             value={"path": "/tier/choice"},
         )
     )
-    card.put(
-        card.add(
-            "TextField", label="Reason for the change (required)", value={"path": "/tier/reason"}
+    for i in range(REASON_FIELDS):
+        label = (
+            "Reason for the change (required)" if i == 0 else f"Another reason {i + 1} (optional)"
         )
-    )
+        card.put(card.add("TextField", label=label, value={"path": f"/tier/reason{i}"}))
     card.buttons(
         card.button(
             "Review change",
@@ -1061,45 +1080,86 @@ async def tier_form(call_sid: str, prefill: dict | None = None, problems: list[s
                 "wl_tier_submit",
                 call_sid=call_sid,
                 choice={"path": "/tier/choice"},
-                reason={"path": "/tier/reason"},
+                **{f"reason{i}": {"path": f"/tier/reason{i}"} for i in range(REASON_FIELDS)},
             ),
             primary=True,
         )
     )
     p = prefill or {}
+    given = clean_reasons(p.get("reasons")) or clean_reasons(p.get("reason"))
     card.data_model = {
         "tier": {
             "choice": [p.get("tier") or c.get("follow_up") or "none"],
-            "reason": p.get("reason", ""),
+            **{f"reason{i}": given[i] if i < len(given) else "" for i in range(REASON_FIELDS)},
         }
     }
     return card, {"status": "form_shown", "patient": name, "current": c.get("follow_up")}
 
 
-async def propose_tier(call_sid: str, tier, reason: str):
+async def submit_tier_form(call_sid: str, values: dict):
+    """The form's reason lines become the call's reasons. A form from before the
+    reason lines existed sends one ``reason``: it stays a note, as it was."""
+    if any(f"reason{i}" in values for i in range(REASON_FIELDS)):
+        lines = [values.get(f"reason{i}") or "" for i in range(REASON_FIELDS)]
+        return await propose_tier(call_sid, values.get("choice"), reasons=lines)
+    return await propose_tier(call_sid, values.get("choice"), values.get("reason") or "")
+
+
+async def propose_tier(call_sid: str, tier, reason: str = "", reasons: list[str] | None = None):
+    """Change a call's follow-up tier. ``reasons`` (one or more) replace the call's
+    reasons list; ``reason`` is a note on the change. At least one is required."""
     tier = (tier[0] if isinstance(tier, list) and tier else tier) or ""
-    reason = " ".join((reason or "").split())
+    note = " ".join((reason or "").split())
+    reasons = clean_reasons(reasons)
     c = await backend().get_call(call_sid)
     problems = []
     if tier not in dict(TIER_CHOICES):
         problems.append("Pick a follow-up level.")
     elif tier == c.get("follow_up"):
         problems.append("That is the current level; pick a different one.")
-    if len(reason) < 5:
+    if reasons:
+        if len(reasons) > MAX_REASONS:
+            problems.append(f"Give at most {MAX_REASONS} reasons.")
+        if any(len(r) < 3 for r in reasons):
+            problems.append("Each reason needs a few words.")
+        if any(len(r) > MAX_REASON_CHARS for r in reasons):
+            problems.append(f"Keep each reason under {MAX_REASON_CHARS} characters.")
+        if note and len(note) < 3:
+            note = ""  # too short to be a note; the reasons say it
+    elif len(note) < 5:
         problems.append("A reason is required (a few words).")
     if problems:
-        card, _ = await tier_form(call_sid, {"tier": tier, "reason": reason}, problems)
+        prefill = {"tier": tier, "reasons": reasons or [note]}
+        card, _ = await tier_form(call_sid, prefill, problems)
         return card, {"status": "invalid", "problems": problems}
     name = c.get("patient_name") or phone(c.get("to"))
+    if reasons:
+        n = len(reasons)
+        lines = [f"From: {triage.follow_up_label(c.get('follow_up'))}"]
+        lines.append(f"Reason{'s' * (n != 1)} to be saved ({n}):")
+        lines += [f"{i}. {r}" for i, r in enumerate(reasons, 1)]
+        if note:
+            lines.append(f"Note: {note}")
+        lines.append(
+            "These replace the call's reasons; the agent's own reasons are kept alongside."
+        )
+    else:
+        lines = [
+            f"From: {triage.follow_up_label(c.get('follow_up'))}",
+            f"Reason: {note}",
+            "The agent's own assessment is kept alongside.",
+        ]
     return await propose(
         "set_tier",
-        {"call_sid": call_sid, "tier": tier, "reason": reason[:500], "name": name},
+        {
+            "call_sid": call_sid,
+            "tier": tier,
+            "reason": note[:500] or None,
+            "reasons": reasons or None,
+            "name": name,
+        },
         f"Change {name} to {triage.follow_up_label(tier)}?",
-        [
-            f"From: {triage.follow_up_label(c.get('follow_up'))}",
-            f"Reason: {reason}",
-            "The agent's own assessment is kept alongside.",
-        ],
+        lines,
         "Change follow-up",
     )
 
@@ -1180,7 +1240,8 @@ async def view_history(call_sid: str | None = None, patient: str | None = None):
                     "✏️",
                     f"Tier changed by {h.get('set_by') or 'nurse'}: "
                     f"{triage.follow_up_label(h.get('from'))} → "
-                    f"{triage.follow_up_label(h.get('to'))} ({h.get('reason')})",
+                    f"{triage.follow_up_label(h.get('to'))} "
+                    f"({'; '.join(h.get('reasons') or []) or h.get('reason')})",
                 )
             )
     for cx in (entry or {}).get("cancel_history") or []:
@@ -1349,10 +1410,14 @@ async def execute(kind: str, a: dict) -> Card | None:
             buttons=[("To be called", event("wl_queue"))],
         )
     if kind == "set_tier":
-        await b.set_follow_up(a["call_sid"], a["tier"], a["reason"])
+        reasons = a.get("reasons") or []
+        await b.set_follow_up(a["call_sid"], a["tier"], a.get("reason"), reasons=reasons or None)
+        lines = [f"Reason: {r}" for r in reasons] or [f"Reason: {a.get('reason')}"]
+        if reasons and a.get("reason"):
+            lines.append(f"Note: {a['reason']}")
         return cards.result_card(
             f"{a['name']}: {triage.follow_up_label(a['tier'])}",
-            [f"Reason: {a['reason']}"],
+            lines,
             buttons=[
                 ("View", event("view_call", call_sid=a["call_sid"])),
                 ("Needs you now", event("wl_needs", group="now")),

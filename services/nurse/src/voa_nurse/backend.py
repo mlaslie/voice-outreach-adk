@@ -97,6 +97,17 @@ def q(v: str) -> str:
     return quote(v, safe="")
 
 
+def follow_up_body(tier: str, reason: str | None = None, reasons: list[str] | None = None) -> dict:
+    """``POST /api/calls/{id}/follow-up``: ``reasons`` replace the call's reasons
+    list, ``reason`` is the note on the change; the API needs at least one."""
+    body: dict = {"follow_up": tier}
+    if reasons:
+        body["reasons"] = list(reasons)
+    if reason:
+        body["reason"] = reason
+    return body
+
+
 class Backend:
     def __init__(
         self,
@@ -167,8 +178,14 @@ class Backend:
     async def place_call(self, body: dict) -> dict:
         return await self.request("POST", "/api/place-call", json=body)
 
-    async def set_follow_up(self, call_id: str, tier: str, reason: str) -> dict:
-        body = {"follow_up": tier, "reason": reason}
+    async def set_follow_up(
+        self,
+        call_id: str,
+        tier: str,
+        reason: str | None = None,
+        reasons: list[str] | None = None,
+    ) -> dict:
+        body = follow_up_body(tier, reason, reasons)
         return await self.request("POST", f"/api/calls/{q(call_id)}/follow-up", json=body)
 
     # --- call list and runs ------------------------------------------------------

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
-import { ArrowUpRight, CalendarClock, CalendarPlus, History, PenLine, Phone, X, XCircle } from "lucide-react";
+import { ArrowUpRight, CalendarClock, CalendarPlus, History, PenLine, Phone, Plus, X, XCircle } from "lucide-react";
 import { CallDoc, CallRun, CallSettingsResponse, CancelEvent } from "@/lib/types";
 import { inCallingWindow, isoToZonedInput, nextCallingSlot, windowText, zonedInputToIso } from "@/lib/nurse/window";
 import { DEFAULT_RECALL } from "./recall-settings";
@@ -21,6 +21,11 @@ import { cn } from "@/lib/utils";
 import { Avatar, Pill, Tone, ago, clock } from "./parts";
 import { ClinicDateTimeInput } from "./clinic-time-input";
 import { fmtDateTime } from "@/lib/time";
+import { FollowUpReasonList } from "@/components/follow-up-reasons";
+import {
+  FOLLOW_UP_REASON_PRESETS, MAX_REASON_LENGTH, MAX_REASONS, buildOverrideBody, initialReasonSelection,
+  normaliseReasonTexts, overrideProblem, reasonsChanged, reasonsFor, reasonsSetByNurse,
+} from "@/lib/follow-up-reasons";
 
 export interface DrawerSubject {
   name: string;
@@ -226,11 +231,15 @@ function Body({
               />
             ) : null}
 
-            {verdict ? (
-              <Section title="Agent’s assessment">
+            {verdict && call ? (
+              <Section title={reasonsSetByNurse(call) ? "Follow-up reasons" : "Agent’s assessment"}>
                 <div className="rounded-2xl bg-mist/60 p-4 ring-1 ring-black/[0.04]">
                   <Pill tone={VERDICT_TONE[verdict.tone] ?? "muted"}>{verdict.headline}</Pill>
-                  <p className="mt-2 text-[14px] leading-relaxed text-ink">{verdict.reason}</p>
+                  {reasonsFor(call).length ? (
+                    <FollowUpReasonList call={call} className="mt-3" />
+                  ) : (
+                    <p className="mt-2 text-[14px] leading-relaxed text-ink">{verdict.reason}</p>
+                  )}
                 </div>
               </Section>
             ) : null}
@@ -467,8 +476,9 @@ function CancelledSection({
 }
 
 /**
- * The nurse's own disposition. Changing it requires a reason; the agent's
- * verdict is kept alongside and every change is listed.
+ * The nurse's own disposition: a tier plus one or more reasons (prefilled
+ * from the call's current reasons, a preset list, or typed). The agent's
+ * verdict and reasons are kept alongside and every change is listed.
  */
 function FollowUpControl({
   call,
@@ -482,24 +492,49 @@ function FollowUpControl({
   const current = call.follow_up ?? "";
   const [editing, setEditing] = useState(false);
   const [tier, setTier] = useState(current);
-  const [reason, setReason] = useState("");
+  const [selected, setSelected] = useState<string[]>(() => initialReasonSelection(call));
+  const [custom, setCustom] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setTier(current); setReason(""); setEditing(false); }, [current, call.doc_id]);
+  const reset = () => {
+    setTier(current);
+    setSelected(initialReasonSelection(call));
+    setCustom([]);
+    setDraft("");
+    setNote("");
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { reset(); setEditing(false); }, [current, call.doc_id, call.follow_up_reason]);
 
   const sid = call.call_sid ?? call.doc_id;
   const history = call.follow_up_history ?? [];
-  const reasonOk = reason.trim().length >= 5;
-  const changed = tier !== current;
+  // The call's own reasons first, then the presets, then anything typed.
+  const options = normaliseReasonTexts([...initialReasonSelection(call), ...FOLLOW_UP_REASON_PRESETS, ...custom]);
+  const isSelected = (o: string) => selected.some((x) => x.toLowerCase() === o.toLowerCase());
+  const toggle = (o: string) =>
+    setSelected((xs) => (isSelected(o) ? xs.filter((x) => x.toLowerCase() !== o.toLowerCase()) : [...xs, o]));
+  const addCustom = () => {
+    const [text] = normaliseReasonTexts([draft]);
+    if (!text) return;
+    const existing = options.find((o) => o.toLowerCase() === text.toLowerCase());
+    if (!existing) setCustom((xs) => [...xs, text]);
+    if (!isSelected(existing ?? text)) setSelected((xs) => [...xs, existing ?? text]);
+    setDraft("");
+  };
+
+  const problem = !tier ? "Choose a follow-up" : overrideProblem(selected, note);
+  const changed = tier !== current || reasonsChanged(call, selected) || note.trim().length > 0;
+  const blocked = problem ?? (!changed ? "Nothing changed yet" : null);
 
   const save = async () => {
-    if (!changed || !reasonOk) return;
+    if (blocked) return;
     setBusy(true);
     try {
-      const updated = await actions.setFollowUp(sid, { follow_up: tier, reason: reason.trim() });
+      const updated = await actions.setFollowUp(sid, buildOverrideBody(tier, selected, note));
       onChanged(updated);
       toast.success(`Follow-up set to ${getFollowUpLabel(tier)}`);
       setEditing(false);
-      setReason("");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not change the follow-up.");
     } finally {
@@ -525,7 +560,7 @@ function FollowUpControl({
           ) : null}
           {!editing ? (
             <button
-              onClick={() => setEditing(true)}
+              onClick={() => { reset(); setEditing(true); }}
               className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-brand/10 px-3 py-1.5 text-[12px] font-semibold text-brand-dark hover:bg-brand hover:text-white"
             >
               <PenLine className="h-3.5 w-3.5" /> Change
@@ -550,25 +585,67 @@ function FollowUpControl({
                 </label>
               ))}
             </div>
+            <fieldset>
+              <legend className="text-[12px] font-semibold text-ink-soft">
+                Reasons <span className="text-brand-red-dark">*</span>
+                <span className="ml-1 font-normal text-ink-muted">{selected.length} chosen · up to {MAX_REASONS}</span>
+              </legend>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                {options.map((o) => {
+                  const on = isSelected(o);
+                  return (
+                    <label
+                      key={o}
+                      className={cn("inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] ring-1 ring-inset transition-colors",
+                        on ? "bg-brand/[0.08] font-semibold text-brand-dark ring-brand/40" : "text-ink-soft ring-black/[0.08] hover:bg-mist/60")}
+                    >
+                      <input type="checkbox" checked={on} onChange={() => toggle(o)} className="accent-brand" />
+                      <span className="first-letter:uppercase">{o}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+                  maxLength={MAX_REASON_LENGTH}
+                  placeholder="Add another reason"
+                  aria-label="Add another reason"
+                  className="min-w-0 flex-1 rounded-xl bg-mist/60 px-3 py-1.5 text-[13px] text-ink ring-1 ring-inset ring-black/[0.06] placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40"
+                />
+                <button
+                  type="button"
+                  onClick={addCustom}
+                  disabled={!draft.trim()}
+                  className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[12px] font-semibold text-brand-dark ring-1 ring-brand/30 hover:bg-brand/10 disabled:opacity-40"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </button>
+              </div>
+              {!selected.length ? <span className="mt-1 block text-[11px] text-brand-red-dark">Choose at least one reason.</span> : null}
+            </fieldset>
             <label className="block">
-              <span className="text-[12px] font-semibold text-ink-soft">Reason for the change <span className="text-brand-red-dark">*</span></span>
+              <span className="text-[12px] font-semibold text-ink-soft">Note <span className="font-normal text-ink-muted">(optional)</span></span>
               <textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
                 rows={2}
+                maxLength={500}
                 placeholder="e.g. Called the patient back; pain controlled after medication adjustment."
                 className="mt-1 w-full rounded-xl bg-mist/60 px-3 py-2 text-[13px] text-ink ring-1 ring-inset ring-black/[0.06] placeholder:text-ink-muted focus:outline-none focus:ring-2 focus:ring-brand/40"
               />
-              {!reasonOk && reason.length > 0 ? <span className="text-[11px] text-brand-red-dark">Say why, in a few words at least.</span> : null}
+              {note.trim() && problem && problem.includes("note") ? <span className="text-[11px] text-brand-red-dark">A few words at least.</span> : null}
             </label>
             <div className="flex justify-end gap-2">
-              <button onClick={() => { setEditing(false); setTier(current); setReason(""); }} className="rounded-full px-3.5 py-1.5 text-[13px] font-semibold text-ink-soft ring-1 ring-black/[0.08] hover:text-ink">
+              <button onClick={() => { setEditing(false); reset(); }} className="rounded-full px-3.5 py-1.5 text-[13px] font-semibold text-ink-soft ring-1 ring-black/[0.08] hover:text-ink">
                 Cancel
               </button>
               <button
                 onClick={save}
-                disabled={!changed || !reasonOk || busy}
-                title={!changed ? "Pick a different tier" : !reasonOk ? "A reason is required" : undefined}
+                disabled={!!blocked || busy}
+                title={blocked ?? undefined}
                 className="rounded-full bg-brand px-3.5 py-1.5 text-[13px] font-semibold text-white hover:bg-brand-dark disabled:opacity-40"
               >
                 {busy ? "Saving…" : "Save change"}
@@ -587,7 +664,14 @@ function FollowUpControl({
                 <li key={`${h.at}-${i}`}>
                   <span className="font-semibold text-ink">{getFollowUpLabel(h.from ?? undefined)} → {getFollowUpLabel(h.to)}</span>
                   <span className="text-ink-muted"> · {h.set_by ?? "nurse"} · {fmtDateTime(h.at, { month: "short", day: "numeric", year: "numeric" })}</span>
-                  <div className="text-ink">{h.reason}</div>
+                  {h.reasons?.length ? (
+                    <div className="mt-0.5 flex flex-wrap gap-1">
+                      {h.reasons.map((r) => (
+                        <span key={r} className="rounded-full bg-mist px-2 py-0.5 text-[11px] text-ink ring-1 ring-inset ring-rule">{r}</span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {h.reason && h.reason !== h.reasons?.join("; ") ? <div className="text-ink">{h.reason}</div> : null}
                 </li>
               ))}
             </ol>

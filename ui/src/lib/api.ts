@@ -19,6 +19,37 @@ import {
   PlaceCallResponse,
   TranscriptResponse,
 } from "./types";
+import type { SmsMessage } from "./followups";
+
+/** Dry-run SMS simulator (POST /api/sms/test/*). Never sends a real text. */
+export interface SmsTestPatient {
+  patient_name: string;
+  patient_id: string;
+  patient_dob: string;
+  is_diabetic: boolean;
+}
+
+export interface SmsTestStartResponse {
+  phone: string;
+  call_sid: string;
+  dry_run: true;
+  survey_enabled: boolean;
+  /** "simulator": a test-only consent was recorded; "existing": one was on file. */
+  consent: "simulator" | "existing";
+  patient: SmsTestPatient;
+  state: string;
+  messages: SmsMessage[];
+}
+
+export interface SmsTestReplyResponse {
+  phone: string;
+  call_sid: string;
+  result: { note?: string; effect?: string; replies?: number };
+  state: string | null;
+  report_id: string | null;
+  new_messages: SmsMessage[];
+  messages: SmsMessage[];
+}
 
 /**
  * Every backend call goes through this app's own same-origin BFF route,
@@ -219,6 +250,20 @@ export const api = {
     return request<{ deleted: string }>(`/allowlist/${encodeURIComponent(phone)}`, {
       method: "DELETE",
     });
+  },
+
+  // ---- Dry-run SMS simulator ---------------------------------------------
+  //
+  // The backend refuses both (409) unless SMS is in dry-run mode, and only for
+  // numbers on the outbound allowlist. Read the thread with fetchMessages
+  // (lib/followups.ts) scoped to the returned call_sid.
+
+  startSmsTest(phone: string, diabetic: boolean): Promise<SmsTestStartResponse> {
+    return request<SmsTestStartResponse>("/sms/test/start", json("POST", { phone, diabetic }));
+  },
+
+  replySmsTest(phone: string, body: string): Promise<SmsTestReplyResponse> {
+    return request<SmsTestReplyResponse>("/sms/test/reply", json("POST", { phone, body }));
   },
 
   /** Same-origin SSE feed of call updates (proxied, streamed, by the BFF). */

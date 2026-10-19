@@ -8,6 +8,8 @@ import { QuestionCountPill } from "@/components/patient-questions";
 import { formatPhone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Avatar, ChipOption, EmptyState, FilterChips, Panel, Pill, TONE, Tone, ago, clock, countdown, isSameDay } from "./parts";
+import { ReasonSummaryLine } from "@/components/follow-up-reasons";
+import { nurseReasonsMeta, reasonsFor, reasonsSetByNurse } from "@/lib/follow-up-reasons";
 
 export const TIER: Record<FollowUpTier, { label: string; short: string; tone: Tone }> = {
   emergency: { label: "Emergency", short: "Emergency", tone: "emergency" },
@@ -116,7 +118,10 @@ function FollowUpCard({
               <QuestionCountPill call={item.call} />
               {done ? <Pill tone="good" icon={Check}>Contacted</Pill> : null}
             </div>
-            <p className="mt-1.5 text-[14px] leading-snug text-ink">{item.reason ?? "No reason recorded."}</p>
+            <p className="mt-1.5 flex min-w-0 text-[14px] leading-snug text-ink">
+              {reasonsFor(item.call).length ? <ReasonSummaryLine call={item.call} /> : (item.reason ?? "No reason recorded.")}
+              {reasonsSetByNurse(item.call) ? <span className="ml-2 shrink-0 self-center text-[11px] text-ink-muted">set by {nurseReasonsMeta(item.call)?.by}</span> : null}
+            </p>
             {flags.length ? (
               <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {flags.map((f) => (

@@ -24,7 +24,7 @@ from pydantic import Field
 from voa_core.config import AppConfig
 from voa_core.store import MemoryStore
 from voa_nurse import cards, schema, turn
-from voa_nurse.backend import BackendError
+from voa_nurse.backend import BackendError, follow_up_body
 from voa_nurse.executor import EXT_V09
 from voa_nurse.proposals import ProposalStore
 from voa_nurse.settings import NurseSettings
@@ -232,7 +232,36 @@ def nurse_day(now=None) -> dict:
         call_status="success",
         outcome="questionnaire_completed",
         follow_up="urgent_same_day",
-        follow_up_reason="Pain uncontrolled on current regimen; out of prescribed medication.",
+        follow_up_reason="Patient reports question asked (medication). Also noted: pain "
+        "uncontrolled on current regimen (urgent); right ankle swelling (routine); not "
+        "sleeping well (noted).",
+        # Every finding with its own tier, deliberately not in order: cards sort them.
+        follow_up_reasons=[
+            {
+                "tier": "informational",
+                "text": "Not sleeping well",
+                "source": "triage",
+                "fields": ["sleeping_well"],
+            },
+            {
+                "tier": "urgent_same_day",
+                "text": "Patient reports question asked (medication)",
+                "source": "triage",
+                "fields": ["patient_questions"],
+            },
+            {
+                "tier": "routine_next_business_day",
+                "text": "Right ankle swelling, a bit puffier today",
+                "source": "triage",
+                "fields": ["legs_swollen", "swelling_description"],
+            },
+            {
+                "tier": "urgent_same_day",
+                "text": "Pain uncontrolled on current regimen (8/10)",
+                "source": "triage",
+                "fields": ["pain_severity"],
+            },
+        ],
         # Post-19 Oct 2026 questionnaire: swelling, sleep and questions (listed here
         # routine first, so the card has to put the immediate one on top).
         survey_responses={
@@ -529,7 +558,97 @@ def many_calls(now=None, n: int = 600) -> dict:
     return b.d
 
 
-DATASETS = {"nurse_day": nurse_day, "two_anns": two_anns, "many_calls": many_calls}
+def reasons_day(now=None) -> dict:
+    """Follow-up reasons in each shape the API serves: a new call with several
+    tiers, a call whose reasons a nurse replaced, and an old call with one sentence."""
+    b = _B(now)
+    b.call(
+        "Rosa Delgado",
+        "P-7001",
+        "Total knee replacement",
+        -1,
+        call_status="success",
+        outcome="questionnaire_completed",
+        follow_up="urgent_same_day",
+        follow_up_reason="Patient reports question asked (medication). Also noted: not "
+        "sleeping well (noted).",
+        follow_up_reasons=[
+            {"tier": "informational", "text": "Not sleeping well", "source": "triage"},
+            {
+                "tier": "urgent_same_day",
+                "text": "Patient reports question asked (medication)",
+                "source": "triage",
+            },
+        ],
+        survey_responses={"sleeping_well": "no", "has_questions": "yes"},
+    )
+    nurse, at = "rn.okoro@example.org", b.at(-0.5)
+    change = {
+        "at": at,
+        "from": "urgent_same_day",
+        "to": "routine_next_business_day",
+        "reason": "Refill sent to pharmacy; Wound check at clinic Friday",
+        "set_by": nurse,
+        "reasons": ["Refill sent to pharmacy", "Wound check at clinic Friday"],
+    }
+    b.call(
+        "Felix Moreau",
+        "P-7002",
+        "Rotator cuff repair",
+        -2,
+        call_status="success",
+        outcome="questionnaire_completed",
+        follow_up="routine_next_business_day",
+        agent_follow_up="urgent_same_day",
+        follow_up_reason="Nurse: Refill sent to pharmacy; Wound check at clinic Friday.",
+        follow_up_reasons=[
+            {
+                "tier": "routine_next_business_day",
+                "text": "Refill sent to pharmacy",
+                "source": "nurse",
+                "set_by": nurse,
+                "at": at,
+            },
+            {
+                "tier": "routine_next_business_day",
+                "text": "Wound check at clinic Friday",
+                "source": "nurse",
+                "set_by": nurse,
+                "at": at,
+            },
+        ],
+        agent_follow_up_reason="Out of pain medication. Also noted: incision redness (routine).",
+        agent_follow_up_reasons=[
+            {
+                "tier": "routine_next_business_day",
+                "text": "Incision redness",
+                "source": "triage",
+            },
+            {"tier": "urgent_same_day", "text": "Out of pain medication", "source": "triage"},
+        ],
+        follow_up_override=change,
+        follow_up_history=[change],
+    )
+    b.call(
+        "Edith Park",
+        "P-7003",
+        "Hip arthroplasty",
+        -30,
+        call_status="success",
+        outcome="questionnaire_completed",
+        follow_up="routine_next_business_day",
+        follow_up_reason="Constipation since discharge.",
+    )
+    b.allow_all_phones()
+    return b.d
+
+
+DATASETS = {
+    "nurse_day": nurse_day,
+    "two_anns": two_anns,
+    "many_calls": many_calls,
+    "reasons_day": reasons_day,
+}
 
 
 # --------------------------------------------------------------------------- fake API client
@@ -581,8 +700,9 @@ class FakeBackend:
         self.writes.append(("place_call", body))
         return {"call_sid": "CA" + uuid.uuid4().hex, "status": "queued"}
 
-    async def set_follow_up(self, call_id, tier, reason):
-        self.writes.append(("tier", call_id, tier, reason))
+    async def set_follow_up(self, call_id, tier, reason=None, reasons=None):
+        # The body the real client would send, so tests check what reaches the API.
+        self.writes.append(("tier", call_id, follow_up_body(tier, reason, reasons)))
         return {}
 
     async def get_call_list(self):

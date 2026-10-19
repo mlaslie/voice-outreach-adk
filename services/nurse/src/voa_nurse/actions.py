@@ -233,9 +233,13 @@ async def view_call(call_sid: str | None = None, patient: str | None = None):
         return which_patient(patient or "", choices, "view_call")
     if not c:
         return not_found(patient or call_sid)
+    reasons = triage.follow_up_reasons(c)
     data = {
         **brief(c),
         "verdict": triage.verdict_for(c),
+        # Every reason, each with its own tier, most urgent first: answer "why does
+        # this patient need a call?" from these, all of them.
+        "follow_up_reasons": triage.reasons_data(reasons),
         "findings": triage.findings_for(c),
         # In the patient's words; each needs a nurse's answer, never the agent's.
         "patient_questions": [
@@ -243,6 +247,11 @@ async def view_call(call_sid: str | None = None, patient: str | None = None):
             for q in triage.patient_questions(c)
         ],
         "has_questions_none_captured": triage.has_uncaptured_questions(c),
+        **(
+            {"agent_original_reasons": triage.reasons_data(triage.agent_original_reasons(c))}
+            if triage.reasons_set_by_nurse(reasons)
+            else {}
+        ),
         "patient_context": c.get("patient_context"),
         "phone": c.get("to"),
         "dob_verification": c.get("dob_verification_result"),
@@ -760,9 +769,7 @@ async def handle_click(name: str, ctx: dict):
             ctx["entry_id"], ctx.get("choice"), ctx.get("at")
         ),
         "wl_tier_form": lambda: wl.tier_form(ctx["call_sid"]),
-        "wl_tier_submit": lambda: wl.propose_tier(
-            ctx["call_sid"], ctx.get("choice"), ctx.get("reason") or ""
-        ),
+        "wl_tier_submit": lambda: wl.submit_tier_form(ctx["call_sid"], ctx),
         "show_texts": lambda: wl.view_texts(ctx["call_sid"]),
         "patient_history": lambda: wl.view_history(call_sid=ctx.get("call_sid")),
         "propose_remove_entry": lambda: propose_remove_entry(entry_id=ctx.get("entry_id")),

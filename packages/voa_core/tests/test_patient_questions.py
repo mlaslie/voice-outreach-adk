@@ -18,6 +18,8 @@ NOW, NEXT = pq.PRIORITY_IMMEDIATE, pq.PRIORITY_NEXT_DAY
         ("Should I stop taking my blood thinner?", "medication", NOW),
         ("Can I take ibuprofen before I drive?", "medication", NOW),  # immediate wins
         ("I need a refill on my oxycodone", "medication", NOW),
+        ("When will my beta blocker get refilled?", "medication", NOW),
+        ("Should I keep using my inhaler?", "medication", NOW),
         # Symptoms and complications -> immediate.
         ("Is it normal for the incision to ooze a little?", "symptom", NOW),
         ("Why is my ankle swollen?", "symptom", NOW),
@@ -147,3 +149,65 @@ def test_completed_report_validates_questions_and_swelling():
 )
 def test_swelling_is_urgent_ignores_negated_words(desc, urgent):
     assert survey.swelling_is_urgent(desc) is urgent
+
+
+# --- every finding is kept, each with its own tier (19 Oct 2026)
+
+
+def test_medication_question_and_poor_sleep_are_both_reasons():
+    t = survey.triage(
+        {
+            **BASE,
+            "sleeping_well": "no",
+            "has_questions": "yes",
+            "patient_questions": [pq.record("When will my beta blocker get refilled?")],
+        }
+    )
+    assert t.follow_up == "urgent_same_day"
+    assert [(r["tier"], r["text"]) for r in t.reasons] == [
+        ("urgent_same_day", "question asked (medication)"),
+        ("informational", "not sleeping well"),
+    ]
+    assert t.reason == (
+        "Patient reports question asked (medication). Also noted: not sleeping well (noted)."
+    )
+    assert t.triggers == ("patient_questions",)  # top tier only
+
+
+def test_three_tiers_at_once():
+    t = survey.triage(
+        {
+            **BASE,
+            "pain_present": "yes",
+            "pain_severity": 5,
+            "pain_location": "knee",
+            "pain_trend": "same",
+            "fever_reported": "yes",
+            "sleeping_well": "no",
+        }
+    )
+    assert t.follow_up == "urgent_same_day"
+    assert {r["tier"] for r in t.reasons} == {
+        "urgent_same_day",
+        "routine_next_business_day",
+        "informational",
+    }
+    assert "pain 5/10 (next business day)" in t.reason
+
+
+def test_reasons_validate_on_the_report():
+    def errs(reasons):
+        _, e = reports.validate_report(
+            {
+                "patient_id": "P-1",
+                "follow_up": "none",
+                "follow_up_reason": "x",
+                "survey_responses": {},
+                "follow_up_reasons": reasons,
+            }
+        )
+        return e
+
+    assert errs([{"tier": "informational", "text": "not sleeping well", "source": "triage"}]) == []
+    assert errs([{"tier": "soon", "text": "x"}])
+    assert errs("not a list")

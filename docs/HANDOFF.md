@@ -115,3 +115,30 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 - Then: "the care team will follow up to get your questions answered" if they asked any; otherwise the follow-up or all-clear goodbye.
 
 **Old calls** lack the new keys and render as "not asked". Completed reports now require `legs_swollen`, `sleeping_well` and `has_questions`.
+
+## 19 Oct: multiple follow-up reasons; SMS questionnaire on (dry-run)
+
+**Every finding is kept.**
+- `survey.triage` returns `findings`: every reason with its own tier, most urgent first.
+- Reports and call docs store them as `follow_up_reasons: [{tier, text, source, fields}]`.
+- `follow_up` is still the most urgent tier.
+- `follow_up_reason` names that tier's findings, then "Also noted: …" for the lower ones. Example from a real call: "question asked (medication)" (same day) plus "mild pain 3/10" and "not sleeping well" (noted).
+- Before this, only the top tier's findings were recorded, so "not sleeping well" was lost whenever anything more urgent was found.
+- `scripts/backfill_follow_up_reasons.py` fills the list for older calls. It only runs where the recomputed tier equals the stored one, and never on a nurse-changed call.
+
+**Nurses can set several reasons.**
+- `POST /api/calls/{id}/follow-up` takes `reasons: [..]` (1–10) alongside the old single `reason` note.
+- The nurse's list replaces `follow_up_reasons` (source `nurse`). The agent's originals are kept in `agent_follow_up_reasons` / `agent_follow_up_reason`, alongside the existing `agent_follow_up`.
+- The console's Change follow-up dialog and the nurse agent's change action both send `reasons`.
+
+**Medication vocabulary.** "refilled" and "beta blocker" alone were labelled "other" (still same day). The patterns now cover refill forms and common drug classes.
+
+**SMS.**
+- The by-text questionnaire is on: Terraform `sms_survey_enabled` → `VOA__SMS__SURVEY_ENABLED`.
+- Sending stays in dry-run, because the Twilio number's inbound SMS webhook still points at the old GE-CX `sms-followup-svc`. A number has one inbound webhook, and the owner chose not to move it yet.
+- "Test by text" in the dashboard runs the whole text flow against the dry-run provider. Allowlisted numbers only, a fictional patient, refused unless dry-run.
+- To go live:
+  1. Pick the receiving number: move 5695's SMS webhook to `<gateway_url>/twilio/sms` (the old system stops getting replies), or use a second number added to the A2P campaign.
+  2. Confirm the new copy with the A2P campaign.
+  3. Set `sms_from_number`, then `sms_dry_run = false`.
+  4. Deploy the API. Sends stay limited to the dial allowlist.

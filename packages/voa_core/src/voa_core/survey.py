@@ -485,6 +485,13 @@ class Triage:
     # clinical judgement, and having two implementations of it -- one that
     # decides and one that colours the screen -- is how they drift apart.
     triggers: tuple[str, ...] = ()
+    # Every finding, most urgent first: {tier, text, fields, source}. Stored on the
+    # report and call doc as ``follow_up_reasons``.
+    findings: tuple[dict, ...] = ()
+
+    @property
+    def reasons(self) -> list[dict]:
+        return [dict(f) for f in self.findings]
 
 
 # Every raw reply, kept verbatim alongside the parsed answers. A patient who
@@ -571,7 +578,12 @@ def _questions(answers: dict) -> list[dict]:
 
 
 def triage(answers: dict) -> Triage:
-    """Decide follow_up and a reason, from the answers alone.
+    """Decide follow_up and its reasons, from the answers alone.
+
+    Every finding is kept with its own tier (``Triage.findings``), so a call with a
+    same-day medication question AND poor sleep records both. ``follow_up`` is the
+    most urgent tier found; ``reason`` names that tier's findings first, then the
+    lower ones ("Also noted: ...").
 
     ``follow_up_reason`` may reference ONLY what the patient reported in this
     conversation -- never the procedure, the date, the DOB, or diabetic
@@ -581,106 +593,104 @@ def triage(answers: dict) -> Triage:
     prose = _free_text_blob(answers)
     sev = answers.get(F_PAIN_SEVERITY)
     sev = sev if isinstance(sev, int) else None
-    urgent: list[str] = []
-    triggers: list[str] = []
+    found: list[tuple[str, str, tuple[str, ...]]] = []  # (tier, text, fields)
 
+    def add(tier: str, text: str, *fields: str) -> None:
+        found.append((tier, text, fields))
+
+    U, R, I = FOLLOW_UP_URGENT, FOLLOW_UP_ROUTINE, FOLLOW_UP_INFO  # noqa: N806, E741
+
+    # --- same day
     if sev is not None and sev >= 8:
-        urgent.append(f"pain {sev}/10")
-        triggers.append(F_PAIN_SEVERITY)
+        add(U, f"pain {sev}/10", F_PAIN_SEVERITY)
     if answers.get(F_PAIN_TREND) == "worse":
-        urgent.append("pain worsening")
-        triggers.append(F_PAIN_TREND)
+        add(U, "pain worsening", F_PAIN_TREND)
     if answers.get(Q_FEVER) == "yes":
-        urgent.append("fever reported")
-        triggers.append(Q_FEVER)
+        add(U, "fever reported", Q_FEVER)
     if answers.get(Q_INCISION) == "yes":
         # Voice escalates on a CONCERNING description, not on the bare yes.
-        desc = str(answers.get(F_INCISION_DESC) or "")
-        if desc.strip():
-            urgent.append("incision concern described")
-            triggers.append(F_INCISION_DESC)
+        if str(answers.get(F_INCISION_DESC) or "").strip():
+            add(U, "incision concern described", F_INCISION_DESC, Q_INCISION)
         else:
-            urgent.append("incision concern reported")
-        triggers.append(Q_INCISION)
+            add(U, "incision concern reported", Q_INCISION)
     if answers.get(Q_SUGAR) in ("high", "low"):
-        urgent.append(f"blood sugar {answers[Q_SUGAR]}")
-        triggers.append(Q_SUGAR)
+        add(U, f"blood sugar {answers[Q_SUGAR]}", Q_SUGAR)
     swelling_desc = str(answers.get(F_SWELLING_DESC) or "")
-    if answers.get(Q_SWELLING) == "yes" and swelling_is_urgent(swelling_desc):
-        urgent.append("leg or foot swelling (one side, worsening, or painful)")
-        triggers.extend((Q_SWELLING, F_SWELLING_DESC))
+    swelling_urgent = answers.get(Q_SWELLING) == "yes" and swelling_is_urgent(swelling_desc)
+    if swelling_urgent:
+        add(
+            U, "leg or foot swelling (one side, worsening, or painful)", Q_SWELLING, F_SWELLING_DESC
+        )
     questions = _questions(answers)
     from . import patient_questions as pq
 
     q_now, q_next = pq.summary(questions)
-    if q_now:
-        urgent.extend(q_now)
-        triggers.append(F_PATIENT_QUESTIONS)
+    for text in q_now:
+        add(U, text, F_PATIENT_QUESTIONS)
     if answers.get(Q_PAIN) == "yes" and sev is None and _SEVERE_LANGUAGE.search(prose):
-        urgent.append("severe pain described without a number")
-        triggers.append(_prose_field(answers, _SEVERE_LANGUAGE) or Q_PAIN)
-    if _WANTS_HUMAN.search(prose):
-        urgent.append("asked to speak to someone")
-        triggers.append(_prose_field(answers, _WANTS_HUMAN) or Q_OVERALL)
-    if _WORRIED.search(prose):
-        urgent.append("expressed worry")
-        triggers.append(_prose_field(answers, _WORRIED) or Q_OVERALL)
-
-    if urgent:
-        return Triage(
-            FOLLOW_UP_URGENT,
-            "Patient reports " + ", ".join(urgent) + ".",
-            tuple(dict.fromkeys(triggers)),
+        add(
+            U,
+            "severe pain described without a number",
+            _prose_field(answers, _SEVERE_LANGUAGE) or Q_PAIN,
         )
+    if _WANTS_HUMAN.search(prose):
+        add(U, "asked to speak to someone", _prose_field(answers, _WANTS_HUMAN) or Q_OVERALL)
+    if _WORRIED.search(prose):
+        add(U, "expressed worry", _prose_field(answers, _WORRIED) or Q_OVERALL)
 
-    routine: list[str] = []
+    # --- next business day
     if sev is not None and 4 <= sev <= 7:
-        routine.append(f"pain {sev}/10")
-        triggers.append(F_PAIN_SEVERITY)
+        add(R, f"pain {sev}/10", F_PAIN_SEVERITY)
     # Pain confirmed but no number obtained: voice's "uncertain but not
     # distressed". v1 of this design let it fall through to "none".
     if answers.get(Q_PAIN) == "yes" and sev is None:
-        routine.append("pain reported, no severity given")
-        triggers.append(Q_PAIN)
-    if answers.get(Q_SWELLING) == "yes" and Q_SWELLING not in triggers:
-        routine.append("leg or foot swelling")
-        triggers.append(Q_SWELLING)
-    if q_next and not q_now:
-        routine.extend(q_next)
-        triggers.append(F_PATIENT_QUESTIONS)
+        add(R, "pain reported, no severity given", Q_PAIN)
+    if answers.get(Q_SWELLING) == "yes" and not swelling_urgent:
+        add(R, "leg or foot swelling", Q_SWELLING)
+    for text in q_next:
+        add(R, text, F_PATIENT_QUESTIONS)
     if answers.get(Q_HAS_QUESTIONS) == "yes" and not questions:
         # Said yes but no question was captured: a nurse still needs to call.
-        routine.append("has questions for the care team")
-        triggers.append(Q_HAS_QUESTIONS)
+        add(R, "has questions for the care team", Q_HAS_QUESTIONS)
     unknowns = [
         f for f in (Q_PAIN, Q_FEVER, Q_INCISION, Q_SUGAR, Q_SWELLING) if answers.get(f) == "unknown"
     ]
     if unknowns:
-        routine.append("some answers unclear")
-        triggers.extend(unknowns)
+        add(R, "some answers unclear", *unknowns)
 
-    if routine:
-        return Triage(
-            FOLLOW_UP_ROUTINE,
-            "Patient reports " + ", ".join(routine) + ".",
-            tuple(dict.fromkeys(triggers)),
-        )
-
-    info: list[str] = []
+    # --- noted only
     if sev is not None and 1 <= sev <= 3:
-        info.append(f"mild pain {sev}/10")
-        triggers.append(F_PAIN_SEVERITY)
+        add(I, f"mild pain {sev}/10", F_PAIN_SEVERITY)
     if answers.get(Q_SLEEP) == "no":
-        info.append("not sleeping well")
-        triggers.append(Q_SLEEP)
-    if info:
-        return Triage(
-            FOLLOW_UP_INFO,
-            "Patient reports " + ", ".join(info) + ".",
-            tuple(dict.fromkeys(triggers)),
-        )
+        add(I, "not sleeping well", Q_SLEEP)
 
-    return Triage(FOLLOW_UP_NONE, "No concerning symptoms reported.")
+    if not found:
+        return Triage(FOLLOW_UP_NONE, "No concerning symptoms reported.")
+    top = next(tier for tier in (U, R, I) if any(f[0] == tier for f in found))
+    top_texts = [text for tier, text, _ in found if tier == top]
+    reason = "Patient reports " + ", ".join(top_texts) + "."
+    lower = [(tier, text) for tier, text, _ in found if tier != top]
+    if lower:
+        reason += " Also noted: " + "; ".join(
+            f"{text} ({TIER_SHORT[tier]})" for tier, text in lower
+        )
+        reason += "."
+    triggers = tuple(dict.fromkeys(f for tier, _, fields in found if tier == top for f in fields))
+    findings = tuple(
+        {"tier": tier, "text": text, "fields": list(fields), "source": "triage"}
+        for tier, text, fields in found
+    )
+    return Triage(top, reason, triggers, findings)
+
+
+#: How a lower tier reads inside a reason sentence.
+TIER_SHORT = {
+    FOLLOW_UP_EMERGENCY: "emergency",
+    FOLLOW_UP_URGENT: "same day",
+    FOLLOW_UP_ROUTINE: "next business day",
+    FOLLOW_UP_INFO: "noted",
+    FOLLOW_UP_NONE: "none",
+}
 
 
 def has_urgent_finding(answers: dict) -> bool:

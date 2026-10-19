@@ -45,6 +45,8 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["POST", "sms/consent"],
     ["GET", "sms/settings"],
     ["POST", "sms/settings"],
+    ["POST", "sms/test/start"],
+    ["POST", "sms/test/reply"],
   ])("allows %s %s", (method, path) => {
     expect(matchRoute(method, path)).not.toBeNull();
   });
@@ -65,6 +67,9 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["POST", "tasks/tick"], // the endpoint that dials people on a timer
     ["POST", "sms/tasks/tick"],
     ["GET", "sms/inbound"],
+    ["GET", "sms/test/start"], // the simulator is write-only
+    ["POST", "sms/test"],
+    ["POST", "sms/test/send"],
     ["POST", "twilio/voice"],
     ["GET", "admin"],
     ["GET", ""],

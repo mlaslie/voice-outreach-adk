@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { CalendarClock, CalendarPlus, CheckCircle2, Clock, Pencil, PhoneCall, Plus, RotateCcw, ShieldAlert, ShieldCheck, Trash2, X } from "lucide-react";
+import { CalendarClock, CalendarPlus, CheckCircle2, Clock, MessageSquareText, Pencil, PhoneCall, Plus, RotateCcw, ShieldAlert, ShieldCheck, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { AllowlistResponse, CallListEntry, CallRun, CallSettingsResponse } from "@/lib/types";
 import { NurseActions } from "@/lib/nurse/actions";
@@ -13,6 +13,7 @@ import { EmptyState, Panel, Pill, Tone, countdown } from "./parts";
 import { fmtDateTime, fmtHHMM, TimeFormat, useTimeFormat } from "@/lib/time";
 import { EntryDialog } from "./entry-dialog";
 import { RunDialog } from "./run-dialog";
+import { SmsTestDialog } from "@/components/sms-test-dialog";
 import { DEFAULT_RECALL, RecallSettingsPanel } from "./recall-settings";
 import { inCallingWindow } from "@/lib/nurse/window";
 
@@ -40,6 +41,7 @@ export function SettingsView({
   const [dialog, setDialog] = useState<{ open: boolean; entry: CallListEntry | null }>({ open: false, entry: null });
   const [runDialog, setRunDialog] = useState<{ open: boolean; run: CallRun | null }>({ open: false, run: null });
   const [busy, setBusy] = useState<string | null>(null);
+  const [smsTestOpen, setSmsTestOpen] = useState(false);
 
   // The scheduled run each patient is in (at most one; the backend enforces it).
   const runOf = new Map<string, CallRun>();
@@ -246,6 +248,13 @@ export function SettingsView({
             <RotateCcw className="h-3.5 w-3.5" /> Reset completed
           </button>
           <button
+            onClick={() => setSmsTestOpen(true)}
+            title="Play the patient in the text follow-up (dry run: nothing is sent to a phone)"
+            className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-ink-soft ring-1 ring-black/[0.08] hover:text-ink"
+          >
+            <MessageSquareText className="h-3.5 w-3.5" /> Test by text
+          </button>
+          <button
             onClick={() => setDialog({ open: true, entry: null })}
             className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-brand-dark"
           >
@@ -374,6 +383,7 @@ export function SettingsView({
         tz={settings?.timezone ?? "America/New_York"}
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
       />
+      <SmsTestDialog open={smsTestOpen} onOpenChange={setSmsTestOpen} />
     </div>
   );
 }

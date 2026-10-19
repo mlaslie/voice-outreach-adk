@@ -96,6 +96,9 @@ MAX_INBOUND_CHARS = 1600
 DOB_REDACTED = "[date of birth reply - not stored]"
 _REQUIRED_DIAL_CONTEXT = ("patient_name", "patient_id", "patient_dob")
 _TASK_NAME_OK = re.compile(r"[^A-Za-z0-9_-]")
+# The dry-run simulator (sms_simulator.py): consent source and patient-context flag.
+SIMULATOR_SOURCE = "sms_simulator"
+SIMULATOR_FLAG = "sms_simulator"
 
 
 # --------------------------------------------------------------------------- errors
@@ -308,8 +311,18 @@ async def consent_history(api: Api, phone: str) -> list[dict]:
 
 
 async def active_consent(api: Api, phone: str) -> dict | None:
-    """The newest grant not yet withdrawn. Raises on a read error (callers refuse)."""
-    live = [d for d in await consent_history(api, phone) if not d.get("withdrawn_at")]
+    """The newest grant not yet withdrawn. Raises on a read error (callers refuse).
+
+    A grant recorded by the dry-run simulator (``source == SIMULATOR_SOURCE``)
+    only counts while ``sms.dry_run`` is on: a test conversation must never
+    become the consent that lets a real text out once sending is switched on.
+    """
+    live = [
+        d
+        for d in await consent_history(api, phone)
+        if not d.get("withdrawn_at")
+        and (api.cfg.sms.dry_run or d.get("source") != SIMULATOR_SOURCE)
+    ]
     return live[-1] if live else None
 
 
@@ -948,13 +961,15 @@ def _report_payload(snap: dict) -> dict:
         outcome: str | None = "emergency_ended"
         follow_up = survey.FOLLOW_UP_EMERGENCY
         reason = "Patient reported a possible emergency by text; advised to call 911."
+        reasons = reports.single_reason(follow_up, reason)
     elif snap.get("outcome"):
         outcome = snap["outcome"]
         follow_up = survey.FOLLOW_UP_NONE
         reason = "Could not verify identity by text; no answers collected."
+        reasons = []
     else:
         t = survey.triage(answers)
-        follow_up, reason = t.follow_up, t.reason
+        follow_up, reason, reasons = t.follow_up, t.reason, t.reasons
         if t.triggers:
             answers["_triggers"] = list(t.triggers)
         # Never claim questionnaire_completed on a partial: filed with no outcome.
@@ -965,6 +980,7 @@ def _report_payload(snap: dict) -> dict:
         "channel": "sms",
         "follow_up": follow_up,
         "follow_up_reason": reason,
+        "follow_up_reasons": reasons,
         "survey_responses": answers,
         "dob_verification_result": snap.get("dob_result") or "skipped",
     }
@@ -1350,6 +1366,10 @@ async def send_invite(api: Api, payload: dict) -> dict:
 async def _place(api: Api, phone: str, ctx: dict, *, placed_via: str, entry_id: str | None) -> str:
     """Through ``dialer.dial`` -- the only way a call is placed -- so the
     allowlist, the dial budget and the call doc all apply as for any other call."""
+    if ctx.get(SIMULATOR_FLAG):
+        # The dry-run SMS simulator's fictional patient: "call me" / a booked
+        # time is played through, but no phone ever rings for it.
+        raise DialError(403, "SMS simulator test patient: no call is placed.")
     try:
         req = PlaceCallRequest.model_validate(
             {

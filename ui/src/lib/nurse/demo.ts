@@ -60,6 +60,8 @@ export function demoData(now: Date = new Date()): NurseData {
 
   // Dolores Whitfield and Angela Brooks keep the pre-19-Oct-2026 answer
   // shape (no leg, sleep or questions keys), as old calls do in production.
+  // Dolores also has no follow_up_reasons list (only the sentence), as calls
+  // before the reasons list do; Harold's reasons were changed by a nurse.
   const calls: CallDoc[] = [
     call({
       name: "Dolores Whitfield", pid: "P-2041", op: "Total knee replacement", endedH: -1.2, mins: 7,
@@ -73,7 +75,13 @@ export function demoData(now: Date = new Date()): NurseData {
       name: "Marcus Ellery", pid: "P-2042", op: "Laparoscopic cholecystectomy", endedH: -3.5, mins: 6,
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "urgent_same_day",
-      follow_up_reason: "Redness and warmth spreading around the incision; low-grade fever (100.6°F).",
+      follow_up_reason: "Patient reports incision concern (red, warm, spreading), fever. Also noted: has questions for the care team (next business day); not sleeping well (noted).",
+      follow_up_reasons: [
+        { tier: "urgent_same_day", text: "incision concern (red, warm, spreading)", source: "triage", fields: ["incision_concerns", "incision_description"] },
+        { tier: "urgent_same_day", text: "fever", source: "triage", fields: ["fever_reported"] },
+        { tier: "routine_next_business_day", text: "has questions for the care team", source: "triage", fields: ["has_questions"] },
+        { tier: "informational", text: "not sleeping well", source: "triage", fields: ["sleeping_well"] },
+      ],
       survey_responses: { pain_present: "yes", pain_severity: 5, pain_trend: "same",
         pain_location: "a sharp pull around the incision when I sit up", fever_reported: "yes",
         incision_concerns: "yes", incision_description: "red, warm, spreading", overall_feeling: "fair",
@@ -83,7 +91,12 @@ export function demoData(now: Date = new Date()): NurseData {
       name: "Priya Raman", pid: "P-2043", op: "Rotator cuff repair", endedH: -27, mins: 5,
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "urgent_same_day",
-      follow_up_reason: "Patient reports pain 8/10, question asked (medication).",
+      follow_up_reason: "Patient reports question asked (medication), pain 8/10. Also noted: not sleeping well (noted).",
+      follow_up_reasons: [
+        { tier: "urgent_same_day", text: "question asked (medication)", source: "triage", fields: ["patient_questions"] },
+        { tier: "urgent_same_day", text: "pain 8/10", source: "triage", fields: ["pain_severity"] },
+        { tier: "informational", text: "not sleeping well", source: "triage", fields: ["sleeping_well"] },
+      ],
       survey_responses: { pain_present: "yes", pain_severity: 8, pain_trend: "same",
         pain_location: "deep ache in the shoulder, worse at night", fever_reported: "no",
         incision_concerns: "no", legs_swollen: "no", sleeping_well: "no", overall_feeling: "poor",
@@ -97,8 +110,29 @@ export function demoData(now: Date = new Date()): NurseData {
       name: "Harold Okafor", pid: "P-2044", op: "Hip arthroplasty", endedH: -5, mins: 6,
       patient_context: { operation_name: "Hip arthroplasty", is_diabetic: true },
       call_status: "success", outcome: "questionnaire_completed",
-      follow_up: "routine_next_business_day",
-      follow_up_reason: "Blood sugar readings running high (210–240); diabetic.",
+      // A nurse raised this one after reading the answers; the agent's own
+      // assessment is kept alongside.
+      follow_up: "urgent_same_day",
+      follow_up_reason: "Nurse: Blood sugar out of range; Medication question.",
+      follow_up_reasons: [
+        { tier: "urgent_same_day", text: "Blood sugar out of range", source: "nurse", set_by: "J. Moreno, RN", at: at(-4) },
+        { tier: "urgent_same_day", text: "Medication question", source: "nurse", set_by: "J. Moreno, RN", at: at(-4) },
+      ],
+      agent_follow_up: "routine_next_business_day",
+      agent_follow_up_reason: "Patient reports blood sugar high (between 210 and 240 most mornings).",
+      agent_follow_up_reasons: [
+        { tier: "routine_next_business_day", text: "blood sugar high (between 210 and 240 most mornings)", source: "triage", fields: ["blood_sugar_status", "blood_sugar_reading"] },
+      ],
+      follow_up_override: {
+        at: at(-4), from: "routine_next_business_day", to: "urgent_same_day", set_by: "J. Moreno, RN",
+        reason: "Readings this high on insulin need a same-day dose review.",
+        reasons: ["Blood sugar out of range", "Medication question"],
+      },
+      follow_up_history: [{
+        at: at(-4), from: "routine_next_business_day", to: "urgent_same_day", set_by: "J. Moreno, RN",
+        reason: "Readings this high on insulin need a same-day dose review.",
+        reasons: ["Blood sugar out of range", "Medication question"],
+      }],
       survey_responses: { pain_present: "yes", pain_severity: 3, pain_trend: "better",
         pain_location: "sore along the outside of the hip", fever_reported: "no",
         incision_concerns: "no", legs_swollen: "no", sleeping_well: "yes",
@@ -109,7 +143,11 @@ export function demoData(now: Date = new Date()): NurseData {
       name: "Lucia Fernández", pid: "P-2045", op: "Spinal fusion", endedH: -2, mins: 5,
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "routine_next_business_day",
-      follow_up_reason: "Patient reports questions asked (appointment, activity).",
+      follow_up_reason: "Patient reports question asked (appointment), question asked (activity).",
+      follow_up_reasons: [
+        { tier: "routine_next_business_day", text: "question asked (appointment)", source: "triage", fields: ["patient_questions"] },
+        { tier: "routine_next_business_day", text: "question asked (activity)", source: "triage", fields: ["patient_questions"] },
+      ],
       survey_responses: { pain_present: "yes", pain_severity: 4, pain_trend: "better",
         pain_location: "stiff in the lower back, easing each day", fever_reported: "no",
         incision_concerns: "no", legs_swollen: "no", sleeping_well: "yes", overall_feeling: "good",
@@ -137,6 +175,9 @@ export function demoData(now: Date = new Date()): NurseData {
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "urgent_same_day",
       follow_up_reason: "Patient reports swelling in one leg, getting worse.",
+      follow_up_reasons: [
+        { tier: "urgent_same_day", text: "swelling in one leg, getting worse", source: "triage", fields: ["legs_swollen", "swelling_description"] },
+      ],
       survey_responses: { pain_present: "yes", pain_severity: 5, pain_trend: "same",
         pain_location: "tight, aching calf below the new knee", fever_reported: "no", incision_concerns: "no",
         legs_swollen: "yes", swelling_description: "Just the left leg. The calf is puffier than yesterday and tender.",

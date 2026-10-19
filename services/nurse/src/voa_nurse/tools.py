@@ -101,26 +101,34 @@ async def propose_change_follow_up(
     patient: str | None = None,
     call_sid: str | None = None,
     tier: Tier | None = None,
+    reasons: list[str] | None = None,
     reason: str | None = None,
 ):
-    """Change a patient's follow-up level (this is also how a follow-up is closed). A
-    reason is required and must come from the user; if they gave none, omit it and a
-    form asks for it. Shows a confirmation card.
+    """Change a patient's follow-up level (this is also how a follow-up is closed). At
+    least one reason is required and every reason must come from the user; if they
+    gave none, omit them and a form asks. Shows a confirmation card listing every
+    reason that will be saved.
 
     Args:
         patient: Patient name, MRN or phone; their latest call is used.
         call_sid: A specific call id, when known.
         tier: The new follow-up level.
-        reason: The user's own reason for the change. Never invent one.
+        reasons: The user's reasons for the new level, one short item each (e.g.
+            ["medication question answered", "not sleeping well"]); they replace the
+            call's reasons. Never invent one.
+        reason: Optional note on the change, in the user's words. On its own it is
+            the reason, and the call's reasons are kept as they are.
     """
     c, choices = await actions.resolve(call_sid, patient)
     if choices:
         return actions.which_patient(patient or "", choices, "wl_tier_form")
     if not c:
         return None, {"error": f"no call found for {patient or call_sid}"}
-    if not tier or not (reason or "").strip():
-        return await wl.tier_form(c["doc_id"], {"tier": tier or "", "reason": reason or ""})
-    return await wl.propose_tier(c["doc_id"], tier, reason)
+    given = wl.clean_reasons(reasons)
+    if not tier or not (given or (reason or "").strip()):
+        prefill = {"tier": tier or "", "reasons": given, "reason": reason or ""}
+        return await wl.tier_form(c["doc_id"], prefill)
+    return await wl.propose_tier(c["doc_id"], tier, reason or "", reasons=given)
 
 
 @card_tool

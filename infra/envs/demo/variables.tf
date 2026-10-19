@@ -142,6 +142,12 @@ variable "sms_dry_run" {
   default     = true
 }
 
+variable "sms_survey_enabled" {
+  description = "Offer option 3 (answer the post-op questions by text). Register the questionnaire copy with the carrier (A2P campaign) before sending for real (sms_dry_run = false)."
+  type        = bool
+  default     = false
+}
+
 variable "sms_from_number" {
   description = "SMS sender number (E.164; identifying: tfvars only). Usually a dedicated number (see PLAN 11.9)."
   type        = string
