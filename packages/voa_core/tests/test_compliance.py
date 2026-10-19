@@ -20,6 +20,7 @@ from voa_core.compliance import (
     is_due,
     next_recall_slot,
     parse_allowlist,
+    parse_when,
     reconcile_entry_patch,
     window_text,
 )
@@ -362,8 +363,53 @@ def test_claim_rejects_a_row_that_changed_since_the_run_was_built():
 
 
 def test_call_again_on_a_finished_row_still_works():
+    # A nurse naming the row ("Call again") is explicit.
     store = {"list_status": "completed", "attempts": 1}
-    assert claim_entry(store, 2, now=NOW)["list_status"] == "calling"
+    assert claim_entry(store, 2, now=NOW, explicit=True)["list_status"] == "calling"
+
+
+@pytest.mark.parametrize("status", ["canceled", "completed", "blocked"])
+def test_a_scheduled_run_never_claims_a_cancelled_finished_or_blocked_row(status):
+    """B-2: a cancel lands after the run queued the dial and does not touch the
+    attempts token, so the claim re-checks the status itself."""
+    store = {"list_status": status, "attempts": 0}
+    assert claim_entry(store, 1, now=NOW) is None
+    assert claim_entry(store, 1, now=NOW, explicit=True)["list_status"] == "calling"
+
+
+def test_parse_when_takes_a_naive_time_as_utc():
+    assert parse_when("2026-10-18T09:00:00").tzinfo is not None
+    assert parse_when("not a time") is None and parse_when(None) is None and parse_when("") is None
+
+
+def test_a_late_result_keeps_a_cancel_and_records_the_outcome():
+    assert reconcile_entry_patch({"list_status": "canceled"}, "left_vmail") == {
+        "last_call_status": "left_vmail"
+    }
+    assert reconcile_entry_patch({"list_status": "blocked"}, "success") == {
+        "last_call_status": "success"
+    }
+
+
+def test_our_own_result_is_recorded_but_an_older_attempt_does_not_reset_a_newer_one():
+    assert reconcile_entry_patch(
+        {"list_status": "calling", "attempts": 2}, "success", attempt=2
+    ) == {
+        "list_status": "completed",
+        "last_call_status": "success",
+    }
+    assert reconcile_entry_patch({"list_status": "calling", "attempts": 3}, "rna", attempt=2) == {
+        "last_call_status": "rna"
+    }
+
+
+def test_next_opening_across_the_fall_back_weekend():
+    """1 Nov 2026 clocks go back. Missed at 17:30 EDT on Saturday 31 Oct,
+    Mon-Sat 09:00-17:00: the next opening is Monday 09:00 EST (14:00Z)."""
+    after = datetime(2026, 10, 31, 17, 30, tzinfo=ZoneInfo(NY))
+    assert next_recall_slot(after, RecallSettings(), NY) == datetime(2026, 11, 2, 14, 0, tzinfo=UTC)
+    every_day = RecallSettings(days=list(range(7)))
+    assert next_recall_slot(after, every_day, NY) == datetime(2026, 11, 1, 14, 0, tzinfo=UTC)
 
 
 def test_claim_tolerates_a_missing_or_junk_attempts_field():

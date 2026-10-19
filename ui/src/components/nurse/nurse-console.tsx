@@ -4,10 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
+  AlertTriangle,
   CalendarDays,
   ClipboardCheck,
   FlaskConical,
-  HeartPulse,
   LayoutGrid,
   Search,
   Settings,
@@ -25,20 +25,21 @@ import {
   completedItems,
   followUpItems,
   scheduleItems,
+  CompletedFilter,
+  DayScope,
 } from "@/lib/nurse/model";
 import { BrandTile, Panel, Pill, isSameDay } from "./parts";
 import { ScheduleView } from "./schedule-view";
-import { CompletedView, KIND } from "./completed-view";
-import { FollowUpList, TIER } from "./follow-up-list";
+import { CompletedPreset, CompletedView, KIND } from "./completed-view";
+import { TIER } from "./follow-up-list";
 import { SettingsView } from "./settings-view";
 import { DrawerSubject, PatientDrawer } from "./patient-drawer";
 
-export type View = "schedule" | "completed" | "followups" | "settings";
+export type View = "schedule" | "completed" | "settings";
 
 const NAV: { view: View; label: string; blurb: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { view: "schedule", label: "Call queue", blurb: "Who is due a call and when. Call anyone now, or everyone.", icon: CalendarDays },
   { view: "completed", label: "Call status", blurb: "What happened on each call today, and what it needs from you.", icon: ClipboardCheck },
-  { view: "followups", label: "Follow-ups", blurb: "Patients the agent flagged for a clinical callback, most urgent first.", icon: HeartPulse },
 ];
 
 export function NurseConsole({
@@ -49,6 +50,7 @@ export function NurseConsole({
   running = false,
   allowlist,
   settings,
+  unavailable = [],
 }: {
   data: NurseData;
   mode: "demo" | "live";
@@ -60,13 +62,20 @@ export function NurseConsole({
   allowlist?: AllowlistResponse | null;
   /** Console settings (auto-recall). */
   settings?: CallSettingsResponse | null;
+  /** Live sources that failed to load: shown, never read as "nothing to do". */
+  unavailable?: string[];
 }) {
   const [view, setView] = useState<View>("schedule");
   const [query, setQuery] = useState("");
   const [drawer, setDrawer] = useState<DrawerSubject | null>(null);
-  // Local only: the durable way to close a follow-up is to change its tier
-  // (with a reason) from the patient drawer.
-  const [contacted, setContacted] = useState<Set<string>>(new Set());
+  // Call status opened at a filter, from a KPI tile or the emergency banner.
+  // (The separate Follow-ups tab was removed on 19 Oct: it repeated Call
+  // status's follow-up filters.)
+  const [preset, setPreset] = useState<CompletedPreset | null>(null);
+  const showCompleted = (filter: CompletedFilter, scope: DayScope = "all") => {
+    setPreset({ filter, scope, n: Date.now() });
+    setView("completed");
+  };
   const now = useNow();
 
   const all = useMemo(
@@ -82,25 +91,17 @@ export function NurseConsole({
   const hit = (name: string, id?: string) => !q || name.toLowerCase().includes(q) || (id ?? "").toLowerCase().includes(q);
   const schedule = all.schedule.filter((i) => hit(i.patientName, i.patientId));
   const completed = all.completed.filter((i) => hit(i.patientName, i.patientId));
-  const followups = all.followups.filter((i) => hit(i.patientName, i.patientId));
   const entries = data.entries.filter((e) => hit(e.patient_name, e.patient_id));
 
-  const openFollowUps = all.followups.filter((i) => !contacted.has(i.id));
+  const openFollowUps = all.followups;
   const emergencies = openFollowUps.filter((i) => i.tier === "emergency");
+  const overdueCallIds = useMemo(
+    () => new Set(openFollowUps.filter((i) => i.overdue).map((i) => i.call.doc_id)), [openFollowUps]);
   const counts: Record<View, number> = {
     schedule: all.schedule.length,
     completed: all.completed.filter((i) => isSameDay(i.at, now)).length,
-    followups: openFollowUps.length,
     settings: data.entries.length,
   };
-
-  const toggleContacted = (id: string) =>
-    setContacted((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   const openSchedule = (i: ScheduleItem) =>
     setDrawer({
@@ -131,6 +132,15 @@ export function NurseConsole({
         <Sidebar view={view} onView={setView} counts={counts} mode={mode} emergencies={emergencies.length} />
 
         <main className="min-w-0 flex-1 space-y-6 pb-24 lg:pb-6">
+          {unavailable.length ? (
+            <div role="alert" className="flex items-center gap-3 rounded-2xl bg-brand-red/10 px-4 py-2.5 text-[13px] font-semibold text-brand-red-dark ring-1 ring-brand-red/30">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              Could not load {unavailable.join(" and ")}. Lists may be missing patients; nothing has been cleared.
+              <button onClick={actions.refresh} className="ml-auto shrink-0 rounded-full bg-white px-3 py-1 text-[12px] text-ink ring-1 ring-black/[0.06]">
+                Try again
+              </button>
+            </div>
+          ) : null}
           {mode === "demo" ? (
             <div className="flex items-center gap-3 rounded-2xl bg-brand-yellow/30 px-4 py-2.5 text-[13px] font-semibold text-ink ring-1 ring-brand-yellow/60">
               <FlaskConical className="h-4 w-4 shrink-0" />
@@ -145,7 +155,7 @@ export function NurseConsole({
 
           {emergencies.length ? (
             <button
-              onClick={() => { setView("followups"); openFollowUp(emergencies[0]); }}
+              onClick={() => { showCompleted("needs_immediate"); openFollowUp(emergencies[0]); }}
               className="group relative flex w-full items-center gap-4 overflow-hidden rounded-[24px] bg-gradient-to-r from-brand-red to-brand-coral px-5 py-4 text-left text-white shadow-[0_14px_40px_-14px_rgba(228,0,43,0.7)]"
             >
               <span className="absolute inset-0 bg-[radial-gradient(circle_at_10%_50%,rgba(255,255,255,0.25),transparent_45%)]" />
@@ -171,6 +181,7 @@ export function NurseConsole({
               completed={all.completed}
               followups={openFollowUps}
               onView={setView}
+              onFilter={showCompleted}
             />
           ) : null}
 
@@ -193,15 +204,9 @@ export function NurseConsole({
             {view === "schedule" ? (
               <ScheduleView items={schedule} runs={data.runs} now={now} actions={actions} running={running} allowlist={allowlist} onOpen={openSchedule} />
             ) : null}
-            {view === "completed" ? <CompletedView items={completed} now={now} onOpen={openCompleted} /> : null}
-            {view === "followups" ? (
-              <FollowUpList
-                items={followups}
-                now={now}
-                contacted={contacted}
-                onToggleContacted={toggleContacted}
-                onOpen={openFollowUp}
-              />
+            {view === "completed" ? (
+              <CompletedView items={completed} now={now} onOpen={openCompleted}
+                             overdueCallIds={overdueCallIds} preset={preset} />
             ) : null}
             {view === "settings" ? <SettingsView entries={entries} runs={data.runs} actions={actions} now={now} allowlist={allowlist} settings={settings} /> : null}
           </div>
@@ -326,7 +331,7 @@ function Sidebar({
             icon={icon}
             label={label}
             count={counts[v]}
-            alert={v === "followups" && emergencies > 0}
+            alert={v === "completed" && emergencies > 0}
           />
         ))}
       </nav>
@@ -405,12 +410,14 @@ function Kpis({
   completed,
   followups,
   onView,
+  onFilter,
 }: {
   now: Date;
   schedule: ScheduleItem[];
   completed: CompletedItem[];
   followups: FollowUpItem[];
   onView: (v: View) => void;
+  onFilter: (f: CompletedFilter) => void;
 }) {
   const today = completed.filter((i) => isSameDay(i.at, now));
   const reached = today.filter((i) => i.kind === "completed_phone" || i.kind === "completed_text").length;
@@ -423,14 +430,15 @@ function Kpis({
   const tiles = [
     { label: "Calls due today", value: dueToday, sub: recalls ? `${recalls} of them retries` : "still to come today", view: "schedule" as View, accent: "from-brand-blue/15" },
     { label: "Reached today", value: reached, sub: `${rate}% of ${today.length} ${today.length === 1 ? "attempt" : "attempts"}`, view: "completed" as View, accent: "from-brand/15", ring: rate },
-    { label: "Immediate follow-up", value: immediate, sub: immediate ? "open now · emergency or same day" : "none open", view: "followups" as View, accent: immediate ? "from-brand-coral/15" : "from-brand-mint/20", alert: immediate > 0 },
-    { label: "Overdue", value: overdue, sub: overdue ? "past their callback window" : "nothing late", view: "followups" as View, accent: overdue ? "from-brand-red/15" : "from-brand-mint/20", alert: overdue > 0 },
+    { label: "Immediate follow-up", value: immediate, sub: immediate ? "open now · emergency or same day" : "none open", filter: "needs_immediate" as CompletedFilter, accent: immediate ? "from-brand-coral/15" : "from-brand-mint/20", alert: immediate > 0 },
+    { label: "Overdue", value: overdue, sub: overdue ? "past their callback window" : "nothing late", filter: "overdue" as CompletedFilter, accent: overdue ? "from-brand-red/15" : "from-brand-mint/20", alert: overdue > 0 },
   ];
 
   return (
     <div className="grid grid-cols-2 gap-3.5 xl:grid-cols-4">
       {tiles.map((t) => (
-        <button key={t.label} onClick={() => onView(t.view)} className="text-left">
+        <button key={t.label} onClick={() => ("filter" in t && t.filter ? onFilter(t.filter) : onView(t.view as View))}
+                className="text-left">
           <Panel className={cn("relative h-full overflow-hidden p-5 transition-transform hover:-translate-y-0.5")}>
             <div className={cn("pointer-events-none absolute inset-0 bg-gradient-to-br to-transparent", t.accent)} />
             <div className="relative flex items-start justify-between">

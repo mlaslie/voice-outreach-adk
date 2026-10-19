@@ -194,26 +194,28 @@ async def _drop_from_runs(api: Api, entry_id: str) -> None:
 
 @router.post("/call-list/cancel")
 async def cancel_entries(body: CancelEntries, request: Request):
+    """Cancel queued calls with a reason.
+
+    A member of a run already being dialled can be cancelled too: its dial task
+    re-checks the entry inside the claim transaction before ringing anyone, and a
+    late result never turns the cancel back into "pending" (old proxy B-2). Read
+    and write are one transaction: a claim that slips in between (status ->
+    "calling") makes this report in_progress instead of overwriting a live call's
+    row."""
     api = _api(request)
     by = body.canceled_by or acting_user(request)
     now = now_iso(api.now())
-    runs = await _scheduled_runs(api)
+    all_runs = await api.store.query(CALL_RUNS)
+    # Prefer the scheduled run a patient is waiting in, else one being dialled now.
+    runs = [(i, d) for i, d in all_runs if d.get("status") == "scheduled"] + [
+        (i, d)
+        for i, d in all_runs
+        if d.get("status") in ("dispatching", "dispatched") and not d.get("finished_at")
+    ]
     results = []
     for entry_id in body.entry_ids:
         if not HEX32_RE.match(entry_id):
             results.append({"entry_id": entry_id, "status": "not_found"})
-            continue
-        e = await api.store.get(CALL_LIST, entry_id)
-        if not e:
-            results.append({"entry_id": entry_id, "status": "not_found"})
-            continue
-        if e.get("list_status") in ("calling", "completed"):
-            results.append(
-                {
-                    "entry_id": entry_id,
-                    "status": "in_progress" if e["list_status"] == "calling" else "completed",
-                }
-            )
             continue
         from_run = next(
             ((rid, d) for rid, d in runs if entry_id in (d.get("entry_ids") or [])), None
@@ -225,20 +227,34 @@ async def cancel_entries(body: CancelEntries, request: Request):
             "run_id": from_run[0] if from_run else None,
             "run_scheduled_for": from_run[1].get("scheduled_for") if from_run else None,
         }
-        await api.store.merge(
-            CALL_LIST,
-            entry_id,
-            {
+        verdict: dict[str, str] = {}
+
+        def mutate(e, event=event, verdict=verdict):
+            verdict.clear()
+            if e is None:
+                verdict["status"] = "not_found"
+                return None
+            if e.get("list_status") == "calling":
+                verdict["status"] = "in_progress"
+                return None
+            if e.get("list_status") == "completed":
+                verdict["status"] = "completed"
+                return None
+            verdict["status"] = "canceled"
+            return {
+                **e,
                 "list_status": "canceled",
                 "canceled": event,
                 "cancel_history": [*(e.get("cancel_history") or []), event],
                 "next_recall_at": None,
                 "updated_at": now,
-            },
-        )
-        if from_run:
-            await _drop_from_runs(api, entry_id)
-        results.append({"entry_id": entry_id, "status": "canceled"})
+            }
+
+        await api.store.transact(CALL_LIST, entry_id, mutate)
+        status = verdict.get("status", "error")
+        if status == "canceled" and from_run and from_run[1].get("status") == "scheduled":
+            await _drop_from_runs(api, entry_id)  # a dispatched run's record is left as it was
+        results.append({"entry_id": entry_id, "status": status})
     return {"results": results}
 
 
@@ -335,13 +351,12 @@ async def start_run(body: RunStart, request: Request):
         raise HTTPException(409, "A run is already in progress.")
     rows = await api.store.query(CALL_LIST)
     now = api.now()
-    if body.entry_ids is not None:
-        wanted = set(body.entry_ids)
-        entries = [
-            (i, e)
-            for i, e in rows
-            if i in wanted and e.get("list_status") in ("pending", "blocked", "completed")
-        ]
+    # A nurse naming rows ("Call now", "Call again") may dial a finished,
+    # blocked or cancelled patient; the bulk button dials pending ones only.
+    explicit = body.entry_ids is not None
+    if explicit:
+        wanted = set(body.entry_ids or [])
+        entries = [(i, e) for i, e in rows if i in wanted and e.get("list_status") != "calling"]
     else:
         entries = [(i, e) for i, e in rows if e.get("list_status") == "pending"]
     if body.due_only:
@@ -352,25 +367,35 @@ async def start_run(body: RunStart, request: Request):
         raise HTTPException(
             400, f"Too many patients for one run ({api.cfg.dialing.max_dials_per_run})."
         )
-    run = await enqueue_dials(api, [i for i, _ in entries], label="manual")
+    run = await enqueue_dials(api, [i for i, _ in entries], label="manual", explicit=explicit)
     return _run_public(run)
 
 
 @router.post("/call-list/run/cancel")
 async def cancel_run(request: Request):
+    """Stop a run: every dial task not yet started skips (it re-checks the run)."""
+    from .routes_tasks import run_finished
+
     api = _api(request)
+    stopped: dict[str, Any] = {}
 
     def mutate(run):
+        stopped.clear()
         if not run or run.get("status") != "running":
             return None
-        return {
+        new = {
             **run,
             "cancel_requested": True,
             "status": "canceled",
             "finished_at": now_iso(api.now()),
         }
+        stopped["run"] = new
+        return new
 
-    return _run_public(await api.store.transact(LIST_RUNS, CURRENT_RUN, mutate))
+    out = await api.store.transact(LIST_RUNS, CURRENT_RUN, mutate)
+    if stopped.get("run"):
+        await run_finished(api, stopped["run"])
+    return _run_public(out)
 
 
 # --------------------------------------------------------------------------- scheduled runs
@@ -383,31 +408,88 @@ async def list_runs(request: Request):
     return {"runs": runs, "count": len(runs)}
 
 
-async def _validate_run(api: Api, scheduled_for: str, entry_ids: list[str]) -> str:
-    when = _parse_when(scheduled_for)
-    if when <= api.now():
-        raise HTTPException(400, "scheduled_for must be in the future.")
+async def _require_hours(api: Api, when: datetime) -> None:
     cfg = await recall_settings(api)
     if not compliance.in_calling_window(when, cfg, _tz(api)):
         raise HTTPException(
             400, f"Outside calling hours ({compliance.window_text(cfg, _tz(api))})."
         )
+
+
+def _require_future(api: Api, raw: str) -> datetime:
+    when = _parse_when(raw)
+    if when <= api.now():
+        raise HTTPException(400, "scheduled_for must be in the future.")
+    return when
+
+
+async def _validate_members(
+    api: Api, entry_ids: list[str], *, exclude_run: str | None = None
+) -> None:
+    """Every patient exists, is not on the phone right now, is not already in
+    another scheduled run, and the run fits the per-run dial cap."""
     if len(entry_ids) > api.cfg.dialing.max_dials_per_run:
         raise HTTPException(
             400, f"Too many patients for one run ({api.cfg.dialing.max_dials_per_run})."
         )
     for e in entry_ids:
         _check_hex(e, "entry id")
-    return when.isoformat()
+    missing, on_phone = [], []
+    for eid in entry_ids:
+        doc = await api.store.get(CALL_LIST, eid)
+        if not doc:
+            missing.append(eid)
+        elif doc.get("list_status") == "calling":
+            on_phone.append(doc.get("patient_name") or eid)
+    if missing:
+        raise HTTPException(400, f"Unknown patients: {', '.join(missing)}")
+    if on_phone:
+        raise HTTPException(409, "On the phone right now: " + ", ".join(on_phone))
+    taken = {
+        eid
+        for rid, run in await _scheduled_runs(api)
+        if rid != exclude_run
+        for eid in run.get("entry_ids") or []
+    }
+    clash = [eid for eid in entry_ids if eid in taken]
+    if clash:
+        raise HTTPException(409, "Already in another scheduled run: " + ", ".join(clash))
+
+
+async def _requeue_members(api: Api, entry_ids: list[str]) -> None:
+    """Any patient can be put in a run: one cancelled, reached or blocked goes
+    back to "pending" so the run dials them, exactly as a Reschedule would.
+    Without this the dispatcher, which dials pending patients only, would skip
+    them silently."""
+    now = now_iso(api.now())
+    for eid in entry_ids:
+
+        def mutate(e):
+            if not e or e.get("list_status") not in ("canceled", "completed", "blocked"):
+                return None
+            return {
+                **e,
+                "list_status": "pending",
+                "canceled": None,
+                "last_error": "",
+                "rescheduled_at": now,
+                "auto_recalls": 0,
+                "updated_at": now,
+            }
+
+        await api.store.transact(CALL_LIST, eid, mutate)
 
 
 @router.post("/call-runs", status_code=201)
 async def create_run(body: CallRunInput, request: Request):
     api = _api(request)
-    when = await _validate_run(api, body.scheduled_for, body.entry_ids)
+    when = _require_future(api, body.scheduled_for)
+    await _require_hours(api, when)
+    await _validate_members(api, body.entry_ids)
+    await _requeue_members(api, body.entry_ids)
     run_id, now = new_id(), now_iso(api.now())
     doc = {
-        "scheduled_for": when,
+        "scheduled_for": when.isoformat(),
         "entry_ids": body.entry_ids,
         "label": (body.label or "").strip() or None,
         "status": "scheduled",
@@ -420,6 +502,9 @@ async def create_run(body: CallRunInput, request: Request):
 
 @router.patch("/call-runs/{run_id}")
 async def patch_run(run_id: str, body: CallRunPatch, request: Request):
+    """Change a scheduled run's time, patients or label. Removing every patient
+    deletes the run. A new time, or an added patient, must land inside calling
+    hours; only removing patients from a run is allowed as-is."""
     api = _api(request)
     _check_hex(run_id, "run id")
     run = await api.store.get(CALL_RUNS, run_id)
@@ -427,14 +512,23 @@ async def patch_run(run_id: str, body: CallRunPatch, request: Request):
         raise HTTPException(404, "Run not found.")
     if run.get("status") != "scheduled":
         raise HTTPException(409, "That run has already been dialled.")
-    ids = body.entry_ids if body.entry_ids is not None else run.get("entry_ids", [])
-    if body.entry_ids is not None and not ids:
+    if body.entry_ids is not None and not body.entry_ids:
         await api.store.delete(CALL_RUNS, run_id)  # an empty patient list deletes the run
         return {"deleted": run_id}
-    when = await _validate_run(api, body.scheduled_for or run["scheduled_for"], ids)
-    patch = {"scheduled_for": when, "entry_ids": ids, "updated_at": now_iso(api.now())}
+    patch: dict[str, Any] = {"updated_at": now_iso(api.now())}
+    if body.scheduled_for is not None:
+        patch["scheduled_for"] = _require_future(api, body.scheduled_for).isoformat()
+    added: list[str] = []
+    if body.entry_ids is not None:
+        await _validate_members(api, body.entry_ids, exclude_run=run_id)
+        patch["entry_ids"] = body.entry_ids
+        added = sorted(set(body.entry_ids) - set(run.get("entry_ids") or []))
+    if body.scheduled_for is not None or added:
+        await _require_hours(api, _parse_when(patch.get("scheduled_for") or run["scheduled_for"]))
     if body.label is not None:
         patch["label"] = body.label.strip() or None
+    if added:
+        await _requeue_members(api, added)
     await api.store.merge(CALL_RUNS, run_id, patch)
     return {"run_id": run_id, **run, **patch}
 

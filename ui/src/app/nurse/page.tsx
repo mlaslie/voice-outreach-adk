@@ -7,7 +7,7 @@ import { NurseConsole } from "@/components/nurse/nurse-console";
 import { demoData } from "@/lib/nurse/demo";
 import { NurseActions } from "@/lib/nurse/actions";
 import { api } from "@/lib/api";
-import { AllowlistResponse, CallSettingsResponse } from "@/lib/types";
+import { AllowlistResponse, CallDoc, CallSettingsResponse } from "@/lib/types";
 import { DEFAULT_RECALL } from "@/components/nurse/recall-settings";
 import { useCallsStream } from "@/hooks/use-calls-stream";
 import { useCallList } from "@/hooks/use-call-list";
@@ -67,10 +67,11 @@ function Sample() {
 }
 
 function Live() {
-  const { calls, loading, refresh: refreshCalls } = useCallsStream();
+  const { calls, loading, connState, refresh: refreshCalls } = useCallsStream();
   const { entries, run, refreshEntries, refreshRun } = useCallList();
   const { sessions, callbacks, refresh: refreshFollowUps } = useFollowUps();
   const { runs, refresh: refreshRuns } = useCallRuns();
+  const { rows: openFollowUps, failed: openFailed } = useOpenFollowUps();
   const allowlist = useAllowlist();
   const [settings, setSettings] = useState<CallSettingsResponse | null>(null);
   useEffect(() => {
@@ -114,10 +115,12 @@ function Live() {
     async createRun(body) {
       await api.createCallRun(body);
       refreshRuns();
+      refreshEntries(); // a cancelled or reached patient added to a run is back on the queue
     },
     async updateRun(run, body) {
       await api.updateCallRun(run.run_id, body);
       refreshRuns();
+      refreshEntries();
     },
     async cancelRun(run) {
       await api.cancelCallRun(run.run_id);
@@ -148,10 +151,13 @@ function Live() {
     refresh,
   }), [refresh, refreshCalls, refreshEntries, refreshRun, refreshRuns]);
 
-  const data = useMemo(
-    () => ({ calls: [...calls.values()], entries, runs, sessions, callbacks }),
-    [calls, entries, runs, sessions, callbacks],
-  );
+  // The stream holds the newest 100 calls; an open follow-up older than that
+  // would vanish from Needs-you lists (K3). Merge the server's open list in.
+  const data = useMemo(() => {
+    const recent = [...calls.values()];
+    const seen = new Set(recent.map((c) => c.doc_id));
+    return { calls: [...recent, ...openFollowUps.filter((c) => !seen.has(c.doc_id))], entries, runs, sessions, callbacks };
+  }, [calls, openFollowUps, entries, runs, sessions, callbacks]);
   return (
     <NurseConsole
       data={data}
@@ -161,8 +167,31 @@ function Live() {
       running={run?.status === "running"}
       allowlist={allowlist}
       settings={settings}
+      unavailable={[
+        ...(openFailed ? ["open follow-ups"] : []),
+        ...(!loading && connState === "disconnected" ? ["live call updates"] : []),
+      ]}
     />
   );
+}
+
+/** Open follow-ups from the whole collection, re-read every 30s. `failed`
+ *  is true while the last read failed: the lists may then be missing an
+ *  older urgent patient, and the console says so instead of looking clear
+ *  (B-9). The last good rows are kept meanwhile. */
+function useOpenFollowUps(): { rows: CallDoc[]; failed: boolean } {
+  const [rows, setRows] = useState<CallDoc[]>([]);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.getOpenFollowUps()
+      .then((r) => { if (alive) { setRows(r.calls); setFailed(false); } })
+      .catch(() => { if (alive) setFailed(true); });
+    load();
+    const id = setInterval(load, 30_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  return { rows, failed };
 }
 
 /** The outbound allowlist, re-read every 30s; null until first loaded. */

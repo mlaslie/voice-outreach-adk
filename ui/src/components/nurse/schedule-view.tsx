@@ -37,7 +37,9 @@ const ORIGIN: Record<ScheduleOrigin, { label: string; tone: Tone; icon: React.Co
 /** Only call-list entries can be dialled from here; text bookings belong to the SMS service. */
 /** Only run members can be dialled from here; text bookings belong to the SMS service. */
 const dialable = (i: ScheduleItem) =>
-  !!i.entryId && i.state !== "calling" && i.state !== "done" && i.state !== "blocked";
+  !!i.entryId && i.state !== "calling" && i.state !== "queued" && i.state !== "done" && i.state !== "blocked";
+/** A patient waiting for their turn in a run already being dialled can be cancelled, not called now. */
+const cancellable = (i: ScheduleItem) => dialable(i) || (!!i.entryId && i.state === "queued");
 
 export function ScheduleView({
   items,
@@ -281,6 +283,7 @@ function ScheduleRow({
   const o = ORIGIN[item.origin];
   const due = item.state === "upcoming" || item.state === "overdue" ? countdown(item.when, now) : null;
   const canDial = dialable(item);
+  const canCancel = cancellable(item);
   return (
     <div className="group grid w-full grid-cols-[2rem_4.5rem_1fr] items-center gap-3 px-4 py-4 sm:grid-cols-[2rem_5.5rem_1fr_auto] sm:gap-4 sm:px-5">
       <button
@@ -337,7 +340,7 @@ function ScheduleRow({
             <PhoneCall className="h-3.5 w-3.5" /> Call now
           </button>
         ) : null}
-        {canDial ? (
+        {canCancel ? (
           <button
             onClick={onCancel}
             aria-label={`Cancel ${item.patientName}'s call`}
@@ -389,6 +392,8 @@ function StateBadge({ item }: { item: ScheduleItem }) {
   switch (item.state) {
     case "calling":
       return <Pill tone="good" pulse>Calling now</Pill>;
+    case "queued":
+      return <Pill tone="muted" icon={PhoneCall}>In this run · waiting its turn</Pill>;
     case "done":
       return <Pill tone="good" icon={CheckCircle2}>Completed</Pill>;
     case "blocked":

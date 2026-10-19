@@ -45,7 +45,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
-from voa_core import budget, compliance, lifecycle, reports, survey, timeparse
+from voa_core import budget, compliance, lifecycle, reports, review, survey, timeparse
 from voa_core import copy as messages
 from voa_core.config import resolve_secret
 from voa_core.copy import SiteCopy
@@ -55,7 +55,7 @@ from voa_core.sms.conversation import ConversationPolicy, Decision, Effect
 from voa_core.store import Where, new_id, now_iso
 from voa_core.timeparse import SchedulingPolicy
 
-from .context import ALLOWLIST, CALL_ID_RE, CALL_LIST, CALLS, REPORTS, Api
+from .context import ALLOWLIST, CALL_ID_RE, CALL_LIST, CALLS, EHR_OUTBOX, REPORTS, Api
 from .dialer import DialError, check_allowed, dial
 from .models import PlaceCallRequest
 
@@ -1056,6 +1056,18 @@ async def submit_survey(api: Api, snap: dict) -> dict:
                 return lifecycle.merge_call_doc(cur, patch, now=now, from_report=True)
 
             call = await api.store.transact(CALLS, call_id, merge)
+            reopened = (call or {}).get("review") or {}
+            if reopened.get("export_withdrawn") and reopened.get("reopened_at") == lifecycle.iso(
+                now
+            ):
+                # This report reopened a signed-off call: its EHR record is void (B-5).
+                await api.store.merge(
+                    EHR_OUTBOX,
+                    call_id,
+                    review.withdrawn_export(
+                        lifecycle.iso(now), "a later report arrived for this call"
+                    ),
+                )
             entry_id = snap.get("entry_id") or (call or {}).get("entry_id")
             if settles and entry_id and call and call.get("call_status"):
                 status = call["call_status"]

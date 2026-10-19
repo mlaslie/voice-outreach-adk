@@ -100,20 +100,18 @@ export function needsFollowUp(c: CallDoc): boolean {
   return !!c.follow_up && (FOLLOW_UP_TIERS as readonly string[]).includes(c.follow_up);
 }
 
-/**
- * One call per patient — the most recent attempt.
- *
- * A patient who was rung twice appears twice in `calls`. For follow-up
- * purposes only the latest call speaks for them: if the redial came back
- * `follow_up=none`, the earlier `urgent_same_day` row is superseded and
- * showing it would send a nurse after someone already cleared.
- *
- * Calls with no patient_id can't be grouped, so each stands alone.
- */
+/** One patient: by MRN, else by phone among calls with no MRN. Same rule as
+ *  the proxy's _same_patient and the GE agent's patient_key (B-6, 18 Oct). */
+export function patientKey(c: CallDoc): string {
+  if (c.patient_id) return `pid:${c.patient_id}`;
+  return c.to ? `to:${c.to}` : `doc:${c.doc_id}`;
+}
+
+/** One call per patient — the most recent attempt. */
 export function latestCallPerPatient(calls: CallDoc[]): CallDoc[] {
   const latest = new Map<string, CallDoc>();
   for (const c of calls) {
-    const key = c.patient_id ? `pid:${c.patient_id}` : `doc:${c.doc_id}`;
+    const key = patientKey(c);
     const prev = latest.get(key);
     if (
       !prev ||
@@ -153,9 +151,35 @@ export function isAssessment(c: CallDoc): boolean {
     (!!c.follow_up && c.outcome === "questionnaire_completed");
 }
 
-/** The calls the follow-up banner counts and the follow-up filter shows. */
+/** A nurse signed it off (for a follow-up, resolved it), or it was closed as
+ *  superseded when a later report for the same patient was signed off. */
+export function isSignedOff(c: CallDoc): boolean {
+  return c.review?.status === "signed_off" || c.review?.status === "superseded";
+}
+
+/**
+ * The calls the follow-up banner counts and the follow-up filter shows: one
+ * per patient, their most severe open report (newest first on a tie).
+ *
+ * A report that needed a callback stays open until a nurse closes it (signs
+ * off / resolves it, here or in Gemini Enterprise). A later clean report
+ * does NOT close it (user decision D-1, 18 Oct): a patient flagged urgent who
+ * later texts "feeling fine" still needs the urgent report resolved.
+ * Voicemails are not assessments and never open or close anything.
+ */
 export function followUpCalls(calls: CallDoc[]): CallDoc[] {
-  return latestAssessedCallPerPatient(calls).filter(needsFollowUp);
+  const rank = (c: CallDoc) => (FOLLOW_UP_TIERS as readonly string[]).indexOf(c.follow_up as string);
+  const best = new Map<string, CallDoc>();
+  for (const c of calls) {
+    if (!needsFollowUp(c) || isSignedOff(c)) continue;
+    const k = patientKey(c);
+    const prev = best.get(k);
+    if (!prev || rank(c) < rank(prev) ||
+        (rank(c) === rank(prev) && new Date(c.initiated_at).getTime() > new Date(prev.initiated_at).getTime())) {
+      best.set(k, c);
+    }
+  }
+  return [...best.values()];
 }
 
 export interface FollowUpSummary {

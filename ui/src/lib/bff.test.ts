@@ -13,6 +13,7 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", `calls/${SID}/recording`],
     ["POST", `calls/${SID}/follow-up`],
     ["POST", "calls/batch-delete"],
+    ["GET", "follow-ups/open"],
     ["POST", "place-call"],
     ["POST", "test-call"],
     ["GET", "call-list"],
@@ -57,6 +58,7 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", "place-call"],
     ["POST", "calls/stream"],
     ["PUT", "call-settings"],
+    ["POST", "follow-ups/open"],
     ["POST", "tasks/tick"], // the endpoint that dials people on a timer
     ["POST", "sms/tasks/tick"],
     ["GET", "sms/inbound"],

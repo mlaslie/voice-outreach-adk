@@ -60,6 +60,30 @@ describe("scheduleItems (call runs)", () => {
     expect(items.find((i) => i.entryId === "e2")?.origin).toBe("retry");
   });
 
+  it("keeps members a running run has not reached yet on the queue, cancellable (B-2)", () => {
+    const r = run({ entry_ids: ["e1", "e2", "e3"], status: "dispatched", scheduled_for: T(11), dispatched_at: T(11) });
+    const items = scheduleItems([
+      entry({ entry_id: "e1", list_status: "calling", last_attempt_at: T(11, 1) }),
+      entry({ entry_id: "e2", patient_name: "B" }),                                          // waiting its turn
+      entry({ entry_id: "e3", patient_name: "C", last_attempt_at: T(11, 5), last_call_status: "rna" }), // tried
+    ], [r], [], [], [], NOW);
+    const by = Object.fromEntries(items.map((i) => [i.entryId, i.state]));
+    expect(by).toEqual({ e1: "calling", e2: "queued" });   // e3 was dialled: it leaves the queue
+  });
+
+  it("shows nobody waiting once the run has finished", () => {
+    const r = run({ entry_ids: ["e2"], status: "dispatched", scheduled_for: T(11), dispatched_at: T(11),
+                    finished_at: T(11, 30) });
+    expect(scheduleItems([entry({ entry_id: "e2" })], [r], [], [], [], NOW)).toHaveLength(0);
+  });
+
+  it("does not show an auto-recall for a patient who booked a time by text", () => {
+    const recall = run({ entry_ids: ["e1"], auto_recall: true, scheduled_for: T(15) });
+    const cb = { callback_id: "cb1", phone: "+12025550102", status: "scheduled", run_at: T(14) } as unknown as ScheduledCallback;
+    const items = scheduleItems([entry({ entry_id: "e1" })], [recall], [cb], [], [], NOW);
+    expect(items.map((i) => i.origin)).toEqual(["text_reschedule"]);
+  });
+
   it("leaves patients who are not in any run off the queue", () => {
     expect(scheduleItems([entry({})], [], [], [], [], NOW)).toHaveLength(0);
   });
@@ -80,7 +104,7 @@ describe("scheduleItems (call runs)", () => {
       [
         entry({ entry_id: "a", list_status: "calling", attempts: 1 }),
         entry({ entry_id: "b", patient_name: "B", list_status: "completed", attempts: 1 }),
-        entry({ entry_id: "c", patient_name: "C", list_status: "pending", attempts: 1, last_call_status: "left_vmail" }),
+        entry({ entry_id: "c", patient_name: "C", list_status: "pending", attempts: 1, last_call_status: "left_vmail", last_attempt_at: T(11, 2) }),
         entry({ entry_id: "d", patient_name: "D", list_status: "blocked", attempts: 1 }),
       ],
       [run({ scheduled_for: T(11), status: "dispatched", entry_ids: ["a", "b", "c", "d"] })],
@@ -209,12 +233,13 @@ describe("follow-ups", () => {
     expect(item.overdue).toBe(false);
   });
 
-  it("only counts the latest call per patient", () => {
+  it("keeps an unresolved urgent report after a later clean one (D-1), one row per patient", () => {
     const items = followUpItems([
       call({ call_sid: "old", patient_id: "9", follow_up: "urgent_same_day", initiated_at: "2026-10-06T10:00:00Z" }),
       call({ call_sid: "new", patient_id: "9", follow_up: "none", outcome: "questionnaire_completed", initiated_at: "2026-10-07T10:00:00Z" }),
+      call({ call_sid: "older", patient_id: "9", follow_up: "routine_next_business_day", initiated_at: "2026-10-05T10:00:00Z" }),
     ], [], NOW);
-    expect(items).toHaveLength(0);
+    expect(items.map((i) => i.id)).toEqual(["old"]);
   });
 });
 
@@ -314,10 +339,13 @@ describe("follow-up counts stay in step", () => {
     const done = completedItems([survey, vm], []);
     const immediate = done.filter((i) => matchesCompleted(i, "needs_immediate"));
     expect(immediate.map((i) => i.id)).toEqual(followUpItems([survey, vm], [], NOW).map((i) => i.id));
-    // A newer CLEAN assessment supersedes it in both places.
+    // D-1: a newer CLEAN assessment does not close it, in either place; and
+    // that clean report is not counted as "no follow-up" while it is open.
     const cleared = { ...vm, doc_id: "CAc", call_sid: "CAc", call_status: "success", outcome: "questionnaire_completed", follow_up: "none" };
-    expect(followUpItems([survey, cleared], [], NOW)).toHaveLength(0);
-    expect(completedItems([survey, cleared], []).filter((i) => matchesCompleted(i, "needs_immediate"))).toHaveLength(0);
+    expect(followUpItems([survey, cleared], [], NOW).map((i) => i.id)).toEqual(["CAs"]);
+    const board = completedItems([survey, cleared], []);
+    expect(board.filter((i) => matchesCompleted(i, "needs_immediate")).map((i) => i.id)).toEqual(["CAs"]);
+    expect(board.filter((i) => matchesCompleted(i, "no_follow_up"))).toHaveLength(0);
   });
 });
 

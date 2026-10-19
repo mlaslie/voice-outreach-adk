@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Ban,
   CalendarClock,
@@ -49,20 +49,34 @@ const SCOPES: { value: DayScope; label: string }[] = [
   { value: "all", label: "Everything" },
 ];
 
+/** Open Call status at a given filter and range (from a KPI tile or the
+ *  emergency banner). `n` changes on every request so a repeat applies. */
+export type CompletedPreset = { filter: CompletedFilter; scope: DayScope; n: number };
+
 export function CompletedView({
   items,
   now,
   onOpen,
+  overdueCallIds = new Set<string>(),
+  preset,
 }: {
   items: CompletedItem[];
   now: Date;
   onOpen: (item: CompletedItem) => void;
+  /** Calls whose open follow-up is past its callback window. */
+  overdueCallIds?: Set<string>;
+  preset?: CompletedPreset | null;
 }) {
-  const [scope, setScope] = useState<DayScope>("today");
-  const [filter, setFilter] = useState<CompletedFilter>("all");
+  const [scope, setScope] = useState<DayScope>(preset?.scope ?? "today");
+  const [filter, setFilter] = useState<CompletedFilter>(preset?.filter ?? "all");
+  useEffect(() => {
+    if (preset) { setScope(preset.scope); setFilter(preset.filter); }
+  }, [preset]);
 
+  const matches = (i: CompletedItem, f: CompletedFilter) =>
+    f === "overdue" ? !!i.call && overdueCallIds.has(i.call.doc_id) : matchesCompleted(i, f);
   const inRange = items.filter((i) => inScope(i, scope, now));
-  const count = (f: CompletedFilter) => inRange.filter((i) => matchesCompleted(i, f)).length;
+  const count = (f: CompletedFilter) => inRange.filter((i) => matches(i, f)).length;
 
   // Two rows of chips: what the nurse must DO, then what HAPPENED.
   const action: ChipOption<CompletedFilter>[] = [
@@ -70,6 +84,7 @@ export function CompletedView({
     { value: "needs_immediate", label: "Immediate follow-up", count: count("needs_immediate"), tone: "emergency" },
     { value: "next_business_day", label: "Next business day", count: count("next_business_day"), tone: "routine" },
     { value: "no_follow_up", label: "No follow-up needed", count: count("no_follow_up"), tone: "good" },
+    ...(count("overdue") ? [{ value: "overdue" as CompletedFilter, label: "Overdue", count: count("overdue"), tone: "urgent" as const }] : []),
   ];
   const outcome: ChipOption<CompletedFilter>[] = [
     { value: "completed_phone", label: "Completed · phone", count: count("completed_phone"), tone: "good" },
@@ -84,7 +99,7 @@ export function CompletedView({
     { value: "canceled", label: "Cancelled", count: count("canceled"), tone: "warn" },
   ];
 
-  const rows = inRange.filter((i) => matchesCompleted(i, filter));
+  const rows = inRange.filter((i) => matches(i, filter));
 
   return (
     <div className="space-y-4">

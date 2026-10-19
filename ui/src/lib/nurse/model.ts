@@ -13,7 +13,7 @@
 
 import { CallDoc, CallListEntry, CallRun, CancelEvent } from "../types";
 import { FollowUpSession, ScheduledCallback } from "../followups";
-import { isActive, latestAssessedCallPerPatient, needsFollowUp } from "../status";
+import { followUpCalls, isActive, latestAssessedCallPerPatient, needsFollowUp, patientKey } from "../status";
 
 // ---------------------------------------------------------------------------
 // Schedule
@@ -35,6 +35,7 @@ export type ScheduleState =
   | "upcoming"
   | "overdue"    // the run's time passed and the scheduler has not dialled — it may be down
   | "calling"
+  | "queued"     // in a run that is being dialled now, waiting for its turn; can still be cancelled
   | "attempted"  // dialled by the run; not reached — the text follow-up takes over
   | "done"       // dialled by the run and the questionnaire was completed
   | "blocked";   // the proxy refused the number (not on the approved list)
@@ -91,6 +92,10 @@ export function scheduleItems(
     sessions.filter((s) => s.call_sid).map((s) => [s.call_sid as string, s]),
   );
   const entryById = new Map(entries.map((e) => [e.entry_id, e]));
+  // A patient who booked a time by text is not also shown in an Auto-recall
+  // run (the proxy drops them from it on its next tick; 19 Oct).
+  const textBooked = new Set(
+    callbacks.filter((cb) => cb.status === "scheduled" || cb.status === "dialing").map((cb) => cb.phone));
 
   for (const run of runs) {
     if (!runOnQueue(run, now)) continue;
@@ -98,12 +103,13 @@ export function scheduleItems(
     for (const eid of Array.isArray(run.entry_ids) ? run.entry_ids : []) {
       const e = entryById.get(eid);
       if (!e) continue; // removed from the list; the backend drops it from the run too
+      if (run.auto_recall && run.status === "scheduled" && textBooked.has(e.phone)) continue;
       // Once the run has dialled, its own attempt is already counted.
       const prior = run.status === "dispatched" ? Math.max(0, e.attempts - 1) : e.attempts;
       const state = memberState(run, e, now);
       // Already called or already reached: not on the queue (never a past time).
       if (state === "attempted" || state === "done") continue;
-      if (run.status === "dispatched" && state !== "calling") continue;
+      if (run.status === "dispatched" && state !== "calling" && state !== "queued") continue;
       out.push({
         id: `run:${run.run_id}:${eid}`,
         entryId: eid,
@@ -148,11 +154,18 @@ export function scheduleItems(
 
 function memberState(run: CallRun, e: PlannedEntry, now: Date): ScheduleState {
   if (e.list_status === "calling") return "calling";
-  if (run.status === "dispatching") return "calling";
-  if (run.status === "dispatched") {
-    if (e.list_status === "completed") return "done";
+  if (run.status === "dispatching" || run.status === "dispatched") {
+    if (e.list_status === "completed" || e.list_status === "canceled") return "done";
     if (e.list_status === "blocked") return "blocked";
-    return "attempted";
+    // The runner dials a run's members one at a time, so a run flips to
+    // "dispatched" long before its last patient is rung. A member not
+    // attempted since the run started is still waiting its turn — and a
+    // nurse can still cancel it (the dialler re-checks, backlog B-2).
+    const started = run.dispatched_at ?? run.claimed_at ?? run.scheduled_for;
+    const tried = e.last_attempt_at && new Date(e.last_attempt_at).getTime() >= new Date(started).getTime();
+    // Once the run has finished nobody in it is waiting; anyone it did not
+    // reach was carried into a new run or skipped (review of B-2).
+    return tried || run.finished_at ? "attempted" : "queued";
   }
   // Scheduled. A patient already reached, or cancelled, is not called by the
   // run (the backend also takes a cancelled patient out of it).
@@ -163,7 +176,7 @@ function memberState(run: CallRun, e: PlannedEntry, now: Date): ScheduleState {
 /** In progress first, then anything the scheduler missed, then by time. */
 function compareSchedule(a: ScheduleItem, b: ScheduleItem): number {
   const RANK: Record<ScheduleState, number> = {
-    calling: 0, overdue: 1, upcoming: 2, attempted: 2, done: 2, blocked: 2,
+    calling: 0, queued: 1, overdue: 1, upcoming: 2, attempted: 2, done: 2, blocked: 2,
   };
   const rank = (s: ScheduleItem) => RANK[s.state];
   if (rank(a) !== rank(b)) return rank(a) - rank(b);
@@ -222,10 +235,10 @@ export interface CompletedItem {
   /** A nurse changed the tier (the agent's own verdict is in `call.agent_follow_up`). */
   overridden: boolean;
   /**
-   * This call is the patient's latest ASSESSED call, so its tier is their
-   * current status. An older verdict superseded by a newer assessment is
-   * history and is not counted by the follow-up filters — which keeps those
-   * filters in step with the Follow-ups list and the KPI tile.
+   * This call's tier is the patient's current status: their open report in
+   * the follow-up list (D-1: open until a nurse closes it), or, for "no
+   * follow-up", their latest assessment while nothing earlier is open. Keeps
+   * the board's filters in step with the Follow-ups list and the KPI tile.
    */
   current: boolean;
   /** Absent for a cancelled queued call: no phone call was ever placed. */
@@ -245,7 +258,16 @@ export function completedItems(
     sessions.filter((s) => s.call_sid).map((s) => [s.call_sid as string, s]),
   );
   const pending = callbacks.filter((cb) => cb.status === "scheduled" || cb.status === "dialing");
-  const currentIds = new Set(latestAssessedCallPerPatient(calls).map((c) => c.doc_id));
+  // "Current" = what this call says about the patient NOW, the same rule as
+  // the follow-up list (D-1): a patient's row in followUpCalls for the
+  // needs-a-callback filters; for "no follow-up", their latest assessment,
+  // and only while nothing earlier is still open.
+  const open = followUpCalls(calls);
+  const openIds = new Set(open.map((c) => c.doc_id));
+  const openPatients = new Set(open.map(patientKey));
+  const latestIds = new Set(latestAssessedCallPerPatient(calls).map((c) => c.doc_id));
+  const isCurrent = (c: CallDoc) =>
+    needsFollowUp(c) ? openIds.has(c.doc_id) : latestIds.has(c.doc_id) && !openPatients.has(patientKey(c));
   const out: CompletedItem[] = [];
   for (const c of calls) {
     if (isActive(c)) continue;
@@ -271,7 +293,7 @@ export function completedItems(
       followUp: c.follow_up,
       callback,
       overridden: !!c.follow_up_override,
-      current: currentIds.has(c.doc_id),
+      current: isCurrent(c),
       call: c,
     });
   }
@@ -324,6 +346,8 @@ export function kindOf(c: CallDoc): CompletedKind {
 
 export type CompletedFilter =
   | "all"
+  // An open follow-up past its callback window (from followUpItems)
+  | "overdue"
   // What happened on the call
   | "completed_phone"
   | "completed_text"
@@ -409,8 +433,7 @@ export function followUpItems(
   now: Date = new Date(),
 ): FollowUpItem[] {
   const pending = callbacks.filter((cb) => cb.status === "scheduled" || cb.status === "dialing");
-  return latestAssessedCallPerPatient(calls)
-    .filter(needsFollowUp)
+  return followUpCalls(calls)
     .map((c) => {
       const raisedAt = c.ended_at ?? c.updated_at ?? c.initiated_at;
       const tier = c.follow_up as FollowUpTier;

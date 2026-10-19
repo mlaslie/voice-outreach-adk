@@ -39,6 +39,7 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp]> = [
   ["GET", new RegExp(`^calls/${ID}/transcript$`)],
   ["GET", new RegExp(`^calls/${ID}/recording$`)],
   ["POST", new RegExp(`^calls/${ID}/follow-up$`)],
+  ["GET", /^follow-ups\/open$/],
   ["POST", /^place-call$/],
   ["POST", /^test-call$/],
 

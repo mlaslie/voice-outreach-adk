@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { followUpCalls, needsFollowUp, summarizeFollowUps } from "./status";
+import { followUpCalls, isSignedOff, needsFollowUp, summarizeFollowUps } from "./status";
 import { CallDoc } from "./types";
 
 function call(over: Partial<CallDoc>): CallDoc {
@@ -45,17 +45,18 @@ describe("an unanswered redial does not clear a flag", () => {
     ];
     expect(followUpCalls(calls).map((c) => c.doc_id)).toEqual(["CAsurvey"]);
   });
-  it("still lets a later CLEAN completed questionnaire clear it", () => {
+  it("keeps it open after a later CLEAN questionnaire until a nurse resolves it (D-1)", () => {
     const calls = [
       { ...base, doc_id: "CAold", initiated_at: "2026-10-16T11:50:00Z", outcome: "questionnaire_completed", follow_up: "urgent_same_day" },
       { ...base, doc_id: "CAnew", initiated_at: "2026-10-16T13:50:00Z", outcome: "questionnaire_completed", follow_up: "none" },
     ];
-    expect(followUpCalls(calls)).toHaveLength(0);
+    expect(followUpCalls(calls).map((c) => c.doc_id)).toEqual(["CAold"]);
+    const resolved = [{ ...calls[0], review: { status: "superseded" as const, resolved: true } }, calls[1]];
+    expect(followUpCalls(resolved)).toHaveLength(0);
   });
-  it("lets a nurse's tier change clear it", () => {
+  it("lets a nurse's tier change on THAT report close it", () => {
     const calls = [
-      { ...base, doc_id: "CAold", initiated_at: "2026-10-16T11:50:00Z", outcome: "questionnaire_completed", follow_up: "urgent_same_day" },
-      { ...base, doc_id: "CAvm", initiated_at: "2026-10-16T13:50:00Z", outcome: "voicemail_left", follow_up: "none",
+      { ...base, doc_id: "CAold", initiated_at: "2026-10-16T11:50:00Z", outcome: "questionnaire_completed", follow_up: "none",
         follow_up_override: { at: "2026-10-16T14:00:00Z", to: "none", reason: "Spoke with patient by phone." } },
     ];
     expect(followUpCalls(calls)).toHaveLength(0);
@@ -88,15 +89,15 @@ describe("summarizeFollowUps", () => {
     expect(s.total).toBe(1);
   });
 
-  it("lets a clean redial clear an earlier urgent flag", () => {
+  it("does not let a clean redial close an unresolved emergency (D-1)", () => {
     const s = summarizeFollowUps([
       call({ doc_id: "a", patient_id: "P1", follow_up: "emergency",
              initiated_at: "2026-07-29T10:00:00Z" }),
       call({ doc_id: "b", patient_id: "P1", follow_up: "none", outcome: "questionnaire_completed",
              initiated_at: "2026-07-29T12:00:00Z" }),
     ]);
-    expect(s.total).toBe(0);
-    expect(s.worst).toBeNull();
+    expect(s.total).toBe(1);
+    expect(s.worst).toBe("emergency");
   });
 
   it("does not let an older clean call mask a newer urgent one", () => {
@@ -110,12 +111,14 @@ describe("summarizeFollowUps", () => {
     expect(s.worst).toBe("emergency");
   });
 
-  it("treats calls without a patient_id as distinct", () => {
+  it("groups calls without a patient_id by phone, never with an MRN (B-6)", () => {
     const s = summarizeFollowUps([
       call({ doc_id: "a", follow_up: "urgent_same_day" }),
       call({ doc_id: "b", follow_up: "urgent_same_day" }),
+      call({ doc_id: "c", follow_up: "urgent_same_day", to: "+12025550109" }),
+      call({ doc_id: "d", follow_up: "urgent_same_day", patient_id: "P9" }),
     ]);
-    expect(s.total).toBe(2);
+    expect(s.total).toBe(3);
   });
 
   it("reports zero for an empty list", () => {
@@ -135,7 +138,28 @@ describe("followUpCalls", () => {
       call({ doc_id: "c", patient_id: "P2", follow_up: "urgent_same_day" }),
     ];
     const shown = followUpCalls(calls);
-    expect(shown.map((c) => c.doc_id)).toEqual(["c"]);
+    expect(shown.map((c) => c.doc_id).sort()).toEqual(["a", "c"]);   // D-1: a stays open
     expect(shown).toHaveLength(summarizeFollowUps(calls).total);
+  });
+});
+
+
+describe("resolved follow-ups", () => {
+  it("leave the follow-up count once signed off", () => {
+    const base = { to: "+12025550101", from: "+12025550100", updated_at: "2026-10-17T12:00:00Z", patient_id: "P-1",
+      initiated_at: "2026-10-17T11:00:00Z", outcome: "questionnaire_completed", follow_up: "urgent_same_day" };
+    expect(followUpCalls([{ ...base, doc_id: "a" }])).toHaveLength(1);
+    expect(followUpCalls([{ ...base, doc_id: "a", review: { status: "signed_off", resolved: true } }])).toHaveLength(0);
+    // A reopened sign-off is outstanding again.
+    expect(followUpCalls([{ ...base, doc_id: "a", review: { status: "reopened" } }])).toHaveLength(1);
+  });
+});
+
+describe("a superseded report is closed", () => {
+  it("counts as signed off, so it never shows as an open follow-up", () => {
+    const c = call({ doc_id: "CAold", patient_id: "P-9", outcome: "questionnaire_completed", follow_up: "urgent_same_day",
+                     review: { status: "superseded", by: "rn@example.org", superseded_by: "CAnew" } });
+    expect(isSignedOff(c)).toBe(true);
+    expect(followUpCalls([c])).toEqual([]);
   });
 });

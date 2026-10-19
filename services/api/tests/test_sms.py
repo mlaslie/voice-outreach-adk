@@ -557,6 +557,39 @@ def test_red_flag_mid_survey_files_an_emergency_and_sends_911_copy():
     assert session(api)["state"] == st.STATE_CLOSED
 
 
+def test_a_late_survey_reopens_a_signed_off_call_and_withdraws_its_export():
+    """B-5: the by-text questionnaire files onto the original call. A nurse signed
+    that call off first; an urgent report must bring it back, not hide behind the
+    sign-off, and the record waiting for the EHR is withdrawn."""
+    client, api, _, _ = ready()
+    run(
+        api.store.merge(
+            "calls",
+            CALL,
+            {
+                "outcome": "questionnaire_completed",
+                "follow_up": "none",
+                "review": {"status": "signed_off", "by": "nurse@example.org"},
+            },
+        )
+    )
+    run(api.store.set("ehr_outbox", CALL, {"status": "pending_export"}))
+    answer_survey(client, ["ok", "yes", "9", "my knee", "worse", "yes", "no"])
+    call = run(api.store.get("calls", CALL))
+    assert call["follow_up"] == "urgent_same_day"
+    assert call["review"]["status"] == "reopened" and call["review"]["reopened_by"] == "report"
+    assert run(api.store.get("ehr_outbox", CALL))["status"] == "withdrawn"
+
+
+def test_a_late_survey_does_not_uncancel_a_patient():
+    """Review of B-2: a nurse's cancel stands against a late report."""
+    client, api, _, entry_id = ready()
+    run(api.store.merge("call_list", entry_id, {"list_status": "canceled"}))
+    answer_survey(client, ["pretty good", "no", "no", "no"])
+    entry = run(api.store.get("call_list", entry_id))
+    assert entry["list_status"] == "canceled" and entry["last_call_status"] == "success"
+
+
 def test_closing_send_failure_is_retried_without_refiling():
     # Review S-3: a retryable failure on the closing is retried by the queued
     # filing task, which sends the closing and does NOT file a second report.

@@ -5,9 +5,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
 import { ArrowUpRight, CalendarClock, CalendarPlus, History, PenLine, Phone, X, XCircle } from "lucide-react";
 import { CallDoc, CallRun, CallSettingsResponse, CancelEvent } from "@/lib/types";
-import { inCallingWindow, nextCallingSlot, windowText } from "@/lib/nurse/window";
+import { inCallingWindow, isoToZonedInput, nextCallingSlot, windowText, zonedInputToIso } from "@/lib/nurse/window";
 import { DEFAULT_RECALL } from "./recall-settings";
-import { isoToLocalInput, localInputToIso } from "@/components/patient-fields";
 import { findingsFor, verdictFor, FindingLevel } from "@/lib/triage";
 import { formatDuration, formatPhone } from "@/lib/format";
 import { getFollowUpLabel, getStatusLabel } from "@/lib/status";
@@ -195,6 +194,27 @@ function Body({
               </Section>
             ) : null}
 
+            {call?.review?.status === "signed_off" ? (
+              <div className="rounded-2xl bg-brand/[0.07] px-4 py-3 text-[13px] text-ink ring-1 ring-inset ring-brand/20">
+                <span className="font-semibold">{call.review.resolved ? "Follow-up resolved and signed off" : "Signed off"}</span>
+                {" "}by {call.review.by ?? "nurse"}{call.review.at ? ` · ${new Date(call.review.at).toLocaleString()}` : ""}
+                {call.review.note ? <div className="mt-1 text-ink-soft">{call.review.note}</div> : null}
+              </div>
+            ) : call?.review?.status === "superseded" ? (
+              <div className="rounded-2xl bg-mist/60 px-4 py-3 text-[13px] text-ink-soft ring-1 ring-inset ring-black/[0.06]">
+                {call.review.resolved
+                  ? <>Resolved together with a later report by {call.review.by ?? "nurse"}</>
+                  : <>Closed: a later report for this patient replaced it and was signed off by {call.review.by ?? "nurse"}</>}
+                {call.review.at ? ` · ${new Date(call.review.at).toLocaleString()}` : ""}.
+                {call.review.resolved ? " Sent to the EHR as closed with that note." : " Not sent to the EHR."}
+                {call.review.resolved && call.review.note ? <div className="mt-1 text-ink-soft">{call.review.note}</div> : null}
+              </div>
+            ) : call?.review?.status === "reopened" ? (
+              <div className="rounded-2xl bg-brand-yellow/20 px-4 py-3 text-[13px] text-ink ring-1 ring-inset ring-brand-yellow/40">
+                Sign-off reopened: {call.review.reopened_because ?? "the follow-up changed after it was signed"}. Needs review again.
+              </div>
+            ) : null}
+
             {call ? (
               <FollowUpControl
                 call={call}
@@ -328,11 +348,11 @@ function CancelledSection({
   const [runId, setRunId] = useState(upcoming[0]?.run_id ?? "");
   // Default: the next allowed quarter-hour at least an hour out.
   const [when, setWhen] = useState(() =>
-    isoToLocalInput(nextCallingSlot(Date.now() + 60 * 60_000, hours, tz) ?? new Date(Date.now() + 3_600_000).toISOString()));
+    isoToZonedInput(nextCallingSlot(Date.now() + 60 * 60_000, hours, tz) ?? new Date(Date.now() + 3_600_000).toISOString(), tz));
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const iso = localInputToIso(when);
+  const iso = zonedInputToIso(when, tz);
   const inPast = iso !== null && new Date(iso).getTime() <= Date.now();
   const outOfHours = iso !== null && !inPast && !inCallingWindow(iso, hours, tz);
   const valid = mode === "existing" ? !!runId : iso !== null && !inPast && !outOfHours;
@@ -417,7 +437,7 @@ function CancelledSection({
                   <button
                     type="button"
                     className="font-semibold underline"
-                    onClick={() => { const n = nextCallingSlot(new Date(iso!).getTime(), hours, tz); if (n) setWhen(isoToLocalInput(n)); }}
+                    onClick={() => { const n = nextCallingSlot(new Date(iso!).getTime(), hours, tz); if (n) setWhen(isoToZonedInput(n, tz)); }}
                   >
                     Use the next allowed time
                   </button>

@@ -79,6 +79,23 @@ class FollowUpOverride(_In):
     set_by: str | None = None
 
 
+class SignOff(_In):
+    """Sign off one call. The signer is the signed-in user (X-Acting-User);
+    ``signed_by`` is honoured only in dev/test, where there is no IAP."""
+
+    note: str | None = Field(default=None, max_length=1000)
+    signed_by: str | None = Field(default=None, max_length=120)
+    # The tier the nurse was looking at: if it changed since, refuse rather than
+    # sign off something they did not see.
+    expected_follow_up: str | None = None
+
+
+class BulkSignOff(_In):
+    call_sids: list[str] = Field(min_length=1, max_length=100)
+    note: str | None = Field(default=None, max_length=1000)
+    signed_by: str | None = Field(default=None, max_length=120)
+
+
 class BatchDelete(_In):
     call_sids: list[str] = Field(max_length=100)
 

@@ -74,6 +74,11 @@ export const api = {
     return request<CallsListResponse>(`/calls${q ? `?${q}` : ""}`);
   },
 
+  /** Every open follow-up from the whole collection (the call stream holds only the newest 100). */
+  getOpenFollowUps(): Promise<CallsListResponse> {
+    return request<CallsListResponse>("/follow-ups/open");
+  },
+
   getCall(sid: string): Promise<CallDoc> {
     return request<CallDoc>(`/calls/${encodeURIComponent(sid)}`);
   },

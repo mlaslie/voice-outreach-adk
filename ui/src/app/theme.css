@@ -3,76 +3,85 @@
  * Imported by globals.css. Every component reads these tokens, so swapping
  * the values here (plus the font families loaded in layout.tsx) is the whole
  * job. Keep the token NAMES: components reference them.
- *
- * This is a neutral default palette (slate neutrals, a blue-teal primary)
- * that belongs to no organisation. To re-skin for a deployment, change the
- * values below; do not commit a real organisation's brand assets.
  */
 
+/* ===========================================================================
+ * Brand palette.
+ *
+ * Only colour and type are set here — no logo or wordmark is committed (an
+ * operator supplies those at build time with NEXT_PUBLIC_LOGO_URL /
+ * NEXT_PUBLIC_LOGO_WIDE_URL; public/brand/ is gitignored).
+ * ======================================================================== */
+
 @theme {
-  /* Primary action colour and its variants. */
-  --color-brand: #1f6f8b;            /* primary (buttons, links) */
-  --color-brand-dark: #185a71;       /* primary hover */
-  --color-brand-bright: #2a8fb2;     /* brighter accent */
-  --color-brand-mint: #9fd8e6;       /* light accent */
-  --color-brand-deep: #1e3a4c;       /* deep accent (sidebar) */
-  --color-brand-deep-dark: #152a37;  /* deep accent, darker */
+  /* Greens — the primary action colour. `brand` is what buttons and links
+   * use (WCAG-contrast green); `brand-bright` is the brighter accent. */
+  --color-brand: #22873b;            /* primary (buttons, links) */
+  --color-brand-dark: #1d7232;       /* primary hover */
+  --color-brand-bright: #2ea84a;     /* brighter accent */
+  --color-brand-mint: #7de69b;       /* light accent */
+  --color-brand-deep: #1d4d52;       /* deep accent */
+  --color-brand-deep-dark: #163b3f;  /* deep accent, darker */
 
   /* Neutrals */
-  --color-ink: #1f2937;              /* body text + headings */
-  --color-ink-soft: #4b5563;
-  --color-ink-muted: #9ca3af;
-  --color-rule: #e5e7eb;
-  --color-mist: #f3f4f6;
-  --color-mist-cool: #dde3ea;
-  --color-sand: #f5f1ea;
+  --color-ink: #25282a;              /* body text + headings */
+  --color-ink-soft: #56595a;
+  --color-ink-muted: #999898;
+  --color-rule: #dddddd;
+  --color-mist: #f1f1f1;
+  --color-mist-cool: #dadee3;
+  --color-sand: #efe7dd;             /* off-white */
 
   /* Secondary / status hues */
-  --color-brand-blue: #2563eb;
-  --color-brand-blue-dark: #1d4ed8;
-  --color-brand-blue-deep: #1e3a8a;
-  --color-brand-yellow: #eab308;
-  --color-brand-orange: #f59e0b;
-  --color-brand-turquoise: #14b8a6;
-  --color-brand-coral: #f87171;
-  --color-brand-coral-dark: #ef4444;
-  --color-brand-red: #dc2626;
-  --color-brand-red-dark: #b91c1c;
-  --color-brand-pink: #ec4899;
-  --color-brand-pink-dark: #db2777;
+  --color-brand-blue: #00749e;
+  --color-brand-blue-dark: #005776;
+  --color-brand-blue-deep: #1d4a5e;
+  --color-brand-yellow: #ffcd00;     /* call-to-action yellow */
+  --color-brand-orange: #ffaa47;
+  --color-brand-turquoise: #59bec9;
+  --color-brand-coral: #e5554f;
+  --color-brand-coral-dark: #df302a;
+  --color-brand-red: #e4002b;
+  --color-brand-red-dark: #cb0026;
+  --color-brand-pink: #e24585;
+  --color-brand-pink-dark: #dd2671;
 
-  /* Type: free Google Fonts loaded in layout.tsx, with system fallbacks. */
-  --font-sans: var(--font-body), helvetica, arial, sans-serif;
-  --font-display: var(--font-poppins), helvetica, arial, sans-serif;
+  /* Type. Headings are Poppins 600 and body is Source Sans 3, both free on
+   * Google Fonts and loaded in layout.tsx. `acumin-pro` stays in the body
+   * stack so a licensed web-font kit, if one is ever added, simply takes
+   * over. */
+  --font-sans: var(--font-body), acumin-pro, helvetica, arial, "Nimbus Sans L", sans-serif;
+  --font-display: var(--font-poppins), poppins, century-gothic, helvetica, arial, sans-serif;
   --font-mono: var(--font-plex-mono), "IBM Plex Mono", ui-monospace, monospace;
 
+  /* Buttons are fully rounded pills. */
   --radius-pill: 9999px;
 }
 
 /*
- * shadcn primitives, repointed at the palette above. These stay as HSL
+ * shadcn primitives, repointed at the brand palette. These stay as HSL
  * triplets because the ui/ components compose them as `hsl(var(--x))`
  * and rely on `/90`-style alpha modifiers.
  */
 :root {
   --background: 0 0% 100%;
-  --foreground: 215 27.9% 16.9%;     /* #1f2937 */
+  --foreground: 204 6.33% 15.49%;    /* #25282a */
   --card: 0 0% 100%;
-  --card-foreground: 215 27.9% 16.9%;
+  --card-foreground: 204 6.33% 15.49%;
   --popover: 0 0% 100%;
-  --popover-foreground: 215 27.9% 16.9%;
-  --primary: 195.3 63.4% 33.3%;      /* #1f6f8b */
+  --popover-foreground: 204 6.33% 15.49%;
+  --primary: 134.9 59.76% 33.14%;    /* #22873b */
   --primary-foreground: 0 0% 100%;
-  --secondary: 220 14.3% 95.9%;      /* #f3f4f6 */
-  --secondary-foreground: 215 27.9% 16.9%;
-  --muted: 220 14.3% 95.9%;
-  --muted-foreground: 215 13.8% 34.1%; /* #4b5563 */
-  --accent: 220 14.3% 95.9%;
-  --accent-foreground: 215 27.9% 16.9%;
-  --destructive: 0 72.2% 50.6%;      /* #dc2626 */
+  --secondary: 0 0% 94.51%;          /* #f1f1f1 */
+  --secondary-foreground: 204 6.33% 15.49%;
+  --muted: 0 0% 94.51%;
+  --muted-foreground: 195 2.27% 34.51%; /* #56595a */
+  --accent: 0 0% 94.51%;
+  --accent-foreground: 204 6.33% 15.49%;
+  --destructive: 348.7 100% 44.71%;  /* #e4002b */
   --destructive-foreground: 0 0% 100%;
-  --border: 220 13% 91%;             /* #e5e7eb */
-  --input: 220 13% 91%;
-  --ring: 195.3 63.4% 33.3%;
+  --border: 0 0% 86.67%;             /* #dddddd */
+  --input: 0 0% 86.67%;
+  --ring: 134.9 59.76% 33.14%;
   --radius: 0.5rem;
 }

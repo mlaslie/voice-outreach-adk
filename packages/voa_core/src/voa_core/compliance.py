@@ -262,6 +262,20 @@ def _parse_ts(raw: Any) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
+def parse_when(raw: Any) -> datetime | None:
+    """A stored time, or None. A time with no offset is taken as UTC: a hand-edited
+    or seeded doc must not fail every scheduler tick on a naive/aware comparison
+    (old proxy B-8)."""
+    if raw is None or raw == "":
+        return None
+    return _parse_ts(raw)
+
+
+#: Rows a scheduled or automatic run never dials. Only a nurse naming the row
+#: ("Call now", "Call again") may (old proxy B-2).
+NOT_AUTO_DIALLED: frozenset[str] = frozenset({"completed", "blocked", "canceled"})
+
+
 def is_due(entry: Mapping[str, Any], now: datetime) -> bool:
     """Should the scheduler dial this entry now?
 
@@ -286,7 +300,11 @@ def is_due(entry: Mapping[str, Any], now: datetime) -> bool:
 
 
 def can_claim_entry(
-    current: Mapping[str, Any] | None, attempts: int, *, recover_stranded: bool = False
+    current: Mapping[str, Any] | None,
+    attempts: int,
+    *,
+    recover_stranded: bool = False,
+    explicit: bool = False,
 ) -> bool:
     """May this run claim the entry for dial attempt number ``attempts``?
 
@@ -296,6 +314,11 @@ def can_claim_entry(
     checked for EVERY status; "Call again" on a completed row still passes because
     its snapshot is current. A "calling" row is someone else dialling, unless the
     caller has proven the leg dead and passes ``recover_stranded``.
+
+    A nurse's cancel (or a completion, or a block) can land after a run queued its
+    dial and does not touch ``attempts``, so the token cannot see it: the status is
+    re-checked here too. Only a nurse naming the row (``explicit``) may dial a
+    completed, blocked or cancelled patient; a scheduled run never does (B-2).
     Evaluate inside the same transaction as the write.
     """
     if current is None:
@@ -306,6 +329,8 @@ def can_claim_entry(
         return False
     if stored != attempts - 1:
         return False
+    if current.get("list_status") in NOT_AUTO_DIALLED and not explicit:
+        return False
     return not (current.get("list_status") == "calling" and not recover_stranded)
 
 
@@ -315,9 +340,10 @@ def claim_entry(
     *,
     now: datetime,
     recover_stranded: bool = False,
+    explicit: bool = False,
 ) -> dict[str, Any] | None:
     """The claimed entry doc, or None when the claim is refused (write nothing)."""
-    if not can_claim_entry(current, attempts, recover_stranded=recover_stranded):
+    if not can_claim_entry(current, attempts, recover_stranded=recover_stranded, explicit=explicit):
         return None
     now_s = _aware(now, "now").astimezone(UTC).isoformat()
     return {
@@ -337,10 +363,29 @@ def entry_status_after_call(final_status: str | None) -> tuple[str, str]:
     return list_status, final_status or "timeout"
 
 
-def reconcile_entry_patch(entry: Mapping[str, Any], call_status: str) -> dict[str, Any] | None:
-    """Patch settling an entry when a late report or verdict settles its call.
-    None for an entry that is already completed (never reopen it)."""
-    if entry.get("list_status") == "completed":
+def reconcile_entry_patch(
+    entry: Mapping[str, Any], call_status: str, *, attempt: int | None = None
+) -> dict[str, Any] | None:
+    """Patch settling an entry when a call ends, or a late report settles it.
+
+    * None for an entry that is already completed (never reopen it).
+    * A nurse's cancel and a block stand: a late result, a late report or a
+      retried webhook must not put the patient back on the list. The call's
+      outcome is still recorded (old proxy B-2 and its review).
+    * ``attempt``: the dial attempt the call belongs to. A result for an OLDER
+      attempt never resets the row a newer attempt is calling on.
+    """
+    status = entry.get("list_status")
+    if status == "completed":
         return None
+    outcome_only = {"last_call_status": call_status}
+    if status in ("canceled", "blocked"):
+        return outcome_only
+    if status == "calling" and attempt is not None:
+        try:
+            if int(entry.get("attempts") or 0) != attempt:
+                return outcome_only
+        except (TypeError, ValueError):
+            return outcome_only
     list_status, _ = entry_status_after_call(call_status)
     return {"list_status": list_status, "last_call_status": call_status}

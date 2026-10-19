@@ -29,6 +29,8 @@ CALL_LIST, CALL_RUNS, LIST_RUNS, SETTINGS, ALLOWLIST = (
     "call_settings",
     "outbound_allowlist",
 )
+#: Signed-off results waiting for the EHR integration (one per call).
+EHR_OUTBOX = "ehr_outbox"
 
 CALL_ID_RE = re.compile(r"^(CA[0-9a-f]{32}|browser_[0-9a-f]{16}|local_[0-9a-f]{16,32})$")
 HEX32_RE = re.compile(r"^[0-9a-f]{32}$")

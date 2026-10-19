@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
+from voa_core import review
+
 Doc = dict[str, Any]
 
 # ---------------------------------------------------------------------------
@@ -165,6 +167,10 @@ def merge_call_doc(
     p = effective_call_patch(current, patch, from_report=from_report)
     if not p:
         return None
+    if from_report:
+        # A report on a call a nurse already handled (B-5): her tier stands
+        # against a milder report, and a closed review is reopened.
+        p, _withdraw = review.merge_late_report(current, p, now=iso(now))
     p["updated_at"] = iso(now)
     return _strip_phi_from_doc({**(current or {}), **p})
 

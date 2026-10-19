@@ -1,6 +1,6 @@
 # Handoff
 
-The state of the system as of 17 Oct 2026, and what a new owner needs to know.
+The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 
 ## What exists
 
@@ -9,9 +9,9 @@ The state of the system as of 17 Oct 2026, and what a new owner needs to know.
 | Voice agent | **Built.** ADK live agent on `gemini-3.8-live`. Its instruction is generated from `config/campaigns/post_op.yaml`. Tools verify the DOB server-side, normalize answers with the shared survey parsers, triage deterministically, and validate the report before telling the model "ok". | `packages/voa_agents/voice` |
 | Gateway | **Deployed** (public). Signed Twilio webhooks, media streams, AMD hold and voicemail drop, barge-in, closing drain, stereo recording, the two guards (exit gate and auto-hangup), and the browser softphone with HMAC tokens. | `services/gateway` |
 | API | **Deployed** (private). Dashboard REST/SSE, Cloud Tasks dialing (call-slot guard), scheduled runs, auto-recall, allowlist, budgets, follow-up overrides, recordings, test calls, the SMS follow-up and the expiry cron. | `services/api` |
-| Dashboard | **Deployed** behind Cloud Run IAP. Pure BFF: the browser only talks to its own origin; the server calls the API with an ID token. | `ui/` |
+| Dashboard | **Deployed** behind Cloud Run IAP. Pure BFF: the browser only talks to its own origin; the server calls the API with an ID token. Matches the GE-CX console as of 19 Oct (palette, Overdue chip, clinic-time pickers, run dialog, report sign-off; Follow-ups tab removed). The logo and org name come from gitignored `ui/public/brand/` and `NEXT_PUBLIC_LOGO_URL` / `org_name`. | `ui/` |
 | SMS follow-up | **Built and deployed in dry-run.** It logs instead of sending until `sms_dry_run = false`. | `services/api/src/voa_api/sms_service.py` |
-| Nurse assistant | **Deployed** (private, A2A + A2UI v0.9, Cloud Run). ADK agent with 25 tools over the API; sessions and proposals in Firestore; confirm-by-id only. Not yet registered in Gemini Enterprise. Report sign-off from the old agent is not ported (the API has no sign-off endpoint). | `services/nurse` |
+| Nurse assistant | **Deployed** (private, A2A + A2UI v0.9, Cloud Run). ADK agent with 25 tools over the API; sessions and proposals in Firestore; confirm-by-id only. Not yet registered in Gemini Enterprise. The API now has report sign-off endpoints; the nurse agent has no sign-off tools yet. | `services/nurse` |
 | Infrastructure | **All Terraform.** One root (`infra/envs/demo`), with modules for project services, IAM, Firestore, storage, secrets, Artifact Registry, Cloud Run, queues, scheduler and observability. | `infra/` |
 | Monitoring | Log metrics and alerts per failure class, plus a gateway uptime check. | `infra/modules/observability` |
 
@@ -70,4 +70,11 @@ The state of the system as of 17 Oct 2026, and what a new owner needs to know.
 
 - The API has no rate limit per dashboard user. It relies on IAP plus budgets.
 - Register the nurse assistant in Gemini Enterprise and live-test it there (heartbeats, card rendering, identity).
-- Decide whether to add a report sign-off endpoint to the API (the old agent had one).
+- Add sign-off tools to the nurse agent (the API endpoints exist since 19 Oct).
+
+## 19 Oct: UI parity with the GE-CX console
+
+- **Why:** the GE-CX console was redesigned; this dashboard has to look and behave the same so demos are comparable.
+- **Backend it needed:** report sign-off (`voa_core/review.py`, sign-off routes in `routes_calls.py`), `follow-ups/open`, any patient can be put in a run, and a patient who books by text is dropped from auto-recall.
+- **Shared code changed:** `voa_core` lifecycle and compliance, so gateway, api, ui and nurse were deployed together (see trap 8).
+- **Not the same:** the sidebar logo and org name, because brand assets are not in git.

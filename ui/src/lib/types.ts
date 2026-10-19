@@ -36,6 +36,23 @@ export interface CallDoc {
   follow_up_override?: FollowUpEvent;
   /** Every nurse change to the tier, oldest first. */
   follow_up_history?: FollowUpEvent[];
+  /** Nurse sign-off. Signing off a follow-up resolves it. */
+  review?: CallReview | null;
+}
+
+export interface CallReview {
+  /** superseded: closed when a LATER report for the same patient was signed
+   *  off; nothing from this one went to the EHR. */
+  status: "signed_off" | "reopened" | "superseded";
+  superseded_by?: string;
+  by?: string;
+  at?: string;
+  note?: string | null;
+  follow_up?: string;
+  /** True when the sign-off resolved a follow-up (it then leaves the follow-up lists). */
+  resolved?: boolean;
+  reopened_at?: string;
+  reopened_because?: string;
 }
 
 /** One nurse change to a call's follow-up tier. */
@@ -162,6 +179,9 @@ export interface CallRun {
   created_at: string;
   updated_at: string;
   dispatched_at?: string;
+  claimed_at?: string | null;
+  /** Set when the run's dialling ended (finished, stopped, or carried over). */
+  finished_at?: string | null;
   /** How many patients the run actually dialled (its pending ones). */
   dialled?: number;
   /** Created by auto-recall rather than by a nurse. */

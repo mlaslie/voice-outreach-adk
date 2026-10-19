@@ -368,6 +368,7 @@ export function SettingsView({
         open={dialog.open}
         entry={dialog.entry}
         actions={actions}
+        tz={settings?.timezone ?? "America/New_York"}
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
       />
     </div>

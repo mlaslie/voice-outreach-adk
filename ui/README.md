@@ -61,7 +61,12 @@ the components use; only their transport changed.
 build args (see `Dockerfile`, `cloudbuild.yaml`) and a change needs a
 rebuild. They are branding only — never a secret or a backend URL. All are
 read in `src/lib/site.ts`. Colours and fonts are in `src/app/theme.css` and
-`src/app/layout.tsx`.
+`src/app/layout.tsx`; the theme's token names are what components use, so a
+re-skin changes values only.
+
+Nurse sign-off (`POST /api/calls/{sid}/sign-off`, `POST /api/calls/sign-off`)
+is a backend endpoint for the nurse assistant; the dashboard only shows the
+resulting `review` on a call, so it is deliberately not on the BFF allowlist.
 
 ## Local development
 
@@ -126,6 +131,7 @@ All paths are on the backend under `/api/`; the browser reaches each as
 | GET | `/api/calls/{sid}/recording` | `Range` honoured | audio bytes |
 | POST | `/api/calls/{sid}/follow-up` | `FollowUpOverrideRequest` | `CallDoc` |
 | POST | `/api/calls/batch-delete` | `{call_sids: string[]}` | `BatchDeleteResponse` |
+| GET | `/api/follow-ups/open?limit=` | — | `CallsListResponse`: every open follow-up (tier needs a callback, review not closed), most severe first, uncapped |
 | POST | `/api/place-call` | `PlaceCallRequest` | `PlaceCallResponse` |
 | GET | `/api/call-list` | — | `CallListResponse` |
 | POST | `/api/call-list` | `CallListEntryInput` | `CallListEntry` |

@@ -47,6 +47,46 @@ export function nextCallingSlot(fromMs: number, w: RecallSettings, tz: string): 
   return null;
 }
 
+/** A datetime-local input value ("YYYY-MM-DDTHH:MM") showing `iso` in the
+ *  CLINIC's time zone. The browser's zone was used before (B-19): a nurse in
+ *  another zone saw 06:00 for a 09:00 Eastern run and scheduled at the wrong
+ *  hour. */
+export function isoToZonedInput(iso: string | null | undefined, tz: string): string {
+  if (!iso) return "";
+  const ms = new Date(iso).getTime();
+  if (isNaN(ms)) return "";
+  const p = zonedParts(ms, tz);
+  return `${p.y}-${p.mo}-${p.d}T${p.h}:${p.mi}`;
+}
+
+/** The instant a clinic wall-clock input means, as ISO; null if invalid. */
+export function zonedInputToIso(local: string, tz: string): string | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(local.trim());
+  if (!m) return null;
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  const wall = Date.UTC(y, mo - 1, d, h, mi);
+  // Offset at the guess, then again at the result: right across DST.
+  let t = wall - offsetMs(wall, tz);
+  t = wall - offsetMs(t, tz);
+  return isNaN(t) ? null : new Date(t).toISOString();
+}
+
+function zonedParts(ms: number, tz: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(ms));
+  const get = (t: string) => parts.find((x) => x.type === t)?.value ?? "00";
+  return { y: get("year"), mo: get("month"), d: get("day"), h: get("hour"), mi: get("minute") };
+}
+
+/** How far the clinic's wall clock is ahead of UTC at instant `ms`. */
+function offsetMs(ms: number, tz: string): number {
+  const p = zonedParts(ms, tz);
+  const asUtc = Date.UTC(+p.y, +p.mo - 1, +p.d, +p.h, +p.mi);
+  return asUtc - Math.floor(ms / 60_000) * 60_000;
+}
+
 /** "Mon–Sat, 9:00 AM–5:00 PM" */
 export function windowText(w: RecallSettings): string {
   const days = [...w.days].sort();

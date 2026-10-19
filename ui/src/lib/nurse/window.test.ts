@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inCallingWindow, nextCallingSlot, windowText } from "./window";
+import { inCallingWindow, isoToZonedInput, nextCallingSlot, windowText, zonedInputToIso } from "./window";
 import { RecallSettings } from "../types";
 
 const W: RecallSettings = {
@@ -32,5 +32,37 @@ describe("calling hours (clinic time zone)", () => {
   it("describes the window in plain words", () => {
     expect(windowText(W)).toBe("Mon–Sat, 9:00 AM–5:00 PM");
     expect(windowText({ ...W, days: [0, 2, 4] })).toBe("Mon, Wed, Fri, 9:00 AM–5:00 PM");
+  });
+});
+
+describe("daylight saving (B-8)", () => {
+  it("finds Monday 09:00 EST after a Saturday-evening miss on the fall-back weekend", () => {
+    // Sat 31 Oct 2026 17:30 EDT = 21:30Z; clocks go back Sun 1 Nov.
+    const slot = nextCallingSlot(Date.UTC(2026, 9, 31, 21, 30), W, NY);
+    expect(slot && new Date(slot).toISOString()).toBe("2026-11-02T14:00:00.000Z");
+  });
+  it("finds Sunday 09:00 EST when Sunday is allowed", () => {
+    const slot = nextCallingSlot(Date.UTC(2026, 9, 31, 21, 30), { ...W, days: [0, 1, 2, 3, 4, 5, 6] }, NY);
+    expect(slot && new Date(slot).toISOString()).toBe("2026-11-01T14:00:00.000Z");
+  });
+  it("is in hours at 09:00 EDT the Friday before and refuses 08:59", () => {
+    expect(inCallingWindow("2026-10-30T13:00:00Z", W, NY)).toBe(true);
+    expect(inCallingWindow("2026-10-30T12:59:00Z", W, NY)).toBe(false);
+  });
+});
+
+describe("time inputs in clinic time (B-19)", () => {
+  it("shows a run at 09:00 Eastern as 09:00 whatever the browser's zone", () => {
+    expect(isoToZonedInput("2026-10-20T13:00:00Z", NY)).toBe("2026-10-20T09:00");
+    expect(isoToZonedInput("2026-11-03T14:00:00Z", NY)).toBe("2026-11-03T09:00");   // EST
+  });
+  it("reads 09:00 typed as 09:00 Eastern, across the DST change", () => {
+    expect(zonedInputToIso("2026-10-20T09:00", NY)).toBe("2026-10-20T13:00:00.000Z");
+    expect(zonedInputToIso("2026-11-03T09:00", NY)).toBe("2026-11-03T14:00:00.000Z");
+    expect(zonedInputToIso("nonsense", NY)).toBeNull();
+  });
+  it("round-trips", () => {
+    const iso = "2026-10-31T21:15:00.000Z";
+    expect(zonedInputToIso(isoToZonedInput(iso, NY), NY)).toBe(iso);
   });
 });

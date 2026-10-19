@@ -32,6 +32,24 @@ class DialError(Exception):
         return self.status in (400, 403)
 
 
+class OutsideCallingHours(DialError):
+    """A scheduled or automatic dial outside the site's calling hours (old proxy
+    B-8). Not permanent: the patient waits for the next opening."""
+
+    def __init__(self, detail: str):
+        super().__init__(409, detail)
+
+
+def check_calling_hours(api: Api, hours: compliance.RecallSettings | None) -> None:
+    """Refuse to dial outside ``hours`` in the site's timezone. ``None`` (a nurse's
+    own call or run) is not limited."""
+    if hours is None:
+        return
+    tz = api.cfg.site.timezone
+    if not compliance.in_calling_window(api.now(), hours, tz):
+        raise OutsideCallingHours(f"Outside calling hours ({compliance.window_text(hours, tz)}).")
+
+
 async def runtime_allowlist(api: Api) -> list[str] | None:
     try:
         return [doc_id for doc_id, _ in await api.store.query(ALLOWLIST)]
@@ -73,9 +91,17 @@ async def dial(
     placed_via: str,
     entry_id: str | None = None,
     run_id: str | None = None,
+    attempt: int | None = None,
+    hours: compliance.RecallSettings | None = None,
     campaign_id: str = "post_op",
 ) -> str:
-    """Place one call. Returns the call id. Raises DialError."""
+    """Place one call. Returns the call id. Raises DialError.
+
+    ``hours``: the calling hours a scheduled or automatic dial must respect,
+    checked here at dial time (not only when the run was created). ``attempt``:
+    the call-list attempt this call belongs to, so a late result for an older
+    attempt never resets the row a newer one is calling on."""
+    check_calling_hours(api, hours)
     await check_allowed(api, req.phone)
     if api.voice is None:
         raise DialError(503, "Telephony is not configured (provider secrets missing).")
@@ -135,6 +161,7 @@ async def dial(
             "amd_requested": amd.enabled,
             "campaign_id": campaign_id,
             "entry_id": entry_id,
+            "entry_attempt": attempt,
             "run_id": run_id,
             "last_provider_status": placed.status,
         },

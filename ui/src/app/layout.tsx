@@ -4,8 +4,10 @@ import "./globals.css";
 import { DemoBanner } from "@/components/demo-banner";
 import { ClientProviders } from "@/components/client-providers";
 
-// Type, paired with the palette in app/theme.css — re-skin the two together.
-// Headings are Poppins, body Source Sans 3, monospace IBM Plex Mono.
+// Brand type, paired with the palette in app/theme.css — re-skin the two
+// together. Headings are Poppins 600, monospace IBM Plex Mono, body Source
+// Sans 3 (free on Google Fonts; theme.css keeps a licensed face first in the
+// stack so a web-font kit can take over).
 const display = Poppins({
   subsets: ["latin"],
   weight: ["500", "600", "700"],

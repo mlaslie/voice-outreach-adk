@@ -14,9 +14,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { isoToLocalInput, localInputToIso } from "@/components/patient-fields";
 import { CallListEntry, CallRun, CallSettingsResponse } from "@/lib/types";
-import { inCallingWindow, nextCallingSlot, windowText } from "@/lib/nurse/window";
+import { inCallingWindow, isoToZonedInput, nextCallingSlot, windowText, zonedInputToIso } from "@/lib/nurse/window";
 import { DEFAULT_RECALL } from "./recall-settings";
 import { NurseActions } from "@/lib/nurse/actions";
 import { formatPhone } from "@/lib/format";
@@ -31,6 +30,13 @@ import { clock } from "./parts";
  * another scheduled run cannot be added; unchecking every patient of an
  * existing run removes the run.
  */
+/** Patients who are not waiting for a call: shown, and requeued if added. */
+const STATUS_NOTE: Record<string, string> = {
+  canceled: "Cancelled · will be requeued",
+  completed: "Reached · will be called again",
+  blocked: "Blocked number",
+};
+
 export function RunDialog({
   open,
   run,
@@ -61,7 +67,7 @@ export function RunDialog({
 
   useEffect(() => {
     if (!open) return;
-    setWhen(run ? isoToLocalInput(run.scheduled_for) : defaultTime(hours, tz));
+    setWhen(run ? isoToZonedInput(run.scheduled_for, tz) : defaultTime(hours, tz));
     setLabel(run?.label ?? "");
     setPicked(new Set(run?.entry_ids ?? []));
     setQuery("");
@@ -79,19 +85,22 @@ export function RunDialog({
   }, [runs, run]);
 
   const q = query.trim().toLowerCase();
+  // Any patient can be put in a run (demo, 19 Oct): one cancelled or already
+  // reached goes back on the queue when the run is saved. Only someone on
+  // the phone right now is excluded.
   const candidates = entries
-    .filter((e) => e.list_status === "pending" || picked.has(e.entry_id))
+    .filter((e) => e.list_status !== "calling" || picked.has(e.entry_id))
     .filter((e) => !q || e.patient_name.toLowerCase().includes(q) || e.patient_id.toLowerCase().includes(q))
     .sort((a, b) => a.patient_name.localeCompare(b.patient_name));
 
-  const iso = localInputToIso(when);
+  const iso = zonedInputToIso(when, tz);
   const inPast = iso !== null && new Date(iso).getTime() < Date.now() - 60_000;
   const removing = !!run && picked.size === 0;
   const outOfHours = iso !== null && !inCallingWindow(iso, hours, tz);
   // Same rule as the proxy: a new run, a moved run, or an added patient must
   // land inside calling hours. Only removing patients is allowed as-is.
   // Compared at the picker's precision (minutes), so an untouched time is unchanged.
-  const timeChanged = !run || iso !== localInputToIso(isoToLocalInput(run.scheduled_for));
+  const timeChanged = !run || iso !== zonedInputToIso(isoToZonedInput(run.scheduled_for, tz), tz);
   const adding = !run || [...picked].some((id) => !run.entry_ids.includes(id));
   const blockedByHours = outOfHours && (timeChanged || adding);
   const canSave = !busy && (removing || (picked.size > 0 && iso !== null && !inPast && !blockedByHours));
@@ -156,7 +165,7 @@ export function RunDialog({
                   <button
                     type="button"
                     className="font-semibold underline"
-                    onClick={() => { const n = nextCallingSlot(new Date(iso!).getTime(), hours, tz); if (n) setWhen(isoToLocalInput(n)); }}
+                    onClick={() => { const n = nextCallingSlot(new Date(iso!).getTime(), hours, tz); if (n) setWhen(isoToZonedInput(n, tz)); }}
                   >
                     Use the next allowed time
                   </button>
@@ -187,7 +196,7 @@ export function RunDialog({
             <div className="max-h-64 divide-y divide-black/[0.05] overflow-y-auto rounded-2xl ring-1 ring-inset ring-black/[0.08]">
               {candidates.length === 0 ? (
                 <p className="p-4 text-[13px] text-ink-muted">
-                  {entries.length ? "No pending patients match." : "Add patients to the list first."}
+                  {entries.length ? "No patients match." : "Add patients to the list first."}
                 </p>
               ) : (
                 candidates.map((e) => {
@@ -212,6 +221,12 @@ export function RunDialog({
                           {e.patient_id} · {formatPhone(e.phone)}{e.operation_name ? ` · ${e.operation_name}` : ""}
                         </span>
                       </span>
+                      {STATUS_NOTE[e.list_status] && !other ? (
+                        <span className="shrink-0 rounded-full bg-mist/70 px-2 py-0.5 text-[11px] text-ink-soft"
+                              title="Adding them to this run puts them back on the call queue.">
+                          {STATUS_NOTE[e.list_status]}
+                        </span>
+                      ) : null}
                       {other ? (
                         <span className="shrink-0 text-[11px] text-ink-muted">
                           in run {new Date(other.scheduled_for).toLocaleDateString(undefined, { month: "short", day: "numeric" })} {clock(other.scheduled_for)}
@@ -248,5 +263,5 @@ export function RunDialog({
 /** The next allowed quarter hour, at least 15 minutes out. */
 function defaultTime(hours: import("@/lib/types").RecallSettings, tz: string): string {
   const slot = nextCallingSlot(Date.now() + 15 * 60_000, hours, tz);
-  return isoToLocalInput(slot ?? new Date(Date.now() + 15 * 60_000).toISOString());
+  return isoToZonedInput(slot ?? new Date(Date.now() + 15 * 60_000).toISOString(), tz);
 }

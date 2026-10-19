@@ -16,11 +16,11 @@ import {
   PatientFields,
   PatientFormState,
   entryFormToRequest,
-  isoToLocalInput,
   validatePatientForm,
 } from "@/components/patient-fields";
 import { CallListEntry } from "@/lib/types";
 import { NurseActions } from "@/lib/nurse/actions";
+import { DEFAULT_CLINIC_TZ, isoToZonedInput, zonedInputToIso } from "@/lib/nurse/window";
 
 /**
  * Add / edit a call-list patient from the nurse console. Same fields as the
@@ -31,11 +31,14 @@ export function EntryDialog({
   open,
   entry,
   actions,
+  tz = DEFAULT_CLINIC_TZ,
   onOpenChange,
 }: {
   open: boolean;
   entry: CallListEntry | null;
   actions: NurseActions;
+  /** Clinic time zone: the planned call time is entered in clinic time (B-19). */
+  tz?: string;
   onOpenChange: (open: boolean) => void;
 }) {
   const [form, setForm] = useState<PatientFormState>(INITIAL_PATIENT_FORM);
@@ -55,7 +58,7 @@ export function EntryDialog({
             operation_name: entry.operation_name ?? "",
             operation_date: entry.operation_date ?? "",
             is_diabetic: !!entry.is_diabetic,
-            scheduled_for: isoToLocalInput(entry.scheduled_for),
+            scheduled_for: isoToZonedInput(entry.scheduled_for, tz),
           }
         : INITIAL_PATIENT_FORM,
     );
@@ -87,7 +90,7 @@ export function EntryDialog({
     setSubmitting(true);
     setServerError(null);
     try {
-      const body = entryFormToRequest(form);
+      const body = { ...entryFormToRequest(form), scheduled_for: zonedInputToIso(form.scheduled_for, tz) };
       await actions.saveEntry(entry, body);
       if (actions.live) toast.success(entry ? `Updated ${body.patient_name}` : `Added ${body.patient_name}`);
       onOpenChange(false);
