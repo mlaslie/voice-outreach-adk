@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { LiveIndicator } from "@/components/live-indicator";
 import { SmsTestDialog } from "@/components/sms-test-dialog";
+import { SmsIndicator } from "@/components/sms-indicator";
 
 interface DashboardHeaderProps {
   connState: "live" | "polling" | "disconnected";
@@ -24,6 +25,7 @@ export function DashboardHeader({ connState, onRefresh, onPlaceCall }: Dashboard
         <p className="text-sm text-ink-soft mt-0.5">Outbound wellness-check demo</p>
       </div>
       <div className="flex items-center gap-3">
+        <SmsIndicator />
         <LiveIndicator state={connState} />
         <Link href="/nurse">
           <Button variant="outline" size="sm" tabIndex={-1}>

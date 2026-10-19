@@ -142,3 +142,20 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   2. Confirm the new copy with the A2P campaign.
   3. Set `sms_from_number`, then `sms_dry_run = false`.
   4. Deploy the API. Sends stay limited to the dial allowlist.
+
+## 19 Oct: shared SMS number switch (ADK side)
+
+**The design** (contract: `docs/sms-number-switch.md`).
+- The Twilio number's incoming-SMS webhook is the switch. Nothing else stores state.
+- `GET/POST /api/sms/control` reads the number or flips it (`take` / `give`). Only `SmsUrl` and `SmsMethod` are written. Every flip goes in `sms_control_log`.
+- `send_sms` refuses real texts while the other system has the number. It fails closed if the number can't be read, and the status is cached for 30 s. Dry-run sends are not gated.
+
+**The dashboard** has a top-right indicator and a Settings → "SMS number" card (take control / give control to GE-CX).
+
+**Config.**
+- Terraform: `sms_switch_enabled` and `sms_peer_webhook_url`, set as `VOA__SMS__SWITCH_ENABLED` / `VOA__SMS__PEER_WEBHOOK_URL`.
+- The number is `sms.from_number`, falling back to the voice number.
+
+**The GE-CX side** is built by the GE-CX session from the same contract (its own repo; this session doesn't edit it).
+- Until GE-CX has its send rule, don't trigger GE-CX texts (including missed-call invites) while ADK is active.
+- This system still sends in dry-run: after taking control it receives replies but doesn't answer them by text, until `sms_dry_run = false`.

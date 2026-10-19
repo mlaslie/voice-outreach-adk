@@ -15,6 +15,7 @@ import { EntryDialog } from "./entry-dialog";
 import { RunDialog } from "./run-dialog";
 import { SmsTestDialog } from "@/components/sms-test-dialog";
 import { DEFAULT_RECALL, RecallSettingsPanel } from "./recall-settings";
+import { SmsNumberCard } from "./sms-number-card";
 import { inCallingWindow } from "@/lib/nurse/window";
 
 /**
@@ -231,6 +232,8 @@ export function SettingsView({
       <RecallSettingsPanel settings={settings?.recall ?? null} timezone={settings?.timezone} actions={actions} />
 
       <TimeDisplayPanel saved={settings?.display?.time_format ?? null} actions={actions} />
+
+      <SmsNumberCard mode={actions.live ? "live" : "demo"} />
 
       {/* ---- Patients ---- */}
       <Panel className="flex flex-wrap items-center gap-3 px-5 py-3.5">

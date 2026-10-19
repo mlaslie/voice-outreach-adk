@@ -34,6 +34,7 @@ import { ScheduleView } from "./schedule-view";
 import { CompletedPreset, CompletedView, KIND } from "./completed-view";
 import { TIER } from "./follow-up-list";
 import { SettingsView } from "./settings-view";
+import { SmsIndicator } from "@/components/sms-indicator";
 import { DrawerSubject, PatientDrawer } from "./patient-drawer";
 
 export type View = "schedule" | "completed" | "settings";
@@ -154,7 +155,7 @@ export function NurseConsole({
             </div>
           ) : null}
 
-          <Header now={now} query={query} onQuery={setQuery} />
+          <Header now={now} query={query} onQuery={setQuery} smsMode={mode} onSms={() => setView("settings")} />
 
           {emergencies.length ? (
             <button
@@ -380,7 +381,11 @@ function MobileNav({ view, onView, counts }: { view: View; onView: (v: View) => 
   );
 }
 
-function Header({ now, query, onQuery }: { now: Date; query: string; onQuery: (q: string) => void }) {
+function Header({
+  now, query, onQuery, smsMode, onSms,
+}: {
+  now: Date; query: string; onQuery: (q: string) => void; smsMode: "demo" | "live"; onSms: () => void;
+}) {
   const h = now.getHours();
   const greeting = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
   return (
@@ -394,7 +399,10 @@ function Header({ now, query, onQuery }: { now: Date; query: string; onQuery: (q
         </p>
         <h1 className="font-display text-[28px] font-semibold leading-tight tracking-tight text-ink">{greeting}</h1>
       </div>
-      <label className="relative ml-auto w-full sm:w-80">
+      {/* Which system gets incoming texts; stays top-right on a phone, the search wraps below. */}
+      <div className="flex-1" aria-hidden />
+      <SmsIndicator mode={smsMode} onClick={onSms} />
+      <label className="relative w-full sm:w-80">
         <Search className="pointer-events-none absolute left-4 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-ink-muted" />
         <input
           value={query}

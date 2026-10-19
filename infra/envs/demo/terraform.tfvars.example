@@ -14,3 +14,6 @@ name_prefix        = "voa"
 # SMS follow-up. Option 3 (the questionnaire by text) stays off until its copy
 # is registered with the carrier; sms_dry_run (default true) logs instead of sending.
 sms_survey_enabled = false
+# Sharing the SMS number with another system (docs/sms-number-switch.md)
+sms_switch_enabled   = false
+sms_peer_webhook_url = "" # e.g. https://<other-sms-service>/api/sms-inbound

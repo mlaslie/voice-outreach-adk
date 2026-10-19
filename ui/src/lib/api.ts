@@ -52,6 +52,35 @@ export interface SmsTestReplyResponse {
 }
 
 /**
+ * Which system receives incoming texts on the shared SMS number
+ * (docs/sms-number-switch.md). The number's own Twilio webhook is the switch.
+ */
+export interface SmsControlStatus {
+  /** False when the switch is turned off on this deployment: hide the UI. */
+  enabled: boolean;
+  /** This system's display name ("ADK"). */
+  self_name: string;
+  /** The other system's display name ("GE-CX"). */
+  peer_name: string;
+  number_last4: string | null;
+  /** False when the other system's webhook URL is not configured here. */
+  can_give: boolean;
+  /** This system answers texts in dry-run (nothing is sent). */
+  dry_run: boolean;
+  checked_at: string | null;
+  active: "self" | "peer" | "unknown";
+  active_name: string | null;
+  /** The number's webhook host, shown when neither system matches. */
+  webhook_host?: string | null;
+  /** Why the number could not be read. */
+  error?: string | null;
+  /** This system's text conversations still waiting on a reply. */
+  open_conversations: number;
+}
+
+export type SmsControlAction = "take" | "give";
+
+/**
  * Every backend call goes through this app's own same-origin BFF route,
  * /api/backend/<path> (src/app/api/backend/[...path]/route.ts), which adds
  * the Google ID token and the signed-in user on the server. The browser
@@ -264,6 +293,18 @@ export const api = {
 
   replySmsTest(phone: string, body: string): Promise<SmsTestReplyResponse> {
     return request<SmsTestReplyResponse>("/sms/test/reply", json("POST", { phone, body }));
+  },
+
+  // ---- Shared SMS number switch -------------------------------------------
+
+  /** Which system is active. `fresh` skips the backend's 30 s cache. */
+  getSmsControl(fresh = false): Promise<SmsControlStatus> {
+    return request<SmsControlStatus>(`/sms/control${fresh ? "?fresh=true" : ""}`);
+  },
+
+  /** Point the number's incoming-text webhook here ("take") or at the other system ("give"). */
+  setSmsControl(action: SmsControlAction): Promise<SmsControlStatus> {
+    return request<SmsControlStatus>("/sms/control", json("POST", { action }));
   },
 
   /** Same-origin SSE feed of call updates (proxied, streamed, by the BFF). */

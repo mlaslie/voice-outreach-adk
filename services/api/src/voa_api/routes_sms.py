@@ -259,5 +259,41 @@ async def cron_expire(request: Request):
     return await sms.expire_sessions(api)
 
 
+# --------------------------------------------------------------------------- shared number
+
+
+class ControlInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: str = Field(pattern="^(take|give)$")
+
+
+@dashboard.get("/control")
+async def get_control(request: Request, fresh: bool = False):
+    """Which system has the shared SMS number (docs/sms-number-switch.md)."""
+    from . import sms_control
+
+    api: Api = request.app.state.api
+    out = dict(await sms_control.status(api, fresh=fresh))
+    out["open_conversations"] = await sms_control.open_conversations(api)
+    return out
+
+
+@dashboard.post("/control")
+async def set_control(body: ControlInput, request: Request):
+    """Take the shared number for this system, or give it to the other one."""
+    from . import sms_control
+
+    api: Api = request.app.state.api
+    try:
+        out = dict(await sms_control.flip(api, body.action, by=acting_user(request)))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    except Exception:
+        log.exception("sms number switch failed", extra={"event": "sms.control_flip_failed"})
+        raise HTTPException(502, "Could not update the number at the provider.") from None
+    out["open_conversations"] = await sms_control.open_conversations(api)
+    return out
+
+
 router.include_router(dashboard)
 router.include_router(tasks)

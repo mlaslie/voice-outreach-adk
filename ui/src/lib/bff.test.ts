@@ -47,6 +47,8 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["POST", "sms/settings"],
     ["POST", "sms/test/start"],
     ["POST", "sms/test/reply"],
+    ["GET", "sms/control"],
+    ["POST", "sms/control"],
   ])("allows %s %s", (method, path) => {
     expect(matchRoute(method, path)).not.toBeNull();
   });
@@ -71,6 +73,14 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["POST", "sms/test"],
     ["POST", "sms/test/send"],
     ["POST", "twilio/voice"],
+    ["PUT", "sms/control"], // the switch: GET and POST only
+    ["PATCH", "sms/control"],
+    ["DELETE", "sms/control"],
+    ["GET", "sms/control/take"],
+    ["POST", "sms/control/give"],
+    ["POST", "sms/controls"],
+    ["GET", "SMS/control"],
+    ["POST", "twilio/sms"], // the webhook itself is never reachable through the BFF
     ["GET", "admin"],
     ["GET", ""],
     ["GET", "calls/"],

@@ -571,6 +571,18 @@ async def send_sms(
         raise SendBlocked("SMS provider is not configured.")
     if not is_e164(phone):
         raise SendBlocked("Destination is not E.164.")
+    # Shared number (docs/sms-number-switch.md): a real text only while this system
+    # has the number, or the patient's reply would land in the other system.
+    # Dry-run sends leave nothing, so they are not gated.
+    if s.switch_enabled and getattr(prov, "name", "") != "dry_run":
+        from . import sms_control
+
+        if not await sms_control.is_active(api):
+            log.warning(
+                "sms skipped: number not active here",
+                extra={"event": "sms.skipped_inactive", "to": mask_phone(phone)},
+            )
+            raise SendBlocked(f"SMS skipped: {s.peer_name} has control of the number.")
 
     if not compliance_reply:
         try:
