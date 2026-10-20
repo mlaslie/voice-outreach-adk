@@ -346,3 +346,23 @@ def test_route_groups_are_limited_to_their_service_accounts():
 @pytest.fixture(autouse=True)
 def _no_live(monkeypatch):
     monkeypatch.delenv("VOA_SECRET_SOFTPHONE_TOKEN_KEY", raising=False)
+
+
+def test_recording_link_is_minted_only_for_a_recorded_call(monkeypatch):
+    from voa_core import links
+
+    monkeypatch.setenv("VOA_SECRET_SOFTPHONE_TOKEN_KEY", "k" * 64)
+    client, api = make()
+    sp = api.cfg.softphone.model_copy(update={"token_secret": "secret://softphone-token-key"})
+    api.cfg = api.cfg.model_copy(update={"softphone": sp})
+    cid = "CA" + "9" * 32
+    run(api.store.set("calls", cid, {"recording_uri": f"gs://b/recordings/{cid}.wav"}))
+    r = client.post(f"/api/calls/{cid}/recording-link", headers={"X-Acting-User": "rn@example.org"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["url"].startswith("https://gw.example.org/recording/" + cid + "?exp=")
+    assert body["expires_in"] == links.RECORDING_LINK_TTL_S
+    q = dict(p.split("=") for p in body["url"].split("?", 1)[1].split("&"))
+    assert links.verify_recording_link("k" * 64, cid, q["exp"], q["sig"])
+    run(api.store.set("calls", "CA" + "8" * 32, {"to": "+12025550101"}))
+    assert client.post(f"/api/calls/{'CA' + '8' * 32}/recording-link").status_code == 404

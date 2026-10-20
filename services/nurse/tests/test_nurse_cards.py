@@ -122,6 +122,7 @@ def test_every_card_is_schema_valid():
             {"patient_name": "Jordan", "is_diabetic": True}, ["Check: phone"]
         ),
         cards.components_check_card(),
+        cards.recording_card(CALL, "https://gateway.example.org/recording/CA1?exp=1&sig=ab"),
     ]:
         check(card)
 
@@ -150,13 +151,47 @@ def test_detail_card_reads_like_a_chart():
     assert "Call: Completed" in text and "2m 51s" in text
 
 
-def test_recording_is_a_dashboard_link_never_the_private_api():
-    """Review A-9: the recording lives behind the private API; the card links to the
-    dashboard and never carries an AudioPlayer or any API / gs:// URL."""
-    blob = json.dumps(cards.call_detail_card(CALL).messages())
+SIGNED = "https://gateway.example.org/recording/CA1?exp=1792000000&sig=abc123"
+
+
+def test_detail_card_plays_the_recording_never_the_private_api():
+    """Review A-9: the detail card asks for a signed link by event; it never carries
+    an AudioPlayer or any API / gs:// URL itself."""
+    card = cards.call_detail_card(CALL)
+    blob = json.dumps(check(card))
     assert "AudioPlayer" not in blob and "gs://" not in blob and "/recording" not in blob
+    assert {"name": "play_recording", "context": {"call_sid": CALL["doc_id"]}} in [
+        c["action"].get("event")
+        for c in json.loads(blob)[1]["updateComponents"]["components"]
+        if c["component"] == "Button"
+    ]
     assert "https://dashboard.example.org" in blob
-    assert "[Recording]" in cards.call_detail_card(CALL).as_text()
+    text = card.as_text()
+    assert "[Play recording]" in text and "[Open in dashboard]" in text
+
+
+def test_no_recording_means_no_play_button():
+    text = cards.call_detail_card({**CALL, "recording_uri": None}).as_text()
+    assert "Play recording" not in text and "Open in dashboard" not in text
+
+
+def test_recording_card_plays_the_signed_link():
+    card = cards.recording_card(CALL, SIGNED)
+    comps = check(card)[1]["updateComponents"]["components"]
+    (player,) = [c for c in comps if c["component"] == "AudioPlayer"]
+    assert player == {
+        "id": player["id"],
+        "component": "AudioPlayer",
+        "url": SIGNED,
+        "description": "Call recording, Jordan Rivera",
+    }
+    text = card.as_text()
+    assert "Call recording: Jordan Rivera" in text and "2m 51s" in text
+    assert cards.RECORDING_TTL_NOTE in text
+    assert "[Back to call]" in text and "[Open in dashboard]" in text and "[Main menu]" in text
+    assert SIGNED not in text  # text mode never prints the bearer link
+    card.add_menu_button()  # the executor's "way home" must not add a second one
+    assert card.as_text().count("[Main menu]") == 1
 
 
 def test_no_dashboard_configured_means_no_link_button():
@@ -164,6 +199,10 @@ def test_no_dashboard_configured_means_no_link_button():
     card = cards.call_detail_card(CALL)
     check(card)
     assert "openUrl" not in json.dumps(card.messages())
+    assert "[Play recording]" in card.as_text()
+    rec = cards.recording_card(CALL, "https://gateway.example.org/recording/CA1?exp=1&sig=ab")
+    check(rec)
+    assert "openUrl" not in json.dumps(rec.messages())
 
 
 def test_ui_check_card_embeds_no_recording_or_patient_data():

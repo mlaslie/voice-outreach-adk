@@ -39,7 +39,11 @@ _REFRESH_EARLY_S = 300
 
 
 class BackendError(Exception):
-    pass
+    """A failed API call. ``status`` is the HTTP status when the API answered."""
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 def _jwt_exp(token: str) -> float:
@@ -151,7 +155,7 @@ class Backend:
                 detail = None
             if isinstance(detail, list):  # FastAPI validation errors
                 detail = "; ".join(str(d.get("msg", d)) for d in detail if isinstance(d, dict))
-            raise BackendError(f"{r.status_code}: {detail or r.reason_phrase}")
+            raise BackendError(f"{r.status_code}: {detail or r.reason_phrase}", r.status_code)
         return r.json()
 
     # --- calls -------------------------------------------------------------------
@@ -174,6 +178,12 @@ class Backend:
 
     async def get_transcript(self, call_id: str) -> dict:
         return await self.request("GET", f"/api/calls/{q(call_id)}/transcript")
+
+    async def recording_link(self, call_id: str) -> dict:
+        """A short-lived signed link to this one call's recording, served by the public
+        gateway: ``{"url", "expires_at", "expires_in"}``. 404 when there is none.
+        The URL is a bearer link: it goes into a card, never to the model or a log."""
+        return await self.request("POST", f"/api/calls/{q(call_id)}/recording-link")
 
     async def place_call(self, body: dict) -> dict:
         return await self.request("POST", "/api/place-call", json=body)

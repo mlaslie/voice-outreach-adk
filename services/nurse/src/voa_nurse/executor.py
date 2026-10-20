@@ -114,6 +114,7 @@ TEXT_OFF = {"cards", "card mode", "show cards", "cards on"}
 CLICK_NOTES = {
     "view_call": "Opened a call",
     "show_transcript": "Opened a transcript",
+    "play_recording": "Played a call recording",
     "call_list": "Opened the worklist",
     "followups": "Opened text follow-ups",
     "allowlist": "Opened approved numbers",

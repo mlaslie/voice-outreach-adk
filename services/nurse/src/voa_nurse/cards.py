@@ -9,10 +9,14 @@ Gemini Enterprise mobile app gets: it renders no A2UI at all.
 
 Components used, all verified in Gemini Enterprise web (a2ui-gemini-enterprise
 skill): Card, Column, Row, Text, Button (event actions and the ``openUrl``
-functionCall), Divider, Icon, Modal, Tabs and TextField/CheckBox/ChoicePicker/
-DateTimeInput bound to the data model. ``AudioPlayer`` is deliberately NOT used:
-recordings are served by the private API, which the user's browser cannot reach
-(review A-9). A recording is a link to the dashboard instead.
+functionCall), Divider, Icon, Modal, Tabs, AudioPlayer and TextField/CheckBox/
+ChoicePicker/DateTimeInput bound to the data model.
+
+Recordings (review A-9): the private API's recording URL is never sent to the
+browser. ``recording_card`` plays a short-lived signed link instead, minted on
+demand by the private API for ONE call, valid for 15 minutes and served by the
+public gateway (HTTP Range, so the player can seek). The link only ever goes into
+the AudioPlayer; it is never returned to the model or logged.
 """
 
 from __future__ import annotations
@@ -195,6 +199,7 @@ class Card:
         self.wrap = wrap
         self.data_model: dict | None = None  # initial values for input components
         self.is_menu = False  # the home card gets no Main menu button
+        self.has_menu_button = False  # placed by the card itself; don't add another
         self.text_lines: list[str] = []  # appended to as_text() only (text mode)
         self._n = 0
         if title:
@@ -239,8 +244,14 @@ class Card:
         t = self.text(title, variant)
         return self.row(self.icon(icon), t) if icon else t
 
+    def menu_button(self) -> str:
+        """A Main menu button to place in the card's own button row."""
+        self.has_menu_button = True
+        return self.button("Main menu", event("welcome"))
+
     def add_menu_button(self) -> None:
-        self.put(self.row(self.button("Main menu", event("welcome"))))
+        if not self.has_menu_button:
+            self.put(self.row(self.menu_button()))
 
     def put(self, *ids: str | None) -> Card:
         self.body.extend(i for i in ids if i)
@@ -301,6 +312,8 @@ class Card:
                 return "—"
             if kind in ("TextField", "DateTimeInput", "CheckBox", "ChoicePicker"):
                 return f"{c['label']}: ____"
+            if kind == "AudioPlayer":  # never the URL: it is a bearer link
+                return f"[Audio: {c.get('description') or 'recording'}. Plays on the web.]"
             return ""
 
         lines = [render(i) for i in self.body] + self.text_lines
@@ -486,13 +499,13 @@ def call_detail_card(c: dict) -> Card:
             "caption",
         )
 
-    rec = None
-    if has_recording(c):
-        # A-9: the recording lives behind the private API; never hand its URL to
-        # the browser. The dashboard (behind IAP) plays it.
-        card.line("Call recording available in the dashboard.", "caption")
-        rec = card.dashboard_button("Recording")
     sid = c["doc_id"]
+    rec = dash = None
+    if has_recording(c):
+        # A-9: the button asks for a short-lived signed link to this one call
+        # (recording_card); the private API's recording URL never reaches the browser.
+        rec = card.button("Play recording", event("play_recording", call_sid=sid))
+        dash = card.dashboard_button("Open in dashboard")
     assessed = triage.is_assessment(c)
     sms = c.get("channel") == "sms"
     return card.buttons(
@@ -504,6 +517,28 @@ def call_detail_card(c: dict) -> Card:
         card.button("History", event("patient_history", call_sid=sid)),
         card.button("Call back", event("propose_redial", call_sid=sid)),
         rec,
+        dash,
+    )
+
+
+RECORDING_TTL_NOTE = "This link works for 15 minutes. Click Play recording again for a fresh one."
+
+
+def recording_card(c: dict, url: str) -> Card:
+    """Plays one call's recording in the card. ``url`` is the short-lived signed
+    gateway link from ``POST /api/calls/{id}/recording-link`` (A-9): it goes into
+    the AudioPlayer and nowhere else."""
+    name = c.get("patient_name") or (c.get("patient_context") or {}).get("patient_name")
+    name = name or phone(c.get("to"))
+    card = Card(f"Call recording: {name}", "volumeUp")
+    meta = [when(c.get("initiated_at")), duration(c.get("duration_seconds"))]
+    card.line(" · ".join(m for m in meta if m), "caption")
+    card.put(card.add("AudioPlayer", url=url, description=f"Call recording, {name}"))
+    card.line(RECORDING_TTL_NOTE, "caption")
+    return card.buttons(
+        card.button("Back to call", event("view_call", call_sid=c["doc_id"])),
+        card.dashboard_button("Open in dashboard"),
+        card.menu_button(),
     )
 
 
@@ -767,6 +802,7 @@ def choose_patient_card(query: str, choices: list[dict], then: str, key: str = "
         "wl_tier_form": "Change tier",
         "wl_reschedule_form": "Reschedule",
         "patient_history": "History",
+        "play_recording": "Play recording",
     }.get(then, "Select")
     for c in choices[:PAGE]:
         ctx = c.get("patient_context") or {}

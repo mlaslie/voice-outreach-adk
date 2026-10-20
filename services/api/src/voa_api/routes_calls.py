@@ -17,7 +17,7 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -463,6 +463,33 @@ async def place_call(body: PlaceCallRequest, request: Request):
     except DialError as exc:
         raise HTTPException(exc.status, exc.detail) from None
     return {"call_sid": call_id, "status": "queued"}
+
+
+@router.post("/calls/{call_id}/recording-link")
+async def recording_link(call_id: str, request: Request):
+    """A 15-minute link to this call's recording on the public gateway, so the nurse
+    agent can play it inside its Gemini Enterprise card (the browser there cannot
+    reach this private API). Signed with the softphone key, domain-separated."""
+    from voa_core import links
+
+    _check_id(call_id)
+    api: Api = request.app.state.api
+    call = await api.store.get(CALLS, call_id)
+    if not str((call or {}).get("recording_uri", "")).startswith("gs://"):
+        raise HTTPException(404, "No recording for this call.")
+    if not api.cfg.softphone.token_secret or not api.cfg.services.gateway_url:
+        raise HTTPException(503, "Recording links are not configured.")
+    key = resolve_secret(api.cfg.softphone.token_secret, api.cfg.gcp.project_id)
+    url, exp = links.recording_link(api.cfg.services.gateway_url, key, call_id)
+    log.info(
+        "recording link minted",
+        extra={"event": "recording.link_minted", "call_id": call_id, "by": acting_user(request)},
+    )
+    return {
+        "url": url,
+        "expires_at": datetime.fromtimestamp(exp, UTC).isoformat(),
+        "expires_in": links.RECORDING_LINK_TTL_S,
+    }
 
 
 @router.post("/test-call")

@@ -272,3 +272,48 @@ async def test_a_status_filter_is_applied_by_the_api(t):
     assert [c["patient"] for c in data["calls"]] == ["Samuel Reyes"]
     await actions.view_calls(status="active")
     assert t.backend.list_calls_status is None  # "active" spans several statuses
+
+
+# --- recordings (review A-9) ---------------------------------------------------------
+
+
+async def _recorded_sid(t) -> str:
+    c = t.backend.state["calls"][0]
+    c["recording_uri"] = "gs://acme-demo-recordings/rec.wav"
+    return c["doc_id"]
+
+
+async def test_play_recording_renders_the_signed_link_in_an_audio_player(t):
+    sid = await _recorded_sid(t)
+    card = await actions.handle_click("play_recording", {"call_sid": sid})
+    comps = check(card)[1]["updateComponents"]["components"]
+    (player,) = [c for c in comps if c["component"] == "AudioPlayer"]
+    assert player["url"] == (await t.backend.recording_link(sid))["url"]
+    assert player["url"].startswith("https://gateway.example.org/recording/")
+
+
+async def test_play_recording_never_gives_the_model_the_link(t):
+    sid = await _recorded_sid(t)
+    _, data = await actions.play_recording(sid)
+    assert data == {"recording": "shown in the card", "expires_in": 900}
+    _, data = await actions.view_call(call_sid=sid)
+    assert data["has_recording"] and "Play recording" in data["recording_note"]
+    assert "http" not in str(data)
+
+
+async def test_no_recording_gives_a_plain_card(t):
+    sid = t.backend.state["calls"][0]["doc_id"]
+    t.backend.state["calls"][0].pop("recording_uri", None)
+    card, data = await actions.play_recording(sid)
+    check(card)
+    assert "No recording for this call." in card.as_text() and "404" not in card.as_text()
+    assert "AudioPlayer" not in str(card.messages()) and "http" not in str(data)
+
+
+async def test_failed_link_gives_a_plain_card(t):
+    sid = await _recorded_sid(t)
+    t.backend.fail.add("recording_link")
+    card, _ = await actions.play_recording(sid)
+    check(card)
+    text = card.as_text()
+    assert "Could not get the recording right now." in text and "503" not in text

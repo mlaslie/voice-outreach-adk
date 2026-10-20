@@ -258,9 +258,44 @@ async def view_call(call_sid: str | None = None, patient: str | None = None):
         "outcome": c.get("outcome"),
         "duration_seconds": c.get("duration_seconds"),
         "has_recording": cards.has_recording(c),
-        "recording_note": "Recordings play in the dashboard only.",
+        "recording_note": (
+            "The card's Play recording button plays it in the card (web only)."
+            if cards.has_recording(c)
+            else "No recording for this call."
+        ),
     }
     return cards.call_detail_card(c), data
+
+
+async def play_recording(call_sid: str):
+    """The call's recording, playing in the card (A-9). The signed link is short-lived,
+    for this one call only, and goes into the card's AudioPlayer: it is never returned
+    to the model, which needs no bearer links."""
+    msg = "Could not get the recording right now."
+    try:
+        c = await backend().get_call(call_sid)
+        link = await backend().recording_link(call_sid)
+        url = link["url"]
+        if not isinstance(url, str) or not url.startswith("https://"):
+            raise TypeError("not an https link")
+    except BackendError as e:
+        if e.status == 404 or str(e).startswith("404"):
+            msg = "No recording for this call."
+        log.warning(
+            "recording link unavailable",
+            extra=safe_extra({"event": "nurse.recording.link_error", "status": e.status}),
+        )
+        url = None
+    except (KeyError, TypeError):
+        url = None
+    if url is None:
+        back = [("Back to call", cards.event("view_call", call_sid=call_sid))]
+        card = cards.result_card("Call recording", [msg], ok=False, buttons=back)
+        return card, {"recording": msg}
+    return cards.recording_card(c, url), {
+        "recording": "shown in the card",
+        "expires_in": link.get("expires_in", 900),
+    }
 
 
 async def view_transcript(call_sid: str | None = None, patient: str | None = None):
@@ -747,6 +782,7 @@ async def handle_click(name: str, ctx: dict):
     views = {
         "view_call": lambda: view_call(call_sid=ctx.get("call_sid")),
         "show_transcript": lambda: view_transcript(call_sid=ctx.get("call_sid")),
+        "play_recording": lambda: play_recording(ctx["call_sid"]),
         "list_calls": lambda: view_calls(**{k: ctx[k] for k in list_keys if k in ctx}),
         "follow_up_queue": view_follow_up_queue,
         "call_list": view_call_list,

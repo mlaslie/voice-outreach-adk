@@ -210,3 +210,11 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - Unsure answers use ❓; the pale ❔ was nearly invisible on Gemini Enterprise's grey card.
   - Reasons are capitalised.
 - **List rows got the same alignment fix.** Needs you now, Called today, Cleared, follow-up queue rows and patient rows now put the dot at name-line size (h5), top-aligned beside the name. It used to be heading-size and centred on the three-line block.
+- **Recordings play inside the nurse agent's card (20 Oct).**
+  - The private API mints a 15-minute link for one call: `POST /api/calls/{id}/recording-link`.
+    - Signed with the softphone key, but over `rec.<call>.<exp>`, so a test-call token can't open a recording.
+    - Logged as `recording.link_minted` with who asked.
+  - The public gateway serves `GET /recording/{call}?exp&sig` from GCS. It supports seeking, logs `recording.served`, and refuses expired, tampered or other-call links. Shared code: `voa_core/links.py`.
+  - The gateway now also has `storage.objectViewer` on the recordings bucket.
+  - The nurse agent's detail card has "Play recording", which renders an A2UI `AudioPlayer`. The model never sees the link.
+  - Trade-off (review A-9): anyone holding a link can play that one recording until it expires. The earlier design sent nurses to the dashboard instead.

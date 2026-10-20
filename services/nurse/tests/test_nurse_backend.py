@@ -184,3 +184,26 @@ async def test_status_filter_is_sent_to_the_api():
     b = Backend(API, client=_client(handler), tokens=IdTokenSource(API, fetch=Minter()))
     await b.list_calls(status="rna")
     assert seen == [{"limit": "500", "status": "rna"}]
+
+
+async def test_recording_link_posts_for_one_call_and_maps_404():
+    seen = []
+    link = {
+        "url": "https://gateway.example.org/recording/CA1?exp=1792000000&sig=abc123",
+        "expires_at": "2026-10-20T15:15:00+00:00",
+        "expires_in": 900,
+    }
+
+    def handler(req):
+        seen.append(req)
+        if req.url.path.endswith("/CA2/recording-link"):
+            return httpx.Response(404, json={"detail": "No recording for this call."})
+        return httpx.Response(200, json=link)
+
+    b = Backend(API, client=_client(handler), tokens=IdTokenSource(API, fetch=Minter()))
+    with turn.active(make_turn(backend=b, user="rn.lee@example.org")):
+        assert await b.recording_link("CA1") == link
+        with pytest.raises(BackendError) as e:
+            await b.recording_link("CA2")
+    assert seen[0].method == "POST" and seen[0].url.path == "/api/calls/CA1/recording-link"
+    assert e.value.status == 404 and str(e.value) == "404: No recording for this call."

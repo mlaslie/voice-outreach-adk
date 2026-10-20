@@ -42,6 +42,7 @@ from voa_providers.twilio import TwilioMediaSession, validate_signature
 
 from .persist import StoreCallSink
 from .prompts import PromptCache
+from .recording_stream import stream_recording
 from .session import AmdPolicy, CallSession
 
 log = logging.getLogger("voa_gateway")
@@ -209,6 +210,27 @@ def create_app(cfg: AppConfig | None = None, gateway: Gateway | None = None) -> 
     @app.get("/health")
     async def health():
         return {"ok": True}
+
+    # ------------------------------------------------------------------ recordings
+    @app.get("/recording/{call_id}")
+    async def recording(call_id: str, request: Request):
+        """One call's recording, for a valid 15-minute link minted by the private API
+        (the nurse agent plays it inside its Gemini Enterprise card). Range requests
+        are honoured so the player can seek."""
+        from voa_core import links
+
+        g = gw(request)
+        q = request.query_params
+        if not g.cfg.softphone.token_secret or not links.verify_recording_link(
+            g.softphone_secret(), call_id, q.get("exp", ""), q.get("sig", "")
+        ):
+            return Response(status_code=403)
+        call = await g.store.get("calls", call_id)
+        uri = str((call or {}).get("recording_uri", ""))
+        if not uri.startswith("gs://"):
+            return Response(status_code=404)
+        log.info("recording played", extra={"event": "recording.served", "call_id": call_id})
+        return await stream_recording(g.cfg.gcp.project_id, uri, request.headers.get("range", ""))
 
     # ------------------------------------------------------------------ twilio voice
     @app.post("/twilio/answer")

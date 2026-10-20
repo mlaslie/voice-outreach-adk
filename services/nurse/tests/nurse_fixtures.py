@@ -696,6 +696,17 @@ class FakeBackend:
             {"turns": [], "available": False, "reason": "No transcript recorded for this call."},
         )
 
+    async def recording_link(self, call_id):
+        self._maybe_fail("recording_link")
+        c = next((c for c in self.state["calls"] if c["doc_id"] == call_id), None)
+        if not c or not (c.get("recording_uri") or c.get("recording_url")):
+            raise BackendError("404: No recording for this call.", 404)
+        return {
+            "url": f"https://gateway.example.org/recording/{call_id}?exp=1792000000&sig=abc123",
+            "expires_at": "2026-10-20T15:15:00+00:00",
+            "expires_in": 900,
+        }
+
     async def place_call(self, body):
         self.writes.append(("place_call", body))
         return {"call_sid": "CA" + uuid.uuid4().hex, "status": "queued"}

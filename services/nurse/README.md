@@ -87,7 +87,7 @@ separate `VOA_NURSE_` prefix, read by `settings.py`):
 | `VOA_NURSE_PUBLIC_URL` | `http://localhost:8080` | the deployed https URL; goes into the agent card. **Must** be set before registering |
 | `VOA_NURSE_OAUTH_CLIENT_ID` | empty | OAuth client of the GE agent's authorization resource; enables end-user identity |
 | `VOA_NURSE_ALLOWED_EMAILS` | empty | comma-separated; when set, gates every turn (reads too) |
-| `VOA_NURSE_DASHBOARD_URL` | empty | recordings and live monitoring link here |
+| `VOA_NURSE_DASHBOARD_URL` | empty | "Open in dashboard" and live monitoring link here |
 | `VOA_NURSE_PATIENT_POPULATION` | `post-operative surgical patients` | wording in the prompt and card |
 | `VOA_NURSE_BRAND_COLOR` | `#22873B` | primary button colour |
 | `VOA_NURSE_ENABLE_UI_CHECK` | `false` | the "ui check" debug card (fictional data only) |
@@ -177,4 +177,6 @@ the **API's** config (`auth.ui_callers`), so set `VOA__SERVICES__NURSE_AGENT_SA`
 - **A-7** prefix allowlist entries (`+1202555*`) count as approved.
 - **A-8** non-root pinned 3.13 image (shared Dockerfile), state in Firestore (no
   `max-instances=1`), IAM scoped as above.
-- **A-9** no `AudioPlayer` on the private API URL: recordings link to the dashboard.
+- **A-9** the private API's recording URL never reaches the browser. Play recording asks the
+  API for a signed link to that one call (15 minutes, served by the gateway) and plays it in an
+  `AudioPlayer`; the link is never returned to the model.
