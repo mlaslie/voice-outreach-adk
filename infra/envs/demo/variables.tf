@@ -79,6 +79,24 @@ variable "gateway_min_instances" {
   default     = 1
 }
 
+variable "api_min_instances" {
+  description = "Warm API instances. 0 saves cost; 1 avoids a cold start on the first dashboard or nurse-agent request (e.g. for a demo)."
+  type        = number
+  default     = 0
+}
+
+variable "ui_min_instances" {
+  description = "Warm dashboard instances. 0 saves cost; 1 avoids a cold first page load."
+  type        = number
+  default     = 0
+}
+
+variable "nurse_min_instances" {
+  description = "Warm nurse-agent instances. 0 saves cost; 1 avoids a cold first reply in Gemini Enterprise."
+  type        = number
+  default     = 0
+}
+
 variable "dial_concurrency" {
   description = "Simultaneous outbound dials (Cloud Tasks max concurrent dispatches)."
   type        = number

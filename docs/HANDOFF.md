@@ -225,3 +225,7 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - The automatic footer is now "Main menu · Dashboard", unless the card already links to the dashboard.
   - The call detail card always has "Dashboard" in its second row. Before, it appeared only when the call had a recording.
   - Nothing is added when `VOA_NURSE_DASHBOARD_URL` is unset.
+- **Warm instances (20 Oct, for a demo).**
+  - New Terraform variables `api_min_instances`, `ui_min_instances` and `nurse_min_instances`, default 0, alongside `gateway_min_instances` (default 1).
+  - The demo tfvars sets all four to 1, so nothing waits on a cold start.
+  - Set them back to 0 after the demo to save cost.

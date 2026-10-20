@@ -132,7 +132,7 @@ module "api" {
   service_account = module.sa.emails["${local.p}-api"]
   public          = false
   invokers        = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-tasks-invoker"], module.sa.members["${local.p}-nurse"]]
-  min_instances   = 0
+  min_instances   = var.api_min_instances
   max_instances   = 5
   concurrency     = 40
   timeout_s       = 3600 # SSE streams to the dashboard
@@ -192,7 +192,7 @@ module "ui" {
   iap             = true
   # Only IAP's service agent may invoke the service; people go through IAP.
   invokers      = ["serviceAccount:${google_project_service_identity.iap.email}"]
-  min_instances = 0
+  min_instances = var.ui_min_instances
   max_instances = 3
   concurrency   = 80
   timeout_s     = 3600 # SSE passthrough
@@ -288,7 +288,7 @@ module "nurse" {
     ["serviceAccount:${google_project_service_identity.discoveryengine.email}"],
     var.nurse_extra_invokers,
   )
-  min_instances = 0
+  min_instances = var.nurse_min_instances
   max_instances = 5
   concurrency   = 20
   timeout_s     = 300
