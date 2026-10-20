@@ -2,7 +2,9 @@
 
 **Status:** proposal (20 Oct 2026). Nothing is built yet.
 
-**Companion plan:** `docs/ANALYTICS-PLAN.md`; its Analytics tab lands in the nurse UI.
+**Companion plans:**
+- `docs/ANALYTICS-PLAN.md`: its Analytics tab lands in the nurse UI.
+- `docs/KNOWLEDGE-PLAN.md`: a knowledge base managed in the admin UI, and an off-by-default switch that lets the agent answer some patient questions from approved content.
 
 **Goals:**
 1. Retire the classic dashboard (`/classic`) without losing anything it does.
@@ -50,6 +52,7 @@ Gemini Enterprise   →  voa-nurse (A2A agent)      ─┘
     - Display: time format.
     - Branding.
     - Integrations: API clients, ingest log.
+    - Knowledge base: approved Q&A and documents, the answer-grounding switch (see `docs/KNOWLEDGE-PLAN.md`).
     - Testing: browser call, test by text.
     - Call diagnostics.
     - Audit log.
@@ -151,6 +154,7 @@ Each one is a Terraform module instance with its own identity and its own minima
 | 3 | Ingest API v1 (idempotent batches, per-item results, OpenAPI), the `voa-ingest` identity, optional Pub/Sub, and the sample-EHR job for demos. | M |
 | 4 | Branding editor with live preview, contrast check and reset; Gemini Enterprise card colour. | S–M |
 | 5 | Analytics (separate plan), in the nurse UI. | M |
+| 6 | Knowledge base and grounded answers (separate plan), after step 1. | M ×3 |
 
 Steps 3 and 4 depend only on step 1 and can run in parallel after it.
 
