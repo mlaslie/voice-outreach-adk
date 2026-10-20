@@ -167,7 +167,7 @@ def _row(
     )
     kept = [b for b in buttons if b]
     return card.row(
-        card.row(card.text(lead, "h3"), info),
+        card.row(card.text(lead, "h5"), info, align="start"),  # dot beside the name line
         card.row(*kept) if kept else None,
         justify="spaceBetween",
     )

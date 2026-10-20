@@ -370,3 +370,14 @@ def test_marker_rows_line_up_with_their_first_line():
     assert row["align"] == "start" and marker["variant"] == "body"
     assert cards.sentence("fever reported") == "Fever reported"
     assert cards.LEVEL_MARK["unknown"] == "❓"
+
+
+def test_list_row_dots_line_up_with_the_name_line():
+    from voa_nurse import cards, worklists
+
+    card = cards.Card("t")
+    rid = worklists._row(card, "🟠", "John Doe: Urgent", ["detail"], reason="fever reported")
+    outer = next(c for c in card.comps if c["id"] == rid)
+    inner = next(c for c in card.comps if c["id"] == outer["children"][0])
+    dot = next(c for c in card.comps if c["id"] == inner["children"][0])
+    assert inner["align"] == "start" and dot["variant"] == "h5"

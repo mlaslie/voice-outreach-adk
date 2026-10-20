@@ -337,7 +337,9 @@ def call_row(card: Card, c: dict) -> str:
         meta.insert(0, f"MRN {c['patient_id']}")
     info = card.col(card.text(name, "h5"), card.text(" · ".join(meta), "caption"))
     open_btn = card.button("View", event("view_call", call_sid=c["doc_id"]))
-    return card.row(card.row(card.text(emoji, "h3"), info), open_btn, justify="spaceBetween")
+    return card.row(
+        card.row(card.text(emoji, "h5"), info, align="start"), open_btn, justify="spaceBetween"
+    )
 
 
 def calls_card(
@@ -400,7 +402,7 @@ def follow_up_card(calls: list[dict], truncated: bool = False) -> Card:
         )
         card.put(
             card.row(
-                card.row(card.text(mark(c)[0], "h3"), info),
+                card.row(card.text(mark(c)[0], "h5"), info, align="start"),
                 card.button("View", event("view_call", call_sid=c["doc_id"])),
                 justify="spaceBetween",
             )

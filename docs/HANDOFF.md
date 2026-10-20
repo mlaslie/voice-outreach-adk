@@ -209,3 +209,4 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - The marker is body size and the row is top-aligned, so it sits beside the first line. Centred, heading-size markers had floated between lines.
   - Unsure answers use ❓; the pale ❔ was nearly invisible on Gemini Enterprise's grey card.
   - Reasons are capitalised.
+- **List rows got the same alignment fix.** Needs you now, Called today, Cleared, follow-up queue rows and patient rows now put the dot at name-line size (h5), top-aligned beside the name. It used to be heading-size and centred on the three-line block.
