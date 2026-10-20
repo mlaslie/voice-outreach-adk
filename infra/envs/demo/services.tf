@@ -134,14 +134,16 @@ module "api" {
   image           = var.api_image
   service_account = module.sa.emails["${local.p}-api"]
   public          = false
-  invokers        = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-admin"], module.sa.members["${local.p}-tasks-invoker"], module.sa.members["${local.p}-nurse"]]
-  min_instances   = var.api_min_instances
-  max_instances   = 5
-  concurrency     = 40
-  timeout_s       = 3600 # SSE streams to the dashboard
-  memory          = "1Gi"
-  env             = local.common_env
-  depends_on      = [module.secrets, google_cloud_tasks_queue.this]
+  # Index-keyed bindings: append new callers at the END, or existing ones are
+  # replaced (briefly revoked) on apply.
+  invokers      = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-tasks-invoker"], module.sa.members["${local.p}-nurse"], module.sa.members["${local.p}-admin"]]
+  min_instances = var.api_min_instances
+  max_instances = 5
+  concurrency   = 40
+  timeout_s     = 3600 # SSE streams to the dashboard
+  memory        = "1Gi"
+  env           = local.common_env
+  depends_on    = [module.secrets, google_cloud_tasks_queue.this]
 }
 
 resource "google_cloud_scheduler_job" "dispatch_due" {
