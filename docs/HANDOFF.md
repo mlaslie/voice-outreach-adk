@@ -230,3 +230,7 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - The demo tfvars sets all four to 1, so nothing waits on a cold start.
   - Set them back to 0 after the demo to save cost.
 - **The home card (main menu) also has Dashboard** next to Settings. It is the one card without the automatic footer, so the earlier change missed it.
+- **"No text after a voicemail", part 2 (20 Oct).**
+  - The texts were skipped by the 24-hour invite cooldown: one missed-call text per number per day, and the test number had been texted the evening before.
+  - Skips now stamp `sms_follow_up` with a plain reason: cooldown, survey in progress, callback already booked, or opted out.
+  - The cooldown switch, which was only in the classic Follow-ups tab, is now also in the console under Settings → Missed-call texts.

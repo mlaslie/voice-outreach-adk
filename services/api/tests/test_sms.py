@@ -186,6 +186,8 @@ def test_missed_call_invites_once_per_cooldown_and_the_switch_reopens_it():
     seed_call(api, call_id=CALL2)
     assert invite(client, api, CALL2)[0].json() == {"skipped": "invite cooldown"}
     assert len(api.sms.sent) == 1
+    stamp = run(api.store.get("calls", CALL2))["sms_follow_up"]
+    assert stamp["status"] == "not_sent" and "last 24 hours" in stamp["reason"]
 
     # The operator switch (for demos) lets it through, loudly.
     r = client.post("/api/sms/settings", json={"name": "invite_cooldown_enabled", "value": False})

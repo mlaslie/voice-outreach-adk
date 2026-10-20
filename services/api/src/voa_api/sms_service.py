@@ -1274,6 +1274,7 @@ async def send_invite(api: Api, payload: dict) -> dict:
         return {"skipped": "number mismatch"}
     try:
         if await is_opted_out(api, phone):
+            await _mark_follow_up(api, call_id, "not_sent", _skip_text(api, "opted out"))
             return {"skipped": "opted out"}
     except Exception:
         raise Retryable("opt-out store unavailable") from None
@@ -1344,6 +1345,8 @@ async def send_invite(api: Api, payload: dict) -> dict:
             "invite skipped",
             extra={"event": "sms.invite_skipped", "reason": seen["skip"], "to": mask_phone(phone)},
         )
+        # Say why on the call: a skipped text used to leave no trace a nurse could see.
+        await _mark_follow_up(api, call_id, "not_sent", _skip_text(api, seen["skip"]))
         return {"skipped": seen["skip"]}
     # A previous conversation's booking must not dial after a fresh menu.
     await cancel_callbacks(api, phone, status="superseded", reason="new follow-up started")
@@ -1379,6 +1382,17 @@ async def send_invite(api: Api, payload: dict) -> dict:
         return {"blocked": exc.reason}
     await _mark_follow_up(api, call_id, "sent")
     return {"sent": True}
+
+
+def _skip_text(api: Api, why: str) -> str:
+    """Why a missed call got no text, in words a nurse can act on."""
+    return {
+        "invite cooldown": "this number already got a follow-up text in the last "
+        f"{api.cfg.sms.invite_cooldown_h} hours (the limit can be turned off in Settings)",
+        "survey in progress": "the patient is in the middle of answering the questions by text",
+        "callback already booked": "the patient already booked a callback by text",
+        "opted out": "the patient replied STOP to texts",
+    }.get(why, why)
 
 
 async def _mark_follow_up(api: Api, call_id: str, status: str, reason: str = "") -> None:
