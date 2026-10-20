@@ -231,14 +231,24 @@ export function findingsFor(call: CallDoc): Finding[] {
 
   // --- Questions for the care team (last: not a clinical answer) --------
   const q = questionSummary(call);
-  if (q.count > 0) {
+  if (q.count > 0 && q.forNurse === 0) {
+    // Every question answered by the agent from approved clinic Q&A.
+    out.push({
+      key: "questions",
+      label: "Questions for the care team",
+      value: `${q.answered} answered by the agent`,
+      detail: Array.from(new Set(q.questions.map((x) => categoryLabel(x.category)))).join(", "),
+      level: "normal",
+    });
+  } else if (q.count > 0) {
     const cats = Array.from(new Set(q.questions.map((x) => categoryLabel(x.category))));
     out.push({
       key: "questions",
       label: "Questions for the care team",
       value:
-        `${q.count} ${q.count === 1 ? "question" : "questions"}` +
-        (q.immediate ? ` · ${q.immediate} immediate` : ""),
+        `${q.forNurse} ${q.forNurse === 1 ? "question" : "questions"}` +
+        (q.immediate ? ` · ${q.immediate} immediate` : "") +
+        (q.answered ? ` · ${q.answered} answered by the agent` : ""),
       detail: cats.join(", "),
       level: q.immediate ? "alert" : "watch",
     });

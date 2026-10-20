@@ -28,19 +28,59 @@ _TYPE_HINTS = {
 }
 
 
-def _questions_block(c: Campaign, patient: dict[str, Any]) -> str:
+# Replaces the open_questions hint when the knowledge base is on for this call
+# (docs/KNOWLEDGE-PLAN.md). With it off, nothing here is used.
+_KNOWLEDGE_HINT = (
+    'Record "yes" or "no" with record_answer. If yes (or they simply ask something), then '
+    'for EACH question they ask: you may say one short holding line ("Let me check that for '
+    'you"), then call answer_from_knowledge with a short summary in their words; it records '
+    "the question, so do not also call record_patient_question for it. If the question "
+    "describes an emergency sign, follow the Safety rule instead. "
+    'If it returns "answered": say "Here\'s what the clinic says:" followed by the answer '
+    "it returns, word for word, adding nothing.{satisfied} "
+    'If it returns "deferred": say back a short version ("So you\'d like to know ...") and '
+    "that the care team will follow up. "
+    'Then ask "Do you have any other questions?" Repeat until they say no or the tool says '
+    "the limit is reached. Never answer a question yourself: say only the answer the tool "
+    "returns, even if you know the answer."
+)
+_KNOWLEDGE_SATISFIED = (
+    ' Then ask "Did that answer your question?" and call record_answer_feedback with "yes" '
+    'or "no"; if no, say the care team will follow up on it.'
+)
+
+
+def _knowledge_hint(knowledge: dict[str, Any]) -> str:
+    sat = _KNOWLEDGE_SATISFIED if knowledge.get("ask_satisfied", True) else ""
+    return _KNOWLEDGE_HINT.format(satisfied=sat)
+
+
+def _questions_block(
+    c: Campaign, patient: dict[str, Any], knowledge: dict[str, Any] | None = None
+) -> str:
     lines = []
     for q in c.for_patient(patient):
         cond = ""
         if q.when:
             cond = " (ask only if " + ", ".join(f"{k} is {v}" for k, v in q.when.items()) + ")"
-        hint = _TYPE_HINTS[q.type].format(choices=", ".join(q.choices))
+        if knowledge and q.type == "open_questions":
+            hint = _knowledge_hint(knowledge)
+        else:
+            hint = _TYPE_HINTS[q.type].format(choices=", ".join(q.choices))
         note = f" {q.note}" if q.note else ""
         lines.append(f'- {q.id}{cond}: "{q.ask}" {hint}{note}')
     return "\n".join(lines)
 
 
-def build_instruction(c: Campaign, *, org_name: str, patient: dict[str, Any]) -> str:
+def build_instruction(
+    c: Campaign,
+    *,
+    org_name: str,
+    patient: dict[str, Any],
+    knowledge: dict[str, Any] | None = None,
+) -> str:
+    """``knowledge``: ``state["knowledge"]`` when the knowledge base is on for this
+    call (``{"ask_satisfied": bool}``); None (off) builds today's instruction."""
     v = {
         "org_name": org_name,
         "patient_first_name": patient.get("first_name", ""),
@@ -71,7 +111,7 @@ def build_instruction(c: Campaign, *, org_name: str, patient: dict[str, Any]) ->
    - "mismatch_final": call submit_report with outcome "identity_verification_failed", then say "{s("identity_failed")}" and call end_call. Never say why.
 3. CONSENT: "{s("consent")}" If not a good time: submit_report with outcome "reschedule_requested", then say "{s("reschedule")}" and call end_call.
 4. QUESTIONS, one per turn, in this order. After each answer call record_answer with the question id. Listen to what the caller already told you: never ask for something they just said. If an earlier answer already covers a question, record it with record_answer without asking, or ask only for the missing part.
-{_questions_block(c, patient)}
+{_questions_block(c, patient, knowledge)}
 5. CLOSING: call submit_report with outcome "questionnaire_completed" BEFORE saying anything else. If it returns questions still to ask, ask them, record them and submit again. When it returns "ok", say the closing it gives you word for word (it includes the medication-list reminder), then call end_call.
 
 # Safety: check every turn

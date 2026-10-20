@@ -45,6 +45,8 @@ class Api:
     store: DocStore
     tasks: TaskQueue
     voice: Any = None  # VoiceProvider; None = telephony not configured
+    # Knowledge-base matcher (voa_core.knowledge.Matcher); None = Gemini, built on first use.
+    knowledge_matcher: Any = None
     clock: Any = field(default=lambda: datetime.now(UTC))
 
     def now(self) -> datetime:

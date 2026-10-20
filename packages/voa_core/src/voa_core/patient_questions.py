@@ -1,8 +1,11 @@
 """Questions a patient asks the care team, and how soon a nurse must answer them.
 
 Deterministic on purpose, like the rest of triage: a priority can be pointed at a
-line of code. The agent never answers these questions (no medical advice); it
-repeats a short summary back, and this module decides who calls and when.
+line of code. The agent never answers these questions itself (no medical advice);
+it repeats a short summary back, and this module decides who calls and when. With
+the knowledge base on (``knowledge.py``), it may read the clinic's own approved
+answer for an allowed, non-clinical category; such a question then needs no nurse
+unless the patient says it didn't answer it (:func:`needs_follow_up`).
 
 Rules (agreed 19 Oct 2026; clinical sign-off pending, see docs/HANDOFF.md):
 
@@ -297,6 +300,31 @@ def record(text: str) -> dict[str, str]:
     return {"text": clean, "category": c.category, "priority": c.priority}
 
 
+#: Knowledge base (docs/KNOWLEDGE-PLAN.md): a question the agent answered from the
+#: clinic's approved Q&A, or one left for a nurse. Optional on an entry: entries
+#: recorded before the knowledge base (or with it off) have no outcome.
+OUTCOME_ANSWERED = "answered"
+OUTCOME_DEFERRED = "deferred"
+OUTCOMES = (OUTCOME_ANSWERED, OUTCOME_DEFERRED)
+MAX_ANSWER_CHARS = 600
+
+
+def _valid_optional(entry: dict) -> bool:
+    if "outcome" in entry and entry["outcome"] not in OUTCOMES:
+        return False
+    if entry.get("item_id") is not None and not (
+        isinstance(entry["item_id"], str) and 0 < len(entry["item_id"]) <= 64
+    ):
+        return False
+    v = entry.get("item_version")
+    if v is not None and not (isinstance(v, int) and not isinstance(v, bool) and v >= 1):
+        return False
+    a = entry.get("answer")
+    if a is not None and not (isinstance(a, str) and len(a) <= MAX_ANSWER_CHARS):
+        return False
+    return entry.get("satisfied") in (True, False, None)
+
+
 def valid_entry(entry: object) -> bool:
     return (
         isinstance(entry, dict)
@@ -304,7 +332,14 @@ def valid_entry(entry: object) -> bool:
         and 0 < len(entry["text"]) <= MAX_QUESTION_CHARS
         and entry.get("priority") in PRIORITIES
         and entry.get("category") in CATEGORY_LABELS
+        and _valid_optional(entry)
     )
+
+
+def needs_follow_up(entry: dict) -> bool:
+    """False only for a question the agent answered from the clinic's Q&A that the
+    patient did not say missed the point (``satisfied`` is not False)."""
+    return not (entry.get("outcome") == OUTCOME_ANSWERED and entry.get("satisfied") is not False)
 
 
 def summary(questions: list[dict]) -> tuple[list[str], list[str]]:
@@ -312,14 +347,15 @@ def summary(questions: list[dict]) -> tuple[list[str], list[str]]:
     e.g. "questions asked (medication, symptom or wound)".
 
     Names the topics, never the question text: the reason line is shown in places
-    (banners, cards) where a short label reads better than a sentence.
+    (banners, cards) where a short label reads better than a sentence. Questions
+    answered from the clinic's Q&A (see :func:`needs_follow_up`) add no reason.
     """
 
     def line(priority: str) -> list[str]:
         topics = [
             CATEGORY_LABELS.get(q.get("category"), "Other").lower()
             for q in questions
-            if q.get("priority") == priority
+            if q.get("priority") == priority and needs_follow_up(q)
         ]
         if not topics:
             return []

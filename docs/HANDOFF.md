@@ -320,3 +320,34 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - The service and the job share one identity, so the service could write its dataset. Split them for production.
   - The full refresh should become incremental at scale.
 - **Bit us on the first live run:** the "data as of" query aliased a column `AS at`. `AT` is reserved in GoogleSQL, so the query failed, and the error was swallowed as "no export yet". The UI then never showed a refresh time, while the fake-client tests passed. It is now aliased `exported`, and the error is logged with its traceback. Lesson: run each new BigQuery statement once with `bq query` before shipping.
+
+## 20 Oct: knowledge base steps 1–2 (approved Q&A answers, off by default)
+
+**What it does:**
+- When an admin switches it on (Admin → Knowledge base), the voice agent can answer a patient's question with the clinic's approved Q&A text, word for word. It then asks "Did that answer your question?".
+- Everything else defers to a nurse exactly as before. With it off, the instruction and tools are byte-for-byte unchanged (tested).
+
+**Gates, in order (`voa_core.knowledge.answer`):**
+1. A red flag defers.
+2. Medication and symptom always defer (locked, even if settings are edited directly).
+3. "Other" defers, and so does a category the clinic hasn't allowed.
+4. Only approved items in the question's category are candidates.
+5. Gemini flash picks one or none, seeing only the candidates' questions and never the answers or patient details. Answered only at confidence ≥ min_match (0.8). A timeout (3 s) or any error defers.
+
+**Recording:**
+- Each question records `outcome`, `item_id`, `item_version`, `answer` and `satisfied`.
+- Answered and satisfied questions add no follow-up reason. "No, that didn't answer it" turns the question into a normal nurse follow-up.
+- Nurses see answered questions in the drawer and on the Gemini Enterprise card.
+
+**Admin UI:** Q&A editor (draft → approved → retired; editing an approved item makes a new draft version), settings, "Try it", and the audit log.
+
+**Deliberate limits:**
+- No document search (RAG Engine) and no generated answers; those are step 3.
+- The text-message path is not built.
+
+**Bit us in review:**
+- Matching across categories was tried, so that a question classified "appointment" could match an "activity" item. The eval set (`config/knowledge/eval_questions.yaml`) caught "Can I fly…?" being answered with the follow-up appointment text, so matching stays within one category.
+- That exposed a silent failure: an item whose own question classifies under another topic can never be used. "Where do I park?" classifies as *other*.
+- The API now refuses such an item with a message naming the right category or asking for a rewording (`check_topic`). Every sample item passes; a test checks it.
+
+**Try it:** `uv run python scripts/seed_knowledge.py demo` loads 12 fictional Q&A drafts. Approve them in the admin console, use "Try it", then switch on to hear it on a call.

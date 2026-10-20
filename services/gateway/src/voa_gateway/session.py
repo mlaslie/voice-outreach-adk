@@ -34,6 +34,7 @@ from google.adk.agents.run_config import RunConfig
 from google.adk.runners import Runner
 from google.genai import types
 from voa_agents.voice import call_facts
+from voa_agents.voice import knowledge as voice_knowledge
 from voa_core.config import AppConfig
 from voa_core.logging import bind, safe_extra
 from voa_providers.audio import (
@@ -203,18 +204,31 @@ class CallSession:
                 if store is not None
                 else self.cfg.site.org_name
             )
+            # Knowledge base (docs/KNOWLEDGE-PLAN.md): off unless an admin switched it
+            # on for voice; read once per call through a 60 s cache, like org_name.
+            kn_state, kn_runtime = (
+                await voice_knowledge.prepare(store, self.cfg)
+                if store is not None
+                else (None, None)
+            )
+            state = {
+                "patient": patient,
+                "campaign_id": self.campaign_id,
+                "answers": {},
+                "org_name": org,  # the admin console's company name (or config)
+            }
+            if kn_state:
+                state[voice_knowledge.STATE_KEY] = kn_state
             session = await self.runner.session_service.create_session(
                 app_name=self.runner.app_name,
                 user_id=self.call_id,
-                state={
-                    "patient": patient,
-                    "campaign_id": self.campaign_id,
-                    "answers": {},
-                    "org_name": org,  # the admin console's company name (or config)
-                },
+                state=state,
             )
             self.session_id = session.id
             self.facts = call_facts.register(session.id)
+            if kn_runtime is not None:
+                voice_knowledge.register(session.id, kn_runtime)
+                self.timeline.add("knowledge.on", items=len(kn_runtime.items))
             with bind(session_id=session.id):
                 await self._run_bound(frames)
         return {
@@ -247,6 +261,7 @@ class CallSession:
             self.queue.close()
             await self.media.close()
             call_facts.unregister(self.session_id)
+            voice_knowledge.unregister(self.session_id)
             self.timeline.add("call.ended")
             await self._persist_final()
 

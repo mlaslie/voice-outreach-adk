@@ -185,6 +185,9 @@ async def record_patient_question(question: str, tool_context: ToolContext) -> d
             "then move on.",
         }
     entry = patient_questions.record(question)
+    if qs and qs[-1].get("outcome") and qs[-1].get("text") == entry["text"]:
+        # Already recorded by answer_from_knowledge (knowledge base on): not twice.
+        return {"status": "recorded", "count": len(qs)}
     qs.append(entry)
     answers[survey.F_PATIENT_QUESTIONS] = qs
     answers.setdefault(survey.Q_HAS_QUESTIONS, "yes")
@@ -326,7 +329,12 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
         return {"status": "incomplete", "problems": errors}
     tool_context.state["report"] = report
     _audit(tool_context, "submit_report", status="ok", outcome=outcome, follow_up=tier)
-    asked = bool(answers.get("patient_questions")) or _yes(answers.get("has_questions"))
+    # Questions answered from the clinic's Q&A need no care-team follow-up.
+    from voa_core import patient_questions
+
+    qs = list(answers.get("patient_questions") or [])
+    pending = [q for q in qs if not isinstance(q, dict) or patient_questions.needs_follow_up(q)]
+    asked = bool(pending) or (_yes(answers.get("has_questions")) and not qs)
     closing = closing_for(campaign, tier, asked)
     return (
         {"status": "ok", "closing": closing}

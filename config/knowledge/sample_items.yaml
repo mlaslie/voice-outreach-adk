@@ -1,0 +1,131 @@
+# Fictional starter Q&A for the knowledge base (docs/KNOWLEDGE-PLAN.md, step 1).
+#
+# NOT clinical guidance: placeholder wording for demos and tests only. A clinic
+# replaces every answer with its own, and a named clinician approves each one in
+# Admin -> Knowledge base before the agent can say it.
+#
+# Used by:
+#   scripts/seed_knowledge.py <env>   loads these as DRAFTS through the admin API
+#   packages/voa_core/tests/test_knowledge_eval.py   approved, against eval_questions.yaml
+#
+# `key` names an item for the eval set only; it is not stored.
+# `category` must be the category the deterministic classifier gives the question
+# (voa_core.patient_questions.classify): the agent only looks at items in the
+# patient's question's category. Medication, symptom and other are never allowed.
+items:
+  - key: shower
+    category: activity
+    question: When can I shower?
+    alt_questions:
+      - Is it okay to shower yet?
+      - When am I allowed to shower?
+    answer: >-
+      You can usually shower two days after surgery unless your surgeon told you
+      otherwise. Let the water run over you and pat dry. No baths, hot tubs or
+      swimming until your surgeon says it's okay.
+
+  - key: driving
+    category: activity
+    question: When can I drive again?
+    alt_questions:
+      - How soon can I drive?
+      - Am I allowed to drive?
+    answer: >-
+      Most people can drive again about two weeks after surgery, once they can
+      brake hard without discomfort. Your surgeon will confirm at your follow-up
+      visit.
+
+  - key: return_to_work
+    category: activity
+    question: When can I go back to work?
+    alt_questions:
+      - How long before I can return to work?
+    answer: >-
+      It depends on your job. People with desk jobs often return in about two
+      weeks; physical jobs take longer. Your surgeon will talk with you about it
+      at your follow-up visit.
+
+  - key: parking
+    category: appointment
+    question: Where do I park for my follow-up visit?
+    alt_questions:
+      - Where is parking for the clinic?
+      - Is there parking at the clinic?
+    answer: >-
+      Park in the visitor garage on the north side of the building. Bring your
+      parking ticket to the front desk and we will validate it.
+
+  - key: follow_up_when
+    category: appointment
+    question: When is my follow-up appointment?
+    alt_questions:
+      - When do I see the surgeon again?
+      - Do I have a follow-up appointment?
+    answer: >-
+      Follow-up appointments are usually ten to fourteen days after surgery. If
+      you don't have one yet, the scheduling desk will call you to set it up.
+
+  - key: reschedule
+    category: appointment
+    question: How do I reschedule my appointment?
+    alt_questions:
+      - Can I change my appointment time?
+    answer: >-
+      Call the clinic's main number on your discharge papers during office hours,
+      Monday to Friday, and choose the scheduling option.
+
+  - key: diet
+    category: diet
+    question: What can I eat after surgery?
+    alt_questions:
+      - Is there any food I should avoid?
+      - Do I need a special diet?
+    answer: >-
+      Start with light foods and go back to your normal diet as you feel able.
+      Drink plenty of water and include fruit, vegetables and whole grains.
+
+  - key: alcohol
+    category: diet
+    question: Can I drink alcohol?
+    alt_questions:
+      - Is it okay to have a glass of wine?
+    answer: >-
+      Please avoid alcohol for at least the first two weeks after surgery. Your
+      care team can tell you more at your follow-up visit.
+
+  - key: walker
+    category: supplies
+    question: Where can I get a walker?
+    alt_questions:
+      - Where do I pick up crutches or a walker?
+    answer: >-
+      The equipment desk on the first floor can fit you for a walker or crutches.
+      Bring the equipment order from your discharge papers.
+
+  - key: supplies
+    category: supplies
+    question: Where can I get more supplies?
+    alt_questions:
+      - Where do I get extra supplies?
+    answer: >-
+      Extra supplies can be picked up at the equipment desk on the first floor,
+      Monday to Friday, eight in the morning to five in the afternoon.
+
+  - key: work_note
+    category: paperwork_billing
+    question: How do I get a doctor's note for my employer?
+    alt_questions:
+      - Can I get a note for my employer?
+    answer: >-
+      Ask for a work note at your follow-up visit, or request one through the
+      patient portal. It takes about two business days.
+
+  - key: recovery_time
+    category: recovery
+    question: How long until I feel back to normal?
+    alt_questions:
+      - How long does recovery take?
+    answer: >-
+      Many people feel much better within four to six weeks, but full recovery
+      can take a few months. Your surgeon will talk with you about your own
+      timeline.

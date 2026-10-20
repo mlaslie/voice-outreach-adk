@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
+  BookOpenCheck,
   CalendarClock,
   Clock,
   FlaskConical,
@@ -34,8 +35,9 @@ import { TestByTextPanel, TestInBrowserPanel } from "./testing-panels";
 import { DiagnosticsPanel } from "./diagnostics-panel";
 import { AuditPanel } from "./audit-panel";
 import { BrandingPanel } from "./branding-panel";
+import { KnowledgePanel } from "./knowledge-panel";
 
-export type Section = "schedules" | "patients" | "numbers" | "messaging" | "display" | "branding" | "testing" | "diagnostics" | "audit";
+export type Section = "schedules" | "patients" | "numbers" | "messaging" | "knowledge" | "display" | "branding" | "testing" | "diagnostics" | "audit";
 
 const SECTIONS: { key: Section; label: string; short: string; blurb: string; icon: NavIcon }[] = [
   { key: "schedules", label: "Schedules", short: "Runs", icon: CalendarClock,
@@ -46,6 +48,8 @@ const SECTIONS: { key: Section; label: string; short: string; blurb: string; ico
     blurb: "The numbers the agent may dial, and which of them agreed to texts." },
   { key: "messaging", label: "Messaging", short: "Texts", icon: MessageSquareText,
     blurb: "The shared SMS number, the missed-call text limit, text conversations and booked callbacks." },
+  { key: "knowledge", label: "Knowledge base", short: "Q&A", icon: BookOpenCheck,
+    blurb: "Approved clinic answers the agent may read to patients word for word. Medication and symptom questions always go to a nurse." },
   { key: "display", label: "Display", short: "Display", icon: Clock,
     blurb: "The company name patients hear and read, and how times show for nurses." },
   { key: "branding", label: "Branding", short: "Brand", icon: Palette,
@@ -219,6 +223,7 @@ export function AdminConsole({
                   <BookedCallbacksPanel callbacks={data.callbacks} actions={actions} now={now} timeZone={tz} />
                 </>
               ) : null}
+              {section === "knowledge" ? <KnowledgePanel live={actions.live} timeZone={tz} /> : null}
               {section === "testing" ? (
                 <>
                   <TestInBrowserPanel actions={actions} />

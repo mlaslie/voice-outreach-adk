@@ -76,6 +76,19 @@ export interface PatientQuestion {
   text: string;
   category: QuestionCategory;
   priority: QuestionPriority;
+  /**
+   * Knowledge base (docs/KNOWLEDGE-PLAN.md), only on calls made with it on:
+   * "answered" when the agent read an approved clinic Q&A answer, "deferred"
+   * when it left the question for a nurse. Absent on older calls.
+   */
+  outcome?: "answered" | "deferred";
+  /** The Q&A entry that answered it, and its version at the time. */
+  item_id?: string;
+  item_version?: number;
+  /** The answer as the patient heard it. */
+  answer?: string;
+  /** "Did that answer your question?": false means it did not; null, not asked. */
+  satisfied?: boolean | null;
 }
 
 /**

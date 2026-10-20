@@ -1,6 +1,11 @@
 # Knowledge base and grounded answers: plan
 
-**Status:** proposal (20 Oct 2026). Nothing is built yet.
+**Status:** step 1 built, backend only (20 Oct 2026); not deployed. Off by default.
+
+- **Built:** the shared function `voa_core.knowledge.answer` (red-flag check, then the category gate, then the Q&A matcher); Firestore `knowledge_items` and `settings/knowledge`; the admin API (`docs/KNOWLEDGE-API.md`); the voice tools `answer_from_knowledge` and `record_answer_feedback` and the instruction block, both present only when the knowledge base is on for voice; recording of `outcome`, `item_id`, `item_version`, `answer` and `satisfied` on each patient question; triage and the nurse card; the question test set (`config/knowledge/`) and `scripts/seed_knowledge.py`.
+- **Q&A entries only.** The matcher asks `gemini-3.8-flash` to *select* one approved item in the question's category (or none), with a confidence; it sees only the candidates' wordings and the patient's question, never the answers or the patient. Answered only at confidence ≥ `min_match` (default 0.8); a 3 s timeout or any error defers. The patient hears the item's exact text.
+- **Deferred to step 3:** documents, the Vertex AI RAG Engine corpus (no Terraform yet), generated answers and the check grounding API; the text-message path (SMS questions keep today's behaviour; `answer()` has no voice-only assumptions).
+- **Not built here:** the admin UI (built separately against `docs/KNOWLEDGE-API.md`).
 
 **Related:** `docs/ADMIN-PLAN.md` (the knowledge base is managed in the admin UI) and `docs/ANALYTICS-PLAN.md` (answered vs deferred questions).
 
@@ -107,9 +112,9 @@ voa-api:     the SMS questions loop uses the same function (shared in voa_core)
 
 | Step | Scope | Size |
 |---|---|---|
-| 1 | Shared answer function with the category gate and the Q&A-entry path; RAG Engine corpus (Terraform); admin storage, approval and settings API; voice tool and instruction changes behind the off-by-default toggle; recording of outcomes; unit tests and the question test set. | M |
+| 1 | **Built (backend).** Shared answer function with the category gate and the Q&A-entry path; admin storage, approval and settings API; voice tool and instruction changes behind the off-by-default toggle; recording of outcomes; unit tests and the question test set. The RAG Engine corpus moved to step 3. | M |
 | 2 | Admin UI: Knowledge base section (upload, Q&A editor, approval, "Try it", settings). Nurse UI and Gemini Enterprise card show answered questions with their source. | M |
-| 3 | Generated answers from documents with the grounding check; the text-message path; persona evals; analytics panel. | M |
+| 3 | RAG Engine corpus (Terraform); generated answers from documents with the grounding check; the text-message path; persona evals; analytics panel. | M |
 
 Step 1 can begin once the admin UI split (admin plan, step 1) has given admin routes their own identity.
 

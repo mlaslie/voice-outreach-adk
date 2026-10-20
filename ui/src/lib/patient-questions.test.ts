@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categoryLabel, formatQuestion, questionPill, questionsFor, questionSummary, sortQuestions } from "./patient-questions";
+import { answerSource, categoryLabel, formatQuestion, questionHandling, questionPill, questionsFor, questionSummary, sortQuestions } from "./patient-questions";
 import { PatientQuestion } from "./types";
 
 const sr = (survey_responses: Record<string, unknown> | undefined) => ({ survey_responses });
@@ -74,5 +74,51 @@ describe("labels", () => {
   });
   it("formats a question for plain lists", () => {
     expect(formatQuestion(drive)).toBe("When can I drive again? (Activity, Next business day)");
+  });
+});
+
+describe("knowledge-base fields (answered by the agent)", () => {
+  const shower = {
+    text: "When can I shower?", category: "activity", priority: "routine_next_business_day",
+    outcome: "answered", item_id: "kq_shower", item_version: 3, answer: "  You can shower after 48 hours.  ", satisfied: true,
+  };
+  it("keeps an older question to exactly its three fields", () => {
+    expect(Object.keys(questionsFor(sr({ patient_questions: [appt] }))[0]).sort()).toEqual(["category", "priority", "text"]);
+  });
+  it("reads the optional fields and drops malformed ones", () => {
+    const [q] = questionsFor(sr({ patient_questions: [shower] }));
+    expect(q).toMatchObject({ outcome: "answered", item_id: "kq_shower", item_version: 3, answer: "You can shower after 48 hours.", satisfied: true });
+    const [bad] = questionsFor(sr({ patient_questions: [{ ...shower, outcome: "maybe", item_version: "3", satisfied: "no", answer: 5 }] }));
+    expect(bad.outcome).toBeUndefined();
+    expect(bad.item_version).toBeUndefined();
+    expect(bad.satisfied).toBeUndefined();
+    expect(bad.answer).toBeUndefined();
+    expect(questionsFor(sr({ patient_questions: [{ ...shower, satisfied: null }] }))[0].satisfied).toBeNull();
+  });
+  it("classifies who dealt with each question", () => {
+    expect(questionHandling({})).toBe("nurse");
+    expect(questionHandling({ outcome: "deferred" })).toBe("nurse");
+    expect(questionHandling({ outcome: "answered", satisfied: true })).toBe("answered");
+    expect(questionHandling({ outcome: "answered", satisfied: null })).toBe("answered");
+    expect(questionHandling({ outcome: "answered" })).toBe("answered");
+    expect(questionHandling({ outcome: "answered", satisfied: false })).toBe("unsatisfied");
+  });
+  it("names the source", () => {
+    expect(answerSource({ item_version: 3 })).toBe("Clinic Q&A v3");
+    expect(answerSource({})).toBe("Clinic Q&A");
+  });
+  it("counts what is left for a nurse", () => {
+    const s = questionSummary(sr({ patient_questions: [shower, { ...shower, text: "Can I drive?", satisfied: false }, med] }));
+    expect(s).toMatchObject({ count: 3, answered: 1, forNurse: 2, immediate: 1 });
+  });
+  it("shows an all-answered pill, and counts only nurse questions otherwise", () => {
+    expect(questionPill(sr({ patient_questions: [shower] }))).toMatchObject({ label: "1 answered", tone: "good" });
+    const p = questionPill(sr({ patient_questions: [shower, appt] }))!;
+    expect(p).toMatchObject({ label: "1 question", tone: "routine" });
+    expect(p.title).toContain("(answered by the agent)");
+  });
+  it("is unchanged for older questions", () => {
+    expect(questionPill(sr({ patient_questions: [appt, drive] }))).toMatchObject({ label: "2 questions", tone: "routine" });
+    expect(formatQuestion(appt)).toBe("When is my follow-up appointment? (Appointment, Next business day)");
   });
 });

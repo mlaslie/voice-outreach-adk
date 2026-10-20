@@ -85,6 +85,11 @@ def client(monkeypatch):
         (ADMIN_UI, "POST", "/api/calls/sign-off", False),  # clinical work: nurses only
         (NURSE_UI, "POST", "/api/sms/control", False),
         ("someone@example.org", "GET", "/api/calls", False),
+        # knowledge base: the admin console only
+        (ADMIN_UI, "GET", "/api/admin/knowledge/items", True),
+        (NURSE_UI, "GET", "/api/admin/knowledge/items", False),
+        (AGENT, "PUT", "/api/admin/knowledge/settings", False),
+        (NURSE_UI, "POST", "/api/admin/knowledge/try", False),
     ],
 )
 def test_roles_are_enforced(client, who, method, path, allowed):

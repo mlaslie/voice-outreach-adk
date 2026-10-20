@@ -244,3 +244,44 @@ async def test_follow_up_queue_data_carries_the_count(t):
     by_name = {p["patient"]: p for p in data["outstanding"]}
     assert by_name["Priya Raman"]["questions_summary"] == "2 questions · 1 immediate"
     assert "questions_summary" not in by_name["Marcus Ellery"]
+
+
+# --- knowledge base: questions the agent answered from the clinic's Q&A -----------------------
+
+
+def test_detail_card_shows_questions_answered_from_the_clinics_qa():
+    answered = {
+        "text": "When can I shower?",
+        "category": "activity",
+        "priority": "routine_next_business_day",
+        "outcome": "answered",
+        "item_id": "i-001",
+        "item_version": 3,
+        "answer": "You can usually shower two days after surgery.",
+        "satisfied": True,
+    }
+    unhappy = {
+        **answered,
+        "text": "Where do I park?",
+        "category": "appointment",
+        "outcome": "deferred",
+        "item_version": 2,
+        "satisfied": False,
+    }
+    plain = {
+        "text": "Do I need new compression socks?",
+        "category": "supplies",
+        "priority": "routine_next_business_day",
+        "outcome": "deferred",
+    }
+    card = cards.call_detail_card(_with(patient_questions=[answered, unhappy, plain]))
+    check(card)
+    text = card.as_text()
+    assert "Answered by the agent from the clinic's Q&A (v3)" in text
+    assert (
+        "Answered by the agent from the clinic's Q&A (v2); patient said it didn't answer it" in text
+    )
+    assert text.count("Answered by the agent") == 2  # the deferred one has no line
+    qs = triage.patient_questions(_with(patient_questions=[answered, plain]))
+    assert qs[0]["item_version"] == 3 and qs[0]["satisfied"] is True
+    assert "item_version" not in qs[1]

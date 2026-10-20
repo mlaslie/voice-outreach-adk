@@ -40,8 +40,8 @@ const ASSET = "(logo|logo_wide|favicon)";
  *   - "admin": configuration, only the admin console (service voa-admin);
  *   - "both":  reads, which both consoles show, and cancelling a booked
  *              text callback (nurses and admins both may).
- * Two reads are admin only: a call's millisecond event timeline (Call
- * diagnostics) and the configuration audit log.
+ * Admin-only reads: a call's millisecond event timeline (Call diagnostics),
+ * the configuration audit log, and the knowledge base (items and settings).
  * The API enforces the same split by caller identity and refuses an admin
  * route from the nurse UI's service account. Enforcing it here as well means
  * neither build can even try the other's writes.
@@ -121,6 +121,19 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["DELETE", /^branding$/, "admin"],
   ["GET", new RegExp(`^branding/assets/${ASSET}$`), "both"],
   ["PUT", new RegExp(`^branding/assets/${ASSET}$`), "admin"],
+
+  // Knowledge base (Admin → Knowledge base, docs/KNOWLEDGE-PLAN.md): clinic
+  // Q&A the agent may read to patients, its settings and "Try it". Admin
+  // only, reads included: the nurse build never reaches /api/admin/*.
+  ["GET", /^admin\/knowledge\/items$/, "admin"],
+  ["POST", /^admin\/knowledge\/items$/, "admin"],
+  ["PATCH", new RegExp(`^admin/knowledge/items/${ID}$`), "admin"],
+  ["DELETE", new RegExp(`^admin/knowledge/items/${ID}$`), "admin"],
+  ["POST", new RegExp(`^admin/knowledge/items/${ID}/approve$`), "admin"],
+  ["POST", new RegExp(`^admin/knowledge/items/${ID}/retire$`), "admin"],
+  ["GET", /^admin\/knowledge\/settings$/, "admin"],
+  ["PUT", /^admin\/knowledge\/settings$/, "admin"],
+  ["POST", /^admin\/knowledge\/try$/, "admin"],
 ];
 
 /** Whether a route of this scope is served by a build in this mode. */

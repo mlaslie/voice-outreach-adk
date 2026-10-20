@@ -13,6 +13,7 @@ from voa_core.campaign import load_campaign
 from voa_core.config import AppConfig
 
 from .instruction import build_instruction
+from .knowledge import KnowledgeToolset
 from .tools import build_tools
 
 SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
@@ -50,7 +51,9 @@ def build_voice_agent(
             campaign = load_campaign(ctx.state.get("campaign_id", "post_op"))
             # The admin console's company name, resolved by the gateway when the call starts.
             org = ctx.state.get("org_name") or cfg.site.org_name
-            return build_instruction(campaign, org_name=org, patient=patient)
+            return build_instruction(
+                campaign, org_name=org, patient=patient, knowledge=ctx.state.get("knowledge")
+            )
         return template.format(
             agent_name=AGENT_NAME,
             org_name=ctx.state.get("org_name") or cfg.site.org_name,
@@ -76,7 +79,9 @@ def build_voice_agent(
         name="post_op_voice_agent",
         model=model,
         instruction=instruction,
-        tools=[*build_tools(), *_skill_toolset(skills)],
+        # The knowledge toolset is empty unless the gateway switched it on for this
+        # session (state["knowledge"]); with it off the tools are exactly as before.
+        tools=[*build_tools(), KnowledgeToolset(), *_skill_toolset(skills)],
     )
 
 

@@ -58,6 +58,15 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", "branding/assets/logo_wide"],
     ["GET", "branding/assets/favicon"],
     ["PUT", "branding/assets/favicon"],
+    ["GET", "admin/knowledge/items"],
+    ["POST", "admin/knowledge/items"],
+    ["PATCH", `admin/knowledge/items/${ID32}`],
+    ["DELETE", `admin/knowledge/items/${ID32}`],
+    ["POST", `admin/knowledge/items/${ID32}/approve`],
+    ["POST", `admin/knowledge/items/${ID32}/retire`],
+    ["GET", "admin/knowledge/settings"],
+    ["PUT", "admin/knowledge/settings"],
+    ["POST", "admin/knowledge/try"],
   ])("allows %s %s (in the build that owns it)", (method, path) => {
     expect(matchRoute(method, path, "nurse") ?? matchRoute(method, path, "admin")).not.toBeNull();
   });
@@ -160,11 +169,21 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["PUT", "branding"], // Admin → Branding
     ["DELETE", "branding"],
     ["PUT", "branding/assets/logo"], // and logo_wide, favicon: one route
+    // Admin → Knowledge base
+    ["POST", "admin/knowledge/items"],
+    ["PATCH", "admin/knowledge/items/kq_shower"],
+    ["DELETE", "admin/knowledge/items/kq_shower"],
+    ["POST", "admin/knowledge/items/kq_shower/approve"],
+    ["POST", "admin/knowledge/items/kq_shower/retire"],
+    ["PUT", "admin/knowledge/settings"],
+    ["POST", "admin/knowledge/try"],
   ];
   // Admin-only reads: the engineering timeline and the audit log.
   const ADMIN_READS: [string, string][] = [
     ["GET", `calls/${SID}/events`],
     ["GET", "audit"],
+    ["GET", "admin/knowledge/items"],
+    ["GET", "admin/knowledge/settings"],
   ];
   // Clinical work: the nurse console only.
   const NURSE_ROUTES: [string, string][] = [
@@ -226,6 +245,33 @@ describe("matchRoute: each build calls only its own routes", () => {
       expect(matchRoute("GET", "branding/assets/logo/x", mode)).toBeNull();
       expect(matchRoute("POST", "branding", mode)).toBeNull();
       expect(matchRoute("DELETE", "branding/assets/logo", mode)).toBeNull();
+    }
+  });
+
+  it("never lets the nurse build reach the knowledge base, whatever the method", () => {
+    const paths = [
+      "admin/knowledge/items",
+      "admin/knowledge/items/kq_1",
+      "admin/knowledge/items/kq_1/approve",
+      "admin/knowledge/items/kq_1/retire",
+      "admin/knowledge/settings",
+      "admin/knowledge/try",
+    ];
+    for (const path of paths) {
+      for (const method of ["GET", "POST", "PATCH", "PUT", "DELETE"]) {
+        expect(matchRoute(method, path, "nurse"), `${method} ${path}`).toBeNull();
+      }
+    }
+    expect(ALLOWED_ROUTES.filter(([, re]) => re.source.includes("knowledge")).every(([, , scope]) => scope === "admin")).toBe(true);
+  });
+
+  it("refuses knowledge paths outside the contract", () => {
+    for (const mode of ["nurse", "admin"] as const) {
+      expect(matchRoute("GET", "admin/knowledge/items/kq_1", mode)).toBeNull();
+      expect(matchRoute("POST", "admin/knowledge/items/kq_1/publish", mode)).toBeNull();
+      expect(matchRoute("DELETE", "admin/knowledge/settings", mode)).toBeNull();
+      expect(matchRoute("GET", "admin/knowledge/try", mode)).toBeNull();
+      expect(matchRoute("PATCH", "admin/knowledge/items/..", mode)).toBeNull();
     }
   });
 

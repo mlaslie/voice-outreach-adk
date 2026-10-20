@@ -621,14 +621,23 @@ def patient_questions_block(card: Card, questions: list[dict]) -> None:
         card.line("Patient has questions — none captured; call to ask.")
         return
     for q in questions:
-        card.put(
-            marked(
-                card,
-                QUESTION_MARK[q["priority"]],
-                card.text(f"“{q['text']}”"),
-                card.text(f"{q['category_label']} · {q['priority_label']}", "caption"),
-            )
-        )
+        parts = [
+            card.text(f"“{q['text']}”"),
+            card.text(f"{q['category_label']} · {q['priority_label']}", "caption"),
+        ]
+        if line := knowledge_line(q):
+            parts.append(card.text(line, "caption"))
+        card.put(marked(card, QUESTION_MARK[q["priority"]], *parts))
+
+
+def knowledge_line(q: dict) -> str | None:
+    """How the agent handled a question from the clinic's Q&A (knowledge base), if it did."""
+    if not q.get("item_version"):
+        return None
+    line = f"Answered by the agent from the clinic's Q&A (v{q['item_version']})"
+    if q.get("satisfied") is False:
+        line += "; patient said it didn't answer it"
+    return line
 
 
 def transcript_card(c: dict, t: dict, limit: int = 40) -> Card:

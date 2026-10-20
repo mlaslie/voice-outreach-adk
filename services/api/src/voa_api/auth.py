@@ -126,6 +126,16 @@ ROUTE_POLICY: dict[str, frozenset[str]] = {
     "DELETE /api/branding": ADMIN,
     "GET /api/branding/assets/{kind}": READ,
     "PUT /api/branding/assets/{kind}": ADMIN,
+    # knowledge base (docs/KNOWLEDGE-API.md): the clinic's approved Q&A and its settings
+    "GET /api/admin/knowledge/items": ADMIN,
+    "POST /api/admin/knowledge/items": ADMIN,
+    "PATCH /api/admin/knowledge/items/{item_id}": ADMIN,
+    "POST /api/admin/knowledge/items/{item_id}/approve": ADMIN,
+    "POST /api/admin/knowledge/items/{item_id}/retire": ADMIN,
+    "DELETE /api/admin/knowledge/items/{item_id}": ADMIN,
+    "GET /api/admin/knowledge/settings": ADMIN,
+    "PUT /api/admin/knowledge/settings": ADMIN,
+    "POST /api/admin/knowledge/try": ADMIN,  # read-only: not audited (audit.READ_ONLY)
     # EHR feed (admin plan step 3): idempotent call batches
     "PUT /api/v1/call-batches/{source}/{batch_id}": FEED,
     "GET /api/v1/call-batches/{source}/{batch_id}": FEED | ADMIN,

@@ -302,15 +302,22 @@ def patient_questions(call: dict) -> list[dict]:
             continue
         prio = q.get("priority") if q.get("priority") in QUESTION_PRIORITY_LABELS else Q_IMMEDIATE
         cat = q.get("category") if q.get("category") in CATEGORY_LABELS else "other"
-        out.append(
-            {
-                "text": str(q["text"]).strip(),
-                "category": cat,
-                "category_label": CATEGORY_LABELS.get(cat, "Other"),
-                "priority": prio,
-                "priority_label": QUESTION_PRIORITY_LABELS[prio],
-            }
-        )
+        item = {
+            "text": str(q["text"]).strip(),
+            "category": cat,
+            "category_label": CATEGORY_LABELS.get(cat, "Other"),
+            "priority": prio,
+            "priority_label": QUESTION_PRIORITY_LABELS[prio],
+        }
+        # Knowledge base: the agent read the clinic's approved answer (which version,
+        # and whether the patient said it didn't answer it).
+        version = q.get("item_version")
+        if q.get("outcome") in ("answered", "deferred"):
+            item["outcome"] = q["outcome"]
+        if isinstance(version, int) and not isinstance(version, bool):
+            item["item_version"] = version
+            item["satisfied"] = q.get("satisfied") if q.get("satisfied") in (True, False) else None
+        out.append(item)
     return sorted(out, key=lambda q: q["priority"] != Q_IMMEDIATE)  # stable: asked order kept
 
 

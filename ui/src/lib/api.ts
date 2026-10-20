@@ -23,6 +23,13 @@ import {
 } from "./types";
 import type { SmsMessage } from "./followups";
 import type { AssetKind, BrandingPatch, BrandingResponse } from "./branding";
+import type {
+  KnowledgeItem,
+  KnowledgeItemInput,
+  KnowledgeSettings,
+  KnowledgeSettingsPatch,
+  KnowledgeTryResult,
+} from "./knowledge";
 
 /** Dry-run SMS simulator (POST /api/sms/test/*). Never sends a real text. */
 export interface SmsTestPatient {
@@ -347,6 +354,51 @@ export const api = {
       `/branding/assets/${kind}`,
       json("PUT", { content_type: contentType, data_base64: dataBase64 }),
     );
+  },
+
+  // ---- Knowledge base (Admin → Knowledge base; docs/KNOWLEDGE-PLAN.md) ----
+  //
+  // Admin build only. Every write is audited by the API; a 422 carries the
+  // reason (length, or a PHI-looking pattern) in `detail`.
+
+  getKnowledgeItems(): Promise<{ items: KnowledgeItem[] }> {
+    return request<{ items: KnowledgeItem[] }>("/admin/knowledge/items");
+  },
+
+  createKnowledgeItem(body: KnowledgeItemInput): Promise<KnowledgeItem> {
+    return request<KnowledgeItem>("/admin/knowledge/items", json("POST", body));
+  },
+
+  /** Editing an approved entry sends it back to draft with version + 1. */
+  updateKnowledgeItem(itemId: string, body: Partial<KnowledgeItemInput>): Promise<KnowledgeItem> {
+    return request<KnowledgeItem>(`/admin/knowledge/items/${encodeURIComponent(itemId)}`, json("PATCH", body));
+  },
+
+  approveKnowledgeItem(itemId: string): Promise<KnowledgeItem> {
+    return request<KnowledgeItem>(`/admin/knowledge/items/${encodeURIComponent(itemId)}/approve`, { method: "POST" });
+  },
+
+  retireKnowledgeItem(itemId: string): Promise<KnowledgeItem> {
+    return request<KnowledgeItem>(`/admin/knowledge/items/${encodeURIComponent(itemId)}/retire`, { method: "POST" });
+  },
+
+  /** Drafts and retired entries only; an approved one is refused (409: "Retire it first."). */
+  deleteKnowledgeItem(itemId: string): Promise<{ deleted: true }> {
+    return request<{ deleted: true }>(`/admin/knowledge/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
+  },
+
+  getKnowledgeSettings(): Promise<KnowledgeSettings> {
+    return request<KnowledgeSettings>("/admin/knowledge/settings");
+  },
+
+  /** Partial update. */
+  saveKnowledgeSettings(patch: KnowledgeSettingsPatch): Promise<KnowledgeSettings> {
+    return request<KnowledgeSettings>("/admin/knowledge/settings", json("PUT", patch));
+  },
+
+  /** What the agent would do with a question: answer from approved Q&A, or defer. */
+  tryKnowledge(question: string): Promise<KnowledgeTryResult> {
+    return request<KnowledgeTryResult>("/admin/knowledge/try", json("POST", { question }));
   },
 
   /** Same-origin SSE feed of call updates (proxied, streamed, by the BFF). */

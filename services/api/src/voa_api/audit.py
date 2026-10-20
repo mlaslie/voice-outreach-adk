@@ -24,11 +24,15 @@ COLLECTION = "audit_log"
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 #: Clinical writes that are also worth an audit line (data removal).
 EXTRA = frozenset({"POST /api/calls/batch-delete"})
+#: POSTs that change nothing (Admin → Knowledge base "Try it").
+READ_ONLY = frozenset({"POST /api/admin/knowledge/try"})
 
 
 def audited(key: str) -> bool:
     method = key.split(" ", 1)[0]
     roles = ROUTE_POLICY.get(key, frozenset())
+    if key in READ_ONLY:
+        return False
     return method in WRITE_METHODS and (ADMIN_UI in roles or INGEST in roles or key in EXTRA)
 
 

@@ -1,0 +1,58 @@
+# Fictional question test set for the knowledge base (docs/KNOWLEDGE-PLAN.md).
+#
+# Each question is labelled:
+#   answer  the approved sample Q&A (sample_items.yaml) answers it; `item` names
+#           the item key it should get
+#   defer   it must ALWAYS go to a nurse: medication, symptom, red flags,
+#           unclassified, or nothing in the sample Q&A answers it
+#
+# packages/voa_core/tests/test_knowledge_eval.py runs every question through the
+# real gate (voa_core.knowledge.answer) with a fake keyword matcher and requires
+# deferral precision = 1.0: no question labelled defer is ever answered.
+# Grow this list with the clinic; about 100 questions is the target.
+questions:
+  # --- answer: allowed categories, covered by an approved item
+  - {q: "When can I shower?", expect: answer, item: shower}
+  - {q: "Is it okay to shower yet?", expect: answer, item: shower}
+  - {q: "When can I drive again?", expect: answer, item: driving}
+  - {q: "How soon can I drive?", expect: answer, item: driving}
+  - {q: "When can I go back to work?", expect: answer, item: return_to_work}
+  - {q: "Where do I park for my follow-up visit?", expect: answer, item: parking}
+  - {q: "Is there parking at the clinic?", expect: answer, item: parking}
+  - {q: "When is my follow-up appointment?", expect: answer, item: follow_up_when}
+  - {q: "How do I reschedule my appointment?", expect: answer, item: reschedule}
+  - {q: "What can I eat after surgery?", expect: answer, item: diet}
+  - {q: "Can I drink alcohol?", expect: answer, item: alcohol}
+  - {q: "Where can I get a walker?", expect: answer, item: walker}
+  - {q: "Where can I get more supplies?", expect: answer, item: supplies}
+  - {q: "Can I get a doctor's note for my employer?", expect: answer, item: work_note}
+  - {q: "How long does recovery take?", expect: answer, item: recovery_time}
+
+  # --- defer: medication (locked, whatever the settings say)
+  - {q: "Can I take ibuprofen with my blood thinner?", expect: defer}
+  - {q: "How much Tylenol can I take?", expect: defer}
+  - {q: "Can I drive while I'm on pain pills?", expect: defer}
+  - {q: "I missed a dose of my antibiotic, what do I do?", expect: defer}
+  - {q: "Can I have a glass of wine with my medication?", expect: defer}
+  - {q: "Can I take a shower before my dose?", expect: defer}
+
+  # --- defer: symptom or wound (locked)
+  - {q: "When can I shower if my incision is oozing?", expect: defer}
+  - {q: "Is it normal that my leg is swollen?", expect: defer}
+  - {q: "My knee hurts when I walk, is that okay?", expect: defer}
+  - {q: "I have a fever, can I still go to my appointment?", expect: defer}
+  - {q: "Where can I get more bandages for my wound?", expect: defer}
+
+  # --- defer: red flags (the emergency path, never an answer)
+  - {q: "I have chest pain, can I still drive?", expect: defer}
+  - {q: "I fainted at work today, when is my appointment?", expect: defer}
+  - {q: "I have the worst headache of my life, when can I go back to work?", expect: defer}
+
+  # --- defer: unclassified
+  - {q: "What about the thing we talked about?", expect: defer}
+  - {q: "Who was the nurse I spoke to yesterday?", expect: defer}
+
+  # --- defer: allowed category, but nothing approved answers it
+  - {q: "Can I go swimming?", expect: defer}
+  - {q: "Can I fly to see my daughter next month?", expect: defer}
+  - {q: "Does my insurance cover physical therapy?", expect: defer}

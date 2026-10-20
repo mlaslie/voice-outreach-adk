@@ -67,13 +67,41 @@ export function questionsFor(call: Pick<CallDoc, "survey_responses">): PatientQu
     const r = item as Record<string, unknown>;
     const text = typeof r.text === "string" ? r.text.trim() : "";
     if (!text) continue;
-    out.push({
+    const q: PatientQuestion = {
       text,
       category: (typeof r.category === "string" && r.category ? r.category : "other") as QuestionCategory,
       priority: normalisePriority(r.priority),
-    });
+    };
+    // Knowledge-base fields: copied only when present and well formed, so an
+    // older question keeps exactly its three fields.
+    if (r.outcome === "answered" || r.outcome === "deferred") q.outcome = r.outcome;
+    if (typeof r.item_id === "string" && r.item_id) q.item_id = r.item_id;
+    if (typeof r.item_version === "number" && Number.isFinite(r.item_version)) q.item_version = r.item_version;
+    if (typeof r.answer === "string" && r.answer.trim()) q.answer = r.answer.trim();
+    if (r.satisfied === true || r.satisfied === false || r.satisfied === null) q.satisfied = r.satisfied;
+    out.push(q);
   }
   return sortQuestions(out);
+}
+
+/**
+ * Who dealt with a question (docs/KNOWLEDGE-PLAN.md):
+ *   - "answered":    the agent read an approved clinic answer and the patient
+ *                    did not say it missed;
+ *   - "unsatisfied": the agent answered, but the patient said it didn't
+ *                    answer their question, so it is a nurse's again;
+ *   - "nurse":       deferred, or an older question without the fields.
+ */
+export type QuestionHandling = "answered" | "unsatisfied" | "nurse";
+
+export function questionHandling(q: Pick<PatientQuestion, "outcome" | "satisfied">): QuestionHandling {
+  if (q.outcome !== "answered") return "nurse";
+  return q.satisfied === false ? "unsatisfied" : "answered";
+}
+
+/** "Clinic Q&A v3", or "Clinic Q&A" when the version was not recorded. */
+export function answerSource(q: Pick<PatientQuestion, "item_version">): string {
+  return typeof q.item_version === "number" ? `Clinic Q&A v${q.item_version}` : "Clinic Q&A";
 }
 
 export interface QuestionSummary {
@@ -82,6 +110,10 @@ export interface QuestionSummary {
   questions: PatientQuestion[];
   count: number;
   immediate: number;
+  /** Answered by the agent, and the patient did not say it missed. */
+  answered: number;
+  /** count - answered: the questions a nurse still has to deal with. */
+  forNurse: number;
   /** Patient said yes but nothing was captured — a nurse must ask. */
   noneCaptured: boolean;
 }
@@ -93,18 +125,22 @@ export function questionSummary(call: Pick<CallDoc, "survey_responses">): Questi
   const hasQuestions: "yes" | "no" | undefined =
     questions.length ? "yes" : raw === "yes" ? "yes" : raw === "no" ? "no" : undefined;
   const immediate = questions.filter((q) => q.priority === "urgent_same_day").length;
+  const answered = questions.filter((q) => questionHandling(q) === "answered").length;
   return {
     hasQuestions,
     questions,
     count: questions.length,
     immediate,
+    answered,
+    forNurse: questions.length - answered,
     noneCaptured: hasQuestions === "yes" && questions.length === 0,
   };
 }
 
 export interface QuestionPill {
   label: string;
-  tone: "urgent" | "routine";
+  /** "good" only when the agent answered every question. */
+  tone: "urgent" | "routine" | "good";
   /** Hover text: the questions themselves. */
   title: string;
 }
@@ -116,16 +152,26 @@ export function questionPill(call: Pick<CallDoc, "survey_responses">): QuestionP
     return { label: "Has questions", tone: "routine", title: "Patient has questions — none captured; call to ask." };
   }
   if (!s.count) return null;
+  const title = s.questions
+    .map((q) => `${PRIORITY_LABEL[q.priority]} · ${categoryLabel(q.category)}: ${q.text}${HANDLING_SUFFIX[questionHandling(q)]}`)
+    .join("\n");
+  if (s.forNurse === 0) {
+    return { label: `${s.answered} answered`, tone: "good", title };
+  }
   return {
-    label: `${s.count} ${s.count === 1 ? "question" : "questions"}`,
+    label: `${s.forNurse} ${s.forNurse === 1 ? "question" : "questions"}`,
     tone: s.immediate > 0 ? "urgent" : "routine",
-    title: s.questions
-      .map((q) => `${PRIORITY_LABEL[q.priority]} · ${categoryLabel(q.category)}: ${q.text}`)
-      .join("\n"),
+    title,
   };
 }
 
+const HANDLING_SUFFIX: Record<QuestionHandling, string> = {
+  answered: " (answered by the agent)",
+  unsatisfied: " (answered by the agent; patient said it didn't answer it)",
+  nurse: "",
+};
+
 /** One line per question for plain key/value lists. */
 export function formatQuestion(q: PatientQuestion): string {
-  return `${q.text} (${categoryLabel(q.category)}, ${PRIORITY_LABEL[q.priority]})`;
+  return `${q.text} (${categoryLabel(q.category)}, ${PRIORITY_LABEL[q.priority]})${HANDLING_SUFFIX[questionHandling(q)]}`;
 }
