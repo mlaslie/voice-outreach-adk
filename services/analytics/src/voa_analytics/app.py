@@ -129,13 +129,13 @@ class BigQuerySource:
         )
 
     def refreshed_at(self) -> str | None:
-        sql = f"SELECT MAX(exported_at) AS at FROM `{self.prefix}.{schema.EXPORT_META.name}`"  # noqa: S608
+        sql = f"SELECT MAX(exported_at) AS exported FROM `{self.prefix}.{schema.EXPORT_META.name}`"  # noqa: S608
         try:
             rows = self._rows(sql)
         except Exception:  # the job has not run yet: no table
-            log.warning("no export metadata", extra={"event": "analytics.no_meta"})
+            log.warning("no export metadata", extra={"event": "analytics.no_meta"}, exc_info=True)
             return None
-        return rows[0]["at"] if rows else None
+        return rows[0]["exported"] if rows else None
 
 
 # --------------------------------------------------------------------------- auth

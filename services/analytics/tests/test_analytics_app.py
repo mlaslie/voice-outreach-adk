@@ -154,3 +154,22 @@ def test_bigquery_source_parameterised_query():
         ("start", "DATE", date(2026, 10, 1)),
         ("end", "DATE", date(2026, 10, 14)),
     ]
+
+
+def test_refreshed_at_avoids_reserved_alias():
+    # "AT" is reserved in GoogleSQL; `AS at` made every live read return None.
+    seen = []
+
+    class Client:
+        def query(self, sql, job_config):
+            seen.append(sql)
+
+            class Job:
+                def result(self):
+                    return [{"exported": datetime(2026, 10, 20, 22, 27, tzinfo=UTC)}]
+
+            return Job()
+
+    src = app_mod.BigQuerySource("proj-123", "voa_analytics", client=Client())
+    assert src.refreshed_at() == "2026-10-20T22:27:00+00:00"
+    assert "AS exported" in seen[0]

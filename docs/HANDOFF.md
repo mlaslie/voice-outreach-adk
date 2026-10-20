@@ -319,3 +319,4 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - Test calls (softphone and SMS simulator) are counted; `is_test` is in the table if they should be excluded.
   - The service and the job share one identity, so the service could write its dataset. Split them for production.
   - The full refresh should become incremental at scale.
+- **Bit us on the first live run:** the "data as of" query aliased a column `AS at`. `AT` is reserved in GoogleSQL, so the query failed, and the error was swallowed as "no export yet". The UI then never showed a refresh time, while the fake-client tests passed. It is now aliased `exported`, and the error is logged with its traceback. Lesson: run each new BigQuery statement once with `bq query` before shipping.
