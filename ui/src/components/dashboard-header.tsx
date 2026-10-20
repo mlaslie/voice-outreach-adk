@@ -1,14 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { RefreshCw, Phone, Headphones, LayoutDashboard, MessageSquareText } from "lucide-react";
+import { RefreshCw, Phone, Headphones, LayoutDashboard } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { LiveIndicator } from "@/components/live-indicator";
-import { SmsTestDialog } from "@/components/sms-test-dialog";
 import { SmsIndicator } from "@/components/sms-indicator";
+import { MovedToAdmin } from "@/components/moved-to-admin";
 
 interface DashboardHeaderProps {
   connState: "live" | "polling" | "disconnected";
@@ -17,12 +16,13 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ connState, onRefresh, onPlaceCall }: DashboardHeaderProps) {
-  const [smsTestOpen, setSmsTestOpen] = useState(false);
   return (
     <div className="flex items-start justify-between">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Post-Op Call Center</h1>
         <p className="text-sm text-ink-soft mt-0.5">Outbound wellness-check demo</p>
+        {/* "Test by text" (an admin route) moved with the rest of the configuration. */}
+        <p className="mt-1"><MovedToAdmin what="Test by text and the allowed numbers" /></p>
       </div>
       <div className="flex items-center gap-3">
         <SmsIndicator />
@@ -53,21 +53,11 @@ export function DashboardHeader({ connState, onRefresh, onPlaceCall }: Dashboard
           <Headphones className="h-4 w-4 mr-1.5" />
           Test in browser
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          title="Play the patient in the text follow-up (dry run: nothing is sent to a phone)"
-          onClick={() => setSmsTestOpen(true)}
-        >
-          <MessageSquareText className="h-4 w-4 mr-1.5" />
-          Test by text
-        </Button>
         <Button size="sm" onClick={onPlaceCall}>
           <Phone className="h-4 w-4 mr-1.5" />
           Place a Call
         </Button>
       </div>
-      <SmsTestDialog open={smsTestOpen} onOpenChange={setSmsTestOpen} />
     </div>
   );
 }

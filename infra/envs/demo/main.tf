@@ -56,6 +56,10 @@ module "sa" {
       display_name  = "Nurse dashboard (Next.js BFF)"
       project_roles = local.common_runtime_roles
     }
+    "${local.p}-admin" = {
+      display_name  = "Admin console (Next.js BFF, APP_MODE=admin)"
+      project_roles = local.common_runtime_roles
+    }
     "${local.p}-nurse" = {
       display_name  = "Nurse assistant (Gemini Enterprise A2A agent)"
       project_roles = concat(local.common_runtime_roles, ["roles/aiplatform.user", "roles/datastore.user"])
@@ -151,7 +155,7 @@ module "registry" {
   location      = var.region
   repository_id = "${local.p}-images"
   writers       = [local.build]
-  readers       = [local.gateway, local.api, module.sa.members["${local.p}-ui"]]
+  readers       = [local.gateway, local.api, module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-admin"]]
   depends_on    = [module.services]
 }
 

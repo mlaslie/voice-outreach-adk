@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { RotateCcw } from "lucide-react";
 import { RecallSettings } from "@/lib/types";
-import { NurseActions } from "@/lib/nurse/actions";
+import { AdminActions } from "@/lib/nurse/actions";
 import { cn } from "@/lib/utils";
 import { DEFAULT_CALLING_HOURS } from "@/lib/nurse/window";
 import { Panel } from "./parts";
@@ -27,7 +27,7 @@ export function RecallSettingsPanel({
 }: {
   settings: RecallSettings | null;
   timezone?: string;
-  actions: NurseActions;
+  actions: Pick<AdminActions, "live" | "saveRecall">;
 }) {
   useTimeFormat(); // re-render the example sentence when the format changes
   const [form, setForm] = useState<RecallSettings>(settings ?? DEFAULT_RECALL);

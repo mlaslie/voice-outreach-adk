@@ -3,36 +3,25 @@ import {
 } from "../types";
 
 /**
- * What the nurse console can DO, as opposed to what it shows.
+ * What each console can DO, as opposed to what it shows.
  *
- * The page wires these to the real API (live) or to no-ops that explain
+ * The pages wire these to the real API (live) or to no-ops that explain
  * themselves (fictional sample data). Keeping them behind one interface
  * means the screens never know which, and never import the API client.
+ *
+ * The two sets follow the BFF's route scopes (lib/bff.ts): NurseActions only
+ * reach "nurse" routes, AdminActions only "admin" routes, so each build's
+ * screens cannot even be wired to the other build's writes.
  */
 export interface NurseActions {
   /** False on fictional sample data: buttons explain instead of acting. */
   live: boolean;
   /** Start a run over exactly these call-list entries, now, regardless of their planned time. */
   callEntries(entryIds: string[]): Promise<void>;
-  /** Create (entry null) or update a call-list entry. */
-  saveEntry(entry: CallListEntry | null, body: CallListEntryInput): Promise<void>;
-  deleteEntry(entryId: string): Promise<void>;
-  /** Put every completed entry back to pending. */
-  resetCompleted(): Promise<void>;
-  /** Schedule a run (at least one patient). */
-  createRun(body: CallRunInput): Promise<void>;
-  /** Change a scheduled run. An empty patient list deletes it. */
-  updateRun(run: CallRun, body: Partial<CallRunInput>): Promise<void>;
-  /** Cancel (delete) a scheduled run. */
-  cancelRun(run: CallRun): Promise<void>;
   /** Cancel queued calls with a reason; they move to Call status as Cancelled. */
   cancelEntries(entryIds: string[], reason: string): Promise<void>;
   /** Put a cancelled patient back on the queue. */
   rescheduleEntry(entryId: string, target: RescheduleTarget): Promise<void>;
-  /** Save the auto-recall settings. */
-  saveRecall(body: RecallSettings): Promise<void>;
-  /** Save how times show for nurses (12- or 24-hour). */
-  saveDisplay(body: DisplaySettings): Promise<void>;
   /** A nurse changes the follow-up tier, with a reason. Returns the updated call. */
   setFollowUp(callSid: string, body: FollowUpOverrideRequest): Promise<CallDoc>;
   /**
@@ -44,6 +33,35 @@ export interface NurseActions {
     callIds: string[],
     onChunk?: (results: BatchDeleteResult[], done: number, total: number) => void,
   ): Promise<BatchDeleteResult[]>;
+  /** Re-read everything (after an action). */
+  refresh(): void;
+}
+
+/** Configuration, in the admin console only. */
+export interface AdminActions {
+  /** False on fictional sample data: buttons explain instead of acting. */
+  live: boolean;
+  /** Create (entry null) or update a call-list entry. */
+  saveEntry(entry: CallListEntry | null, body: CallListEntryInput): Promise<void>;
+  deleteEntry(entryId: string): Promise<void>;
+  /** Put every completed entry back to pending. */
+  resetCompleted(): Promise<void>;
+  /** Schedule a run (at least one patient). */
+  createRun(body: CallRunInput): Promise<void>;
+  /** Change a scheduled run. An empty patient list deletes it. */
+  updateRun(run: CallRun, body: Partial<CallRunInput>): Promise<void>;
+  /** Cancel (delete) a scheduled run. */
+  cancelRun(run: CallRun): Promise<void>;
+  /** Save the auto-recall settings (also the clinic's calling hours). */
+  saveRecall(body: RecallSettings): Promise<void>;
+  /** Save how times show for nurses (12- or 24-hour). */
+  saveDisplay(body: DisplaySettings): Promise<void>;
+  /** Authorise calls to a number, and record its answer on texts (optional, separate). */
+  addNumber(phone: string, label: string, smsConsent: boolean): Promise<void>;
+  /** Stop authorising calls to a number. */
+  removeNumber(phone: string): Promise<void>;
+  /** Record or withdraw a number's agreement to receive texts. */
+  setConsent(phone: string, granted: boolean): Promise<void>;
   /** Re-read everything (after an action). */
   refresh(): void;
 }

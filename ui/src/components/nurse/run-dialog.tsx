@@ -17,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { CallListEntry, CallRun, CallSettingsResponse } from "@/lib/types";
 import { inCallingWindow, isoToZonedInput, nextCallingSlot, windowText, zonedInputToIso } from "@/lib/nurse/window";
 import { DEFAULT_RECALL } from "./recall-settings";
-import { NurseActions } from "@/lib/nurse/actions";
+import { AdminActions } from "@/lib/nurse/actions";
 import { formatPhone } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { ClinicDateTimeInput, INPUT_LOOK } from "./clinic-time-input";
@@ -52,7 +52,7 @@ export function RunDialog({
   run: CallRun | null;
   runs: CallRun[];
   entries: CallListEntry[];
-  actions: NurseActions;
+  actions: Pick<AdminActions, "live" | "createRun" | "updateRun">;
   /** Clinic calling hours (the Auto-recall window). The proxy enforces them too. */
   settings?: CallSettingsResponse | null;
   onOpenChange: (open: boolean) => void;

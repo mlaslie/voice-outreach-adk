@@ -23,7 +23,8 @@ Set these in `terraform.tfvars`:
 | Variable | Required | What it is |
 |---|---|---|
 | `project_id` | yes | The target project |
-| `iap_members` | yes | Who may open the dashboard, e.g. `["user:nurse@example.org"]` |
+| `iap_members` | yes | Who may open the nurse dashboard, e.g. `["user:nurse@example.org"]` |
+| `iap_admin_members` | for the admin console | Who may open the admin console (configuration) |
 | `operators` | no | Who may impersonate the dashboard SA for e2e tests and local UI development |
 | `alert_emails` | no | Who gets alert e-mails |
 | `org_name`, `support_email`, `clinic_timezone` | no | Branding and clinic timezone |
@@ -64,7 +65,7 @@ Until the Twilio secrets exist, the system fails closed:
 
 ```bash
 git status                           # must be clean: images are tagged with the commit
-scripts/deploy.sh demo gateway api ui
+scripts/deploy.sh demo gateway api ui admin nurse
 ```
 
 `deploy.sh` does four things in order:

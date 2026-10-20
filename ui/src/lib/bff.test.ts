@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actingUser, checkWrite, matchRoute, needsIdToken } from "./bff";
+import { ALLOWED_ROUTES, actingUser, checkWrite, matchRoute, needsIdToken } from "./bff";
 
 const SID = "CA0123456789abcdef0123456789abcdef";
 const ID32 = "0123456789abcdef0123456789abcdef";
@@ -49,8 +49,8 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["POST", "sms/test/reply"],
     ["GET", "sms/control"],
     ["POST", "sms/control"],
-  ])("allows %s %s", (method, path) => {
-    expect(matchRoute(method, path)).not.toBeNull();
+  ])("allows %s %s (in the build that owns it)", (method, path) => {
+    expect(matchRoute(method, path, "nurse") ?? matchRoute(method, path, "admin")).not.toBeNull();
   });
 
   it("is case-insensitive on the method only", () => {
@@ -87,7 +87,8 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", "/calls"],
     ["GET", "calls//transcript"],
   ])("refuses %s %s", (method, path) => {
-    expect(matchRoute(method, path)).toBeNull();
+    expect(matchRoute(method, path, "nurse")).toBeNull();
+    expect(matchRoute(method, path, "admin")).toBeNull();
   });
 
   it.each([
@@ -105,7 +106,7 @@ describe("matchRoute: the BFF path allowlist", () => {
   });
 
   it("refuses an allowlist phone that is not E.164", () => {
-    expect(matchRoute("DELETE", "allowlist/not-a-phone")).toBeNull();
+    expect(matchRoute("DELETE", "allowlist/not-a-phone", "admin")).toBeNull();
   });
 
   it("refuses over-long ids", () => {
@@ -113,10 +114,109 @@ describe("matchRoute: the BFF path allowlist", () => {
   });
 
   it("re-encodes segments for the upstream URL", () => {
-    expect(matchRoute("DELETE", "allowlist/%2B12025550123")?.upstreamPath).toBe(
+    expect(matchRoute("DELETE", "allowlist/%2B12025550123", "admin")?.upstreamPath).toBe(
       "allowlist/%2B12025550123"
     );
     expect(matchRoute("GET", `calls/${SID}/transcript`)?.upstreamPath).toBe(`calls/${SID}/transcript`);
+  });
+});
+
+describe("matchRoute: each build calls only its own routes", () => {
+  // Configuration: the admin console only. The API refuses these from the
+  // nurse UI's identity, so the nurse build must never send them.
+  const ADMIN_ROUTES: [string, string][] = [
+    ["POST", "call-list"],
+    ["POST", "call-list/bulk"],
+    ["PATCH", `call-list/${ID32}`],
+    ["DELETE", `call-list/${ID32}`],
+    ["POST", "call-list/reset"],
+    ["POST", "call-runs"],
+    ["PATCH", `call-runs/${ID32}`],
+    ["DELETE", `call-runs/${ID32}`],
+    ["PUT", "call-settings/recall"],
+    ["PUT", "call-settings/display"],
+    ["POST", "allowlist"],
+    ["DELETE", "allowlist/%2B12025550123"],
+    ["POST", "sms/consent"],
+    ["POST", "sms/settings"],
+    ["POST", "sms/control"],
+    ["POST", "sms/test/start"],
+    ["POST", "sms/test/reply"],
+  ];
+  // Clinical work: the nurse console only.
+  const NURSE_ROUTES: [string, string][] = [
+    ["POST", `calls/${SID}/follow-up`],
+    ["POST", "calls/batch-delete"],
+    ["POST", "place-call"],
+    ["POST", "test-call"],
+    ["POST", "call-list/cancel"],
+    ["POST", `call-list/${ID32}/reschedule`],
+    ["POST", "call-list/run"],
+    ["POST", "call-list/run/cancel"],
+    ["DELETE", "sms/callbacks/cb_123"],
+  ];
+  // Not proxied at all yet (no screen uses them); refused by both builds,
+  // and in particular never reachable from the admin build.
+  const NURSE_NOT_PROXIED: [string, string][] = [
+    ["POST", "calls/sign-off"],
+    ["POST", `calls/${SID}/sign-off`],
+    ["POST", `calls/${SID}/recording-link`],
+  ];
+  const READS: [string, string][] = [
+    ["GET", "calls"],
+    ["GET", "calls/stream"],
+    ["GET", `calls/${SID}`],
+    ["GET", `calls/${SID}/transcript`],
+    ["GET", `calls/${SID}/recording`],
+    ["GET", "follow-ups/open"],
+    ["GET", "call-list"],
+    ["GET", "call-list/run"],
+    ["GET", "call-runs"],
+    ["GET", "call-settings"],
+    ["GET", "allowlist"],
+    ["GET", "sms/sessions"],
+    ["GET", "sms/callbacks"],
+    ["GET", "sms/messages"],
+    ["GET", "sms/consent"],
+    ["GET", "sms/settings"],
+    ["GET", "sms/control"],
+  ];
+
+  it.each(ADMIN_ROUTES)("the nurse build refuses admin route %s %s; the admin build allows it", (method, path) => {
+    expect(matchRoute(method, path, "nurse")).toBeNull();
+    expect(matchRoute(method, path, "admin")).not.toBeNull();
+  });
+
+  it.each(NURSE_ROUTES)("the admin build refuses nurse route %s %s; the nurse build allows it", (method, path) => {
+    expect(matchRoute(method, path, "admin")).toBeNull();
+    expect(matchRoute(method, path, "nurse")).not.toBeNull();
+  });
+
+  it.each(NURSE_NOT_PROXIED)("the admin build refuses %s %s", (method, path) => {
+    expect(matchRoute(method, path, "admin")).toBeNull();
+  });
+
+  it.each(READS)("both builds allow %s %s", (method, path) => {
+    expect(matchRoute(method, path, "nurse")).not.toBeNull();
+    expect(matchRoute(method, path, "admin")).not.toBeNull();
+  });
+
+  it("tags every GET 'both' and every write 'nurse' or 'admin'", () => {
+    for (const [method, re, scope] of ALLOWED_ROUTES) {
+      if (method === "GET") expect(scope, String(re)).toBe("both");
+      else expect(["nurse", "admin"], `${method} ${re}`).toContain(scope);
+    }
+  });
+
+  it("lists every write route above, so a new one has to be placed in a build", () => {
+    const writes = ALLOWED_ROUTES.filter(([m]) => m !== "GET").length;
+    expect(ADMIN_ROUTES.length + NURSE_ROUTES.length).toBe(writes);
+    expect(READS.length).toBe(ALLOWED_ROUTES.length - writes);
+  });
+
+  it("defaults to the nurse build when no mode is given (NEXT_PUBLIC_APP_MODE unset)", () => {
+    expect(matchRoute("POST", "call-list/run")).not.toBeNull();
+    expect(matchRoute("POST", "call-runs")).toBeNull();
   });
 });
 

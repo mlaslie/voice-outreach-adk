@@ -19,13 +19,13 @@ import {
   validatePatientForm,
 } from "@/components/patient-fields";
 import { CallListEntry } from "@/lib/types";
-import { NurseActions } from "@/lib/nurse/actions";
+import { AdminActions } from "@/lib/nurse/actions";
 import { DEFAULT_CLINIC_TZ, isoToZonedInput, zonedInputToIso } from "@/lib/nurse/window";
 
 /**
- * Add / edit a call-list patient from the nurse console. Same fields as the
+ * Add / edit a call-list patient from the admin console. Same fields as the
  * classic dashboard's dialog plus the planned call time, but it saves
- * through NurseActions so sample data stays sample data.
+ * through AdminActions so sample data stays sample data.
  */
 export function EntryDialog({
   open,
@@ -36,7 +36,7 @@ export function EntryDialog({
 }: {
   open: boolean;
   entry: CallListEntry | null;
-  actions: NurseActions;
+  actions: Pick<AdminActions, "live" | "saveEntry">;
   /** Clinic time zone: the planned call time is entered in clinic time (B-19). */
   tz?: string;
   onOpenChange: (open: boolean) => void;

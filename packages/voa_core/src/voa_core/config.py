@@ -100,7 +100,8 @@ class ServicesConfig(_Strict):
     gateway_url: str = ""  # public, e.g. https://voa-gateway-xxxx.run.app
     api_url: str = ""  # private
     tasks_invoker_sa: str = ""
-    ui_sa: str = ""  # the dashboard's runtime SA (allowed to call /api/*)
+    ui_sa: str = ""  # the nurse dashboard's runtime SA
+    admin_ui_sa: str = ""  # the admin console's runtime SA (configuration routes)
     nurse_agent_sa: str = ""  # post-v1 nurse assistant
     recordings_bucket: str = ""
     prompts_bucket: str = ""

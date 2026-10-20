@@ -22,6 +22,11 @@ ARG NEXT_PUBLIC_TERMS_URL
 # Allowed to be empty — the console then shows its generic placeholder mark.
 ARG NEXT_PUBLIC_LOGO_URL=
 ARG NEXT_PUBLIC_LOGO_WIDE_URL=
+# Which UI this image is: "nurse" (service voa-ui) or "admin" (service
+# voa-admin). One codebase, two builds; middleware and the BFF allowlist both
+# follow it (src/lib/mode.ts). Anything else fails the build below.
+ARG APP_MODE=nurse
+ENV NEXT_PUBLIC_APP_MODE=$APP_MODE
 ENV NEXT_PUBLIC_ORG_NAME=$NEXT_PUBLIC_ORG_NAME \
     NEXT_PUBLIC_SUPPORT_EMAIL=$NEXT_PUBLIC_SUPPORT_EMAIL \
     NEXT_PUBLIC_PRIVACY_URL=$NEXT_PUBLIC_PRIVACY_URL \
@@ -29,6 +34,10 @@ ENV NEXT_PUBLIC_ORG_NAME=$NEXT_PUBLIC_ORG_NAME \
     NEXT_PUBLIC_LOGO_URL=$NEXT_PUBLIC_LOGO_URL \
     NEXT_PUBLIC_LOGO_WIDE_URL=$NEXT_PUBLIC_LOGO_WIDE_URL \
     NEXT_TELEMETRY_DISABLED=1
+RUN case "$NEXT_PUBLIC_APP_MODE" in \
+      nurse|admin) ;; \
+      *) echo "APP_MODE must be nurse or admin, got '$NEXT_PUBLIC_APP_MODE'" >&2; exit 1 ;; \
+    esac
 RUN for v in NEXT_PUBLIC_ORG_NAME NEXT_PUBLIC_SUPPORT_EMAIL \
              NEXT_PUBLIC_PRIVACY_URL NEXT_PUBLIC_TERMS_URL; do \
       eval "test -n \"\$$v\"" || { echo "$v build arg is empty" >&2; exit 1; }; \
@@ -39,7 +48,9 @@ RUN npm run build
 FROM node:22-alpine
 WORKDIR /app
 # API_BASE_URL (the backend's Cloud Run URL, also the ID-token audience) is
-# a runtime env var on the service, not baked into the image.
+# a runtime env var on the service, not baked into the image. So are the
+# optional cross-links: ADMIN_CONSOLE_URL on the nurse service and
+# NURSE_CONSOLE_URL on the admin service.
 ENV NODE_ENV=production PORT=8080 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1
 # Copied as node:node because the runtime user below has to be able to write
 # .next/cache; a root-owned copy turns into a 500 on the first render that

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build service images in Cloud Build, tagged with the current commit.
-#   scripts/build.sh demo [gateway api ui]
+#   scripts/build.sh demo [gateway api ui admin nurse]
 # Refuses a dirty tree so every running image maps to a commit (review I-2).
 set -euo pipefail
 ENV_NAME="${1:-demo}"; shift || true
-SERVICES="${*:-gateway api ui}"
+SERVICES="${*:-gateway api ui admin nurse}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 if [[ -n "$(git status --porcelain)" && "${ALLOW_DIRTY:-0}" != 1 ]]; then

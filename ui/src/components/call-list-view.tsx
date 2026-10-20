@@ -1,18 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  FileDown,
-  ListPlus,
   Loader2,
-  Pencil,
   Play,
-  RotateCcw,
   Square,
   RotateCw,
-  ShieldCheck,
-  Trash2,
-  Upload,
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -27,14 +20,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { CallListEntryDialog } from "./call-list-entry-dialog";
-import { AllowlistDialog } from "./allowlist-dialog";
 import { useCallList } from "@/hooks/use-call-list";
 import { api, ApiError } from "@/lib/api";
 import { CallListEntry } from "@/lib/types";
 import { formatPhone, relativeTime } from "@/lib/format";
 import { getStatusLabel } from "@/lib/status";
-import { CsvError, downloadExampleCsv, parseCallListCsv } from "@/lib/call-list-csv";
+import { MovedToAdmin } from "./moved-to-admin";
 
 const LIST_STATUS_CLASSES: Record<string, string> = {
   pending: "bg-mist text-ink",
@@ -50,27 +41,16 @@ const LIST_STATUS_LABELS: Record<string, string> = {
   blocked: "Blocked",
 };
 
+/**
+ * Classic call list. Patient records, CSV import, reset and the allowed
+ * numbers are configuration and moved to the admin console (the API refuses
+ * them from this build); running, stopping and re-dialling calls stay.
+ */
 export function CallListView() {
   const { entries, loading, error, run, refreshEntries, refreshRun } = useCallList();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editing, setEditing] = useState<CallListEntry | null>(null);
   const [busy, setBusy] = useState(false);
-  const [allowlistOpen, setAllowlistOpen] = useState(false);
-  const [allowPrefill, setAllowPrefill] = useState<{ phone: string; label: string }>({
-    phone: "",
-    label: "",
-  });
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  // Blocked almost always means "not on the outbound allowlist", so offer
-  // the fix inline rather than making the operator hunt for it.
-  function openAllowlistFor(entry: CallListEntry) {
-    setAllowPrefill({ phone: entry.phone, label: entry.patient_name });
-    setAllowlistOpen(true);
-  }
-
   const isRunning = run?.status === "running";
   // Both "completed" and "blocked" are terminal — neither is dialed again.
   const pending = useMemo(
@@ -98,65 +78,6 @@ export function CallListView() {
       else next.delete(id);
       return next;
     });
-  }
-
-  function openAdd() {
-    setEditing(null);
-    setDialogOpen(true);
-  }
-
-  function openEdit(entry: CallListEntry) {
-    setEditing(entry);
-    setDialogOpen(true);
-  }
-
-  async function handleDelete() {
-    const ids = Array.from(selected);
-    if (ids.length === 0) return;
-    if (
-      !window.confirm(
-        `Remove ${ids.length} patient${ids.length === 1 ? "" : "s"} from the call list? ` +
-          `Calls already placed stay in the call history.`
-      )
-    ) {
-      return;
-    }
-    setBusy(true);
-    try {
-      const results = await Promise.allSettled(ids.map((id) => api.deleteCallListEntry(id)));
-      const failedIds = ids.filter((_, i) => results[i].status === "rejected");
-      if (failedIds.length) {
-        toast.error(`${failedIds.length} of ${ids.length} could not be removed.`);
-      } else {
-        toast.success(`Removed ${ids.length} from the call list`);
-      }
-      // Keep the failures selected so it's obvious which ones to retry.
-      setSelected(new Set(failedIds));
-      await refreshEntries();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    // Reset immediately so re-picking the same file fires onChange again.
-    e.target.value = "";
-    if (!file) return;
-
-    setBusy(true);
-    try {
-      const parsed = parseCallListCsv(await file.text());
-      const res = await api.bulkCreateCallListEntries(parsed);
-      toast.success(`Imported ${res.count} patient${res.count === 1 ? "" : "s"}`);
-      await refreshEntries();
-    } catch (err) {
-      if (err instanceof CsvError) toast.error(err.message);
-      else if (err instanceof ApiError) toast.error(`Import rejected: ${err.message}`);
-      else toast.error("Could not read that file.");
-    } finally {
-      setBusy(false);
-    }
   }
 
   // Re-dial a finished patient without re-typing their details. Naming the
@@ -196,19 +117,6 @@ export function CallListView() {
       await refreshRun();
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Could not stop the run");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleReset() {
-    setBusy(true);
-    try {
-      const res = await api.resetCallList();
-      toast.success(`${res.reset} entr${res.reset === 1 ? "y" : "ies"} set back to pending`);
-      await refreshEntries();
-    } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not reset the list");
     } finally {
       setBusy(false);
     }
@@ -289,60 +197,10 @@ export function CallListView() {
               <Play className="h-4 w-4 mr-1.5" />
               {startLabel}
             </Button>
-            <Button variant="outline" size="sm" onClick={openAdd} disabled={busy}>
-              <ListPlus className="h-4 w-4 mr-1.5" />
-              Add patient
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => fileRef.current?.click()}
-              disabled={busy}
-            >
-              <Upload className="h-4 w-4 mr-1.5" />
-              Import CSV
-            </Button>
-            <Button variant="ghost" size="sm" onClick={downloadExampleCsv}>
-              <FileDown className="h-4 w-4 mr-1.5" />
-              Example CSV
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setAllowPrefill({ phone: "", label: "" });
-                setAllowlistOpen(true);
-              }}
-            >
-              <ShieldCheck className="h-4 w-4 mr-1.5" />
-              Allowed numbers
-            </Button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={handleImport}
-            />
+            <MovedToAdmin what="Adding, importing, editing and removing patients, and the allowed numbers," />
           </div>
 
           <div className="flex items-center gap-3">
-            {selected.size > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleDelete}
-                disabled={busy}
-                className="border-brand-red/50 text-brand-red-dark hover:bg-brand-red/10 hover:text-brand-red-dark"
-              >
-                <Trash2 className="h-4 w-4 mr-1.5" />
-                Remove {selected.size}
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={handleReset} disabled={busy || isRunning}>
-              <RotateCcw className="h-4 w-4 mr-1.5" />
-              Reset completed
-            </Button>
             <span className="text-sm text-ink-soft">
               {pending.length} pending
               {blockedCount > 0 && (
@@ -373,19 +231,8 @@ export function CallListView() {
             <Users className="h-12 w-12 text-ink-muted mb-4" />
             <p className="text-ink font-medium">No patients on the call list</p>
             <p className="text-sm text-ink-soft mt-1 max-w-md">
-              Add patients one at a time, or import a CSV. Download the example CSV to see
-              the expected columns.
+              Patients are added in the admin console.
             </p>
-            <div className="flex gap-2 mt-4">
-              <Button size="sm" onClick={openAdd}>
-                <ListPlus className="h-4 w-4 mr-1.5" />
-                Add patient
-              </Button>
-              <Button variant="outline" size="sm" onClick={downloadExampleCsv}>
-                <FileDown className="h-4 w-4 mr-1.5" />
-                Example CSV
-              </Button>
-            </div>
           </div>
         ) : (
           <Table>
@@ -489,27 +336,6 @@ export function CallListView() {
                           <span className="sr-only">Call again</span>
                         </Button>
                       )}
-                      {entry.list_status === "blocked" && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => openAllowlistFor(entry)}
-                          title={`Allow calls to ${entry.patient_name}'s number`}
-                          className="text-brand-dark hover:bg-brand/10"
-                        >
-                          <ShieldCheck className="h-3.5 w-3.5" />
-                          <span className="sr-only">Allow this number</span>
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => openEdit(entry)}
-                        title={`Edit ${entry.patient_name}`}
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        <span className="sr-only">Edit</span>
-                      </Button>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -527,27 +353,13 @@ export function CallListView() {
             {" "}
             <span className="text-brand-red-dark">
               Blocked entries could not be dialed at all — usually because the number is
-              not on the outbound allowlist. Use the shield icon on the row to allow it,
-              then “Reset completed” to retry.
+              not on the outbound allowlist. Allowing it and resetting the entry are done
+              in the admin console.
             </span>
           </>
         )}
       </p>
 
-      <CallListEntryDialog
-        open={dialogOpen}
-        entry={editing}
-        onOpenChange={setDialogOpen}
-        onSaved={refreshEntries}
-      />
-
-      <AllowlistDialog
-        open={allowlistOpen}
-        onOpenChange={setAllowlistOpen}
-        prefillPhone={allowPrefill.phone}
-        prefillLabel={allowPrefill.label}
-        onChanged={refreshEntries}
-      />
     </div>
   );
 }

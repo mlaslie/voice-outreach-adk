@@ -130,6 +130,23 @@ variable "softphone_enabled" {
   default     = true
 }
 
+variable "admin_image" {
+  type    = string
+  default = ""
+}
+
+variable "iap_admin_members" {
+  description = "Who may open the admin console, e.g. [\"group:outreach-admins@example.org\"]. Separate from iap_members (the nurse dashboard)."
+  type        = list(string)
+  default     = []
+}
+
+variable "admin_min_instances" {
+  description = "Warm admin console instances (0 saves cost)."
+  type        = number
+  default     = 0
+}
+
 variable "iap_members" {
   description = "Who may open the dashboard, e.g. [\"user:nurse@example.org\"]."
   type        = list(string)

@@ -11,6 +11,8 @@
 #
 #   gcloud builds submit ui --config ui/cloudbuild.yaml \
 #     --substitutions=_IMAGE=REGION-docker.pkg.dev/PROJECT/REPO/ui:TAG,_ORG_NAME="Acme Health",...
+#
+# Add _APP_MODE=admin (and an admin image tag) for the admin console.
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
@@ -27,12 +29,16 @@ steps:
       - "NEXT_PUBLIC_LOGO_URL=${_LOGO_URL}"
       - --build-arg
       - "NEXT_PUBLIC_LOGO_WIDE_URL=${_LOGO_WIDE_URL}"
+      - --build-arg
+      - "APP_MODE=${_APP_MODE}"
       - -t
       - "${_IMAGE}"
       - .
 images:
   - "${_IMAGE}"
 substitutions:
+  # nurse (service voa-ui) or admin (service voa-admin); the build refuses anything else.
+  _APP_MODE: nurse
   # Optional logos; empty means the console shows its placeholder mark.
   _LOGO_URL: ""
   _LOGO_WIDE_URL: ""

@@ -195,7 +195,7 @@ export function SmsTestDialog({
                 <p className="text-sm text-ink-soft">Loading…</p>
               ) : numbers.length === 0 ? (
                 <p className="text-sm text-ink-soft">
-                  No approved numbers. Add one under Settings → Manage approved numbers.
+                  No approved numbers. Add one in the admin console, under Authorized numbers.
                 </p>
               ) : (
                 <Select value={phone} onValueChange={setPhone}>

@@ -24,3 +24,6 @@ sms_self_webhook_aliases = "" # e.g. https://<gateway status.url>/twilio/sms
 # api_min_instances   = 1
 # ui_min_instances    = 1
 # nurse_min_instances = 1
+# Admin console (APP_MODE=admin build of the dashboard); its own IAP list
+iap_admin_members = [] # e.g. ["user:admin@example.org"]
+# admin_min_instances = 1

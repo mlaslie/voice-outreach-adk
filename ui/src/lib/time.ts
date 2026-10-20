@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * How nurse-facing times render: a clinic setting (Settings → Time display),
+ * How nurse-facing times render: a clinic setting (admin console → Display),
  * "12h" ("2:30 PM") or "24h" ("14:30"). Patients are not affected — their
  * calls and texts always use 12-hour times.
  *

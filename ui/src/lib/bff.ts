@@ -5,7 +5,8 @@
  * The browser never talks to the backend. Every request goes to this app's
  * own same-origin route, src/app/api/backend/[...path]/route.ts, which:
  *
- *   1. checks the method + path against ALLOWED_ROUTES (`matchRoute`);
+ *   1. checks the method + path against ALLOWED_ROUTES (`matchRoute`),
+ *      including whether this build (nurse or admin) may use the route;
  *   2. for writes, refuses anything a cross-site page could have sent
  *      (`checkWrite`) — review finding U-2;
  *   3. forwards to `${API_BASE_URL}/api/<path>` with a Google-signed ID token
@@ -16,6 +17,8 @@
  * backend endpoint (including ones that dial people on a timer) with the
  * dashboard's own service identity.
  */
+
+import { APP_MODE, AppMode } from "./mode";
 
 export type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
@@ -29,65 +32,82 @@ export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const ID = "[A-Za-z0-9_-]{1,64}";
 const PHONE = "\\+[0-9]{6,15}";
 
-/** Every backend route the UI uses: [method, path after /api/]. */
-export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp]> = [
-  // Calls
-  ["GET", /^calls$/],
-  ["GET", /^calls\/stream$/],
-  ["POST", /^calls\/batch-delete$/],
-  ["GET", new RegExp(`^calls/${ID}$`)],
-  ["GET", new RegExp(`^calls/${ID}/transcript$`)],
-  ["GET", new RegExp(`^calls/${ID}/recording$`)],
-  ["POST", new RegExp(`^calls/${ID}/follow-up$`)],
-  ["GET", /^follow-ups\/open$/],
-  ["POST", /^place-call$/],
-  ["POST", /^test-call$/],
+/**
+ * Which build may use a route (docs/ADMIN-PLAN.md section 2):
+ *   - "nurse": clinical work, only the nurse console (service voa-ui);
+ *   - "admin": configuration, only the admin console (service voa-admin);
+ *   - "both":  reads, which both consoles show.
+ * The API enforces the same split by caller identity and refuses an admin
+ * route from the nurse UI's service account. Enforcing it here as well means
+ * neither build can even try the other's writes.
+ */
+export type RouteScope = "nurse" | "admin" | "both";
 
-  // Call list
-  ["GET", /^call-list$/],
-  ["POST", /^call-list$/],
-  ["POST", /^call-list\/bulk$/],
-  ["POST", /^call-list\/reset$/],
-  ["POST", /^call-list\/cancel$/],
-  ["GET", /^call-list\/run$/],
-  ["POST", /^call-list\/run$/],
-  ["POST", /^call-list\/run\/cancel$/],
-  ["PATCH", new RegExp(`^call-list/${ID}$`)],
-  ["DELETE", new RegExp(`^call-list/${ID}$`)],
-  ["POST", new RegExp(`^call-list/${ID}/reschedule$`)],
+/** Every backend route the UI uses: [method, path after /api/, scope]. */
+export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]> = [
+  // Calls
+  ["GET", /^calls$/, "both"],
+  ["GET", /^calls\/stream$/, "both"],
+  ["POST", /^calls\/batch-delete$/, "nurse"],
+  ["GET", new RegExp(`^calls/${ID}$`), "both"],
+  ["GET", new RegExp(`^calls/${ID}/transcript$`), "both"],
+  ["GET", new RegExp(`^calls/${ID}/recording$`), "both"],
+  ["POST", new RegExp(`^calls/${ID}/follow-up$`), "nurse"],
+  ["GET", /^follow-ups\/open$/, "both"],
+  ["POST", /^place-call$/, "nurse"],
+  ["POST", /^test-call$/, "nurse"],
+
+  // Call list: patient records are configuration; running, cancelling and
+  // rescheduling calls is the nurses' work.
+  ["GET", /^call-list$/, "both"],
+  ["POST", /^call-list$/, "admin"],
+  ["POST", /^call-list\/bulk$/, "admin"],
+  ["POST", /^call-list\/reset$/, "admin"],
+  ["POST", /^call-list\/cancel$/, "nurse"],
+  ["GET", /^call-list\/run$/, "both"],
+  ["POST", /^call-list\/run$/, "nurse"],
+  ["POST", /^call-list\/run\/cancel$/, "nurse"],
+  ["PATCH", new RegExp(`^call-list/${ID}$`), "admin"],
+  ["DELETE", new RegExp(`^call-list/${ID}$`), "admin"],
+  ["POST", new RegExp(`^call-list/${ID}/reschedule$`), "nurse"],
 
   // Scheduled call runs
-  ["GET", /^call-runs$/],
-  ["POST", /^call-runs$/],
-  ["PATCH", new RegExp(`^call-runs/${ID}$`)],
-  ["DELETE", new RegExp(`^call-runs/${ID}$`)],
+  ["GET", /^call-runs$/, "both"],
+  ["POST", /^call-runs$/, "admin"],
+  ["PATCH", new RegExp(`^call-runs/${ID}$`), "admin"],
+  ["DELETE", new RegExp(`^call-runs/${ID}$`), "admin"],
 
   // Settings
-  ["GET", /^call-settings$/],
-  ["PUT", /^call-settings\/recall$/],
-  ["PUT", /^call-settings\/display$/],
+  ["GET", /^call-settings$/, "both"],
+  ["PUT", /^call-settings\/recall$/, "admin"],
+  ["PUT", /^call-settings\/display$/, "admin"],
 
   // Outbound allowlist
-  ["GET", /^allowlist$/],
-  ["POST", /^allowlist$/],
-  ["DELETE", new RegExp(`^allowlist/${PHONE}$`)],
+  ["GET", /^allowlist$/, "both"],
+  ["POST", /^allowlist$/, "admin"],
+  ["DELETE", new RegExp(`^allowlist/${PHONE}$`), "admin"],
 
   // SMS follow-ups
-  ["GET", /^sms\/sessions$/],
-  ["GET", /^sms\/callbacks$/],
-  ["DELETE", new RegExp(`^sms/callbacks/${ID}$`)],
-  ["GET", /^sms\/messages$/],
-  ["GET", /^sms\/consent$/],
-  ["POST", /^sms\/consent$/],
-  ["GET", /^sms\/settings$/],
-  ["POST", /^sms\/settings$/],
+  ["GET", /^sms\/sessions$/, "both"],
+  ["GET", /^sms\/callbacks$/, "both"],
+  ["DELETE", new RegExp(`^sms/callbacks/${ID}$`), "nurse"],
+  ["GET", /^sms\/messages$/, "both"],
+  ["GET", /^sms\/consent$/, "both"],
+  ["POST", /^sms\/consent$/, "admin"],
+  ["GET", /^sms\/settings$/, "both"],
+  ["POST", /^sms\/settings$/, "admin"],
   // Shared SMS number switch (docs/sms-number-switch.md)
-  ["GET", /^sms\/control$/],
-  ["POST", /^sms\/control$/],
+  ["GET", /^sms\/control$/, "both"],
+  ["POST", /^sms\/control$/, "admin"],
   // Dry-run simulator (the backend refuses unless SMS is in dry-run mode)
-  ["POST", /^sms\/test\/start$/],
-  ["POST", /^sms\/test\/reply$/],
+  ["POST", /^sms\/test\/start$/, "admin"],
+  ["POST", /^sms\/test\/reply$/, "admin"],
 ];
+
+/** Whether a route of this scope is served by a build in this mode. */
+export function scopeAllows(scope: RouteScope, mode: AppMode): boolean {
+  return scope === "both" || scope === mode;
+}
 
 /** Characters allowed in any decoded path segment. Excludes "/", "\", "%", "?", "#". */
 const SAFE_SEGMENT = /^[A-Za-z0-9_.+-]{1,128}$/;
@@ -102,9 +122,10 @@ export interface RouteMatch {
 /**
  * Split the raw (still percent-encoded) path after `/api/backend/`, decode
  * each segment, reject anything that could traverse or smuggle a separator,
- * and check the result against ALLOWED_ROUTES. Returns null when not allowed.
+ * and check the result against ALLOWED_ROUTES for this build's mode (the
+ * other build's routes are refused). Returns null when not allowed.
  */
-export function matchRoute(method: string, rawPath: string): RouteMatch | null {
+export function matchRoute(method: string, rawPath: string, mode: AppMode = APP_MODE): RouteMatch | null {
   const m = method.toUpperCase();
   if (!rawPath || rawPath.startsWith("/") || rawPath.endsWith("/")) return null;
   const segments: string[] = [];
@@ -119,7 +140,7 @@ export function matchRoute(method: string, rawPath: string): RouteMatch | null {
     segments.push(seg);
   }
   const joined = segments.join("/");
-  if (!ALLOWED_ROUTES.some(([am, re]) => am === m && re.test(joined))) return null;
+  if (!ALLOWED_ROUTES.some(([am, re, scope]) => am === m && re.test(joined) && scopeAllows(scope, mode))) return null;
   return { segments, upstreamPath: segments.map(encodeURIComponent).join("/") };
 }
 

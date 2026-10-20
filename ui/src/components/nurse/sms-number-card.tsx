@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Panel } from "./parts";
 
 /**
- * Settings → SMS number: which system (this one, or the other one sharing the
+ * Admin → Messaging → SMS number: which system (this one, or the other one sharing the
  * number) receives incoming texts, and the one button that moves them
  * (docs/sms-number-switch.md). Wording is shared with the other dashboard.
  */
@@ -31,7 +31,7 @@ export function SmsNumberCard({ mode }: { mode: SmsControlMode }) {
   const [busy, setBusy] = useState(false);
   const [flipError, setFlipError] = useState<string | null>(null);
 
-  // Opening Settings reads the number now rather than trusting the 30 s cache.
+  // Opening Messaging reads the number now rather than trusting the 30 s cache.
   useEffect(() => {
     void refresh(true);
   }, [refresh]);

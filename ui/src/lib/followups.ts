@@ -265,6 +265,11 @@ export function cancelCallback(callbackId: string) {
   });
 }
 
+/** Whether this number has a live (not withdrawn) agreement to receive texts. */
+export function fetchSmsConsent(phone: string) {
+  return request<{ phone: string; granted: boolean }>(`consent?${new URLSearchParams({ phone })}`);
+}
+
 /**
  * Record whether this number agreed to receive texts.
  *

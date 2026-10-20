@@ -9,7 +9,7 @@
  * view-model code as live data (lib/nurse/model.ts).
  */
 
-import { CallDoc, CallRun } from "../types";
+import { AllowlistEntry, AllowlistResponse, CallDoc, CallRun } from "../types";
 import { FollowUpSession, ScheduledCallback } from "../followups";
 import { PlannedEntry } from "./model";
 import { DEFAULT_CALLING_HOURS, DEFAULT_CLINIC_TZ, nextCallingSlot } from "./window";
@@ -299,4 +299,31 @@ export function demoData(now: Date = new Date()): NurseData {
   ];
 
   return { entries, runs, calls, sessions, callbacks };
+}
+
+/**
+ * A fictional allowlist for the admin console's sample data: the demo
+ * patients' invented numbers, about half of them with text consent, plus one
+ * deployment-level (env) entry that cannot be edited.
+ */
+export function demoAllowlist(entries: PlannedEntry[]): {
+  allowlist: AllowlistResponse;
+  consent: Record<string, boolean>;
+} {
+  const phones = [...new Set(entries.map((e) => e.phone))];
+  const consent: Record<string, boolean> = {};
+  const list: AllowlistEntry[] = phones.map((phone, i) => {
+    consent[phone] = i % 2 === 0;
+    const name = entries.find((e) => e.phone === phone)?.patient_name ?? "Test patient";
+    return {
+      phone,
+      label: `${name} (sample) - ${consent[phone] ? "sms consent" : "no sms consent"}`,
+      source: "firestore",
+      editable: true,
+    };
+  });
+  list.push({ phone: "+12025550199", label: "Clinic test line (sample)", source: "env", editable: false });
+  // One sample patient is left off the list so the "not an approved number" state shows.
+  const shown = list.length > 2 ? list.filter((_, i) => i !== 1) : list;
+  return { allowlist: { entries: shown, count: shown.length, mode: "list", unrestricted: false }, consent };
 }

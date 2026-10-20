@@ -6,6 +6,8 @@ locals {
   url_suffix  = "${data.google_project.this.number}.${var.region}.run.app"
   gateway_url = "https://${local.p}-gateway-${local.url_suffix}"
   api_url     = "https://${local.p}-api-${local.url_suffix}"
+  ui_url      = "https://${local.p}-ui-${local.url_suffix}"
+  admin_url   = "https://${local.p}-admin-${local.url_suffix}"
 
   common_env = {
     VOA_ENV                          = "demo"
@@ -20,6 +22,7 @@ locals {
     VOA__SERVICES__API_URL           = local.api_url
     VOA__SERVICES__TASKS_INVOKER_SA  = module.sa.emails["${local.p}-tasks-invoker"]
     VOA__SERVICES__UI_SA             = module.sa.emails["${local.p}-ui"]
+    VOA__SERVICES__ADMIN_UI_SA       = module.sa.emails["${local.p}-admin"]
     VOA__SERVICES__NURSE_AGENT_SA    = module.sa.emails["${local.p}-nurse"]
     VOA__DIALING__ALLOWLIST          = var.static_allowlist
     VOA__SMS__DRY_RUN                = tostring(var.sms_dry_run)
@@ -131,7 +134,7 @@ module "api" {
   image           = var.api_image
   service_account = module.sa.emails["${local.p}-api"]
   public          = false
-  invokers        = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-tasks-invoker"], module.sa.members["${local.p}-nurse"]]
+  invokers        = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-admin"], module.sa.members["${local.p}-tasks-invoker"], module.sa.members["${local.p}-nurse"]]
   min_instances   = var.api_min_instances
   max_instances   = 5
   concurrency     = 40
@@ -198,8 +201,9 @@ module "ui" {
   timeout_s     = 3600 # SSE passthrough
   memory        = "512Mi"
   env = {
-    API_BASE_URL = local.api_url
-    NODE_ENV     = "production"
+    API_BASE_URL      = local.api_url
+    NODE_ENV          = "production"
+    ADMIN_CONSOLE_URL = var.admin_image == "" ? "" : local.admin_url
   }
 }
 
@@ -214,6 +218,47 @@ resource "google_iap_web_cloud_run_service_iam_member" "ui_users" {
 
 output "ui_url" {
   value = var.ui_image == "" ? null : module.ui[0].url
+}
+
+# --------------------------------------------------------------------------- admin console (IAP)
+# The same dashboard code built with APP_MODE=admin: configuration only (schedules,
+# patients, authorized numbers, messaging, display). Its own identity, which the
+# API's route policy alone allows to change configuration, and its own IAP list.
+
+module "admin" {
+  count           = var.admin_image == "" ? 0 : 1
+  source          = "../../modules/cloud_run_service"
+  project_id      = var.project_id
+  region          = var.region
+  name            = "${local.p}-admin"
+  image           = var.admin_image
+  service_account = module.sa.emails["${local.p}-admin"]
+  public          = false
+  iap             = true
+  invokers        = ["serviceAccount:${google_project_service_identity.iap.email}"]
+  min_instances   = var.admin_min_instances
+  max_instances   = 2
+  concurrency     = 80
+  timeout_s       = 3600
+  memory          = "512Mi"
+  env = {
+    API_BASE_URL      = local.api_url
+    NODE_ENV          = "production"
+    NURSE_CONSOLE_URL = var.ui_image == "" ? "" : local.ui_url
+  }
+}
+
+resource "google_iap_web_cloud_run_service_iam_member" "admin_users" {
+  for_each               = var.admin_image == "" ? toset([]) : toset(var.iap_admin_members)
+  project                = var.project_id
+  location               = var.region
+  cloud_run_service_name = module.admin[0].name
+  role                   = "roles/iap.httpsResourceAccessor"
+  member                 = each.value
+}
+
+output "admin_url" {
+  value = var.admin_image == "" ? null : module.admin[0].url
 }
 
 # --------------------------------------------------------------------------- observability

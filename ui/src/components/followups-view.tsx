@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MovedToAdmin } from "./moved-to-admin";
 import { useFollowUps } from "@/hooks/use-followups";
 import {
   FollowUpSettings,
@@ -20,7 +21,6 @@ import {
   isCancellable,
   isOverdue,
   sessionLabel,
-  setSetting,
   sortSessions,
   openConversations,
   isOpen,
@@ -191,7 +191,6 @@ export function FollowUpsView() {
   const [thread, setThread] = useState<FollowUpSession | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [settings, setSettings] = useState<FollowUpSettings | null>(null);
-  const [savingSetting, setSavingSetting] = useState(false);
   const [showClosed, setShowClosed] = useState(false);
 
   useEffect(() => {
@@ -199,23 +198,6 @@ export function FollowUpsView() {
       .then((r) => setSettings(r.settings))
       .catch(() => setSettings(null));   // hide the control rather than guess
   }, []);
-
-  async function toggleCooldown(next: boolean) {
-    setSavingSetting(true);
-    try {
-      const r = await setSetting("invite_cooldown_enabled", next);
-      setSettings(r.settings);
-      toast.success(
-        next
-          ? "Follow-up cooldown on — one invite per number per 24h"
-          : "Follow-up cooldown OFF — the same number can be re-invited immediately"
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not change the setting.");
-    } finally {
-      setSavingSetting(false);
-    }
-  }
 
   const booked = useMemo(() => upcoming(callbacks), [callbacks]);
   // Follow-ups is a worklist: only conversations still waiting on someone.
@@ -278,15 +260,9 @@ export function FollowUpsView() {
               back on before contacting anyone real.
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={savingSetting}
-            onClick={() => toggleCooldown(true)}
-            className="shrink-0"
-          >
-            Turn back on
-          </Button>
+          <span className="shrink-0 self-center">
+            <MovedToAdmin what="The text limit switch" />
+          </span>
         </div>
       )}
 
@@ -302,17 +278,6 @@ export function FollowUpsView() {
             <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
             Refresh
           </Button>
-          {settings?.invite_cooldown_enabled && (
-            <button
-              type="button"
-              disabled={savingSetting}
-              onClick={() => toggleCooldown(false)}
-              className="text-xs text-ink-muted underline hover:text-ink disabled:opacity-50"
-              title="Testing aid: lets the same number be re-invited without waiting 24 hours"
-            >
-              Disable 24h cooldown
-            </button>
-          )}
         </div>
       </div>
 

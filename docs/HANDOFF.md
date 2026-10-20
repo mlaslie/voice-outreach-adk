@@ -234,3 +234,23 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - The texts were skipped by the 24-hour invite cooldown: one missed-call text per number per day, and the test number had been texted the evening before.
   - Skips now stamp `sms_follow_up` with a plain reason: cooldown, survey in progress, callback already booked, or opted out.
   - The cooldown switch, which was only in the classic Follow-ups tab, is now also in the console under Settings → Missed-call texts.
+
+## 20 Oct: admin plan step 1 (nurse and admin consoles)
+
+**API roles.**
+- `auth.ROUTE_POLICY` lists every `/api/*` route with who may call it: the nurse UI, the admin UI, or the nurse agent.
+- Configuration (patients, runs, calling hours, display, authorized numbers, consent, SMS number, text limit, SMS simulator) is admin-only.
+- Clinical work (follow-up changes, sign-off, the call queue, place call, recordings) is nurse-only. Reads are open to all three.
+- The nurse agent keeps the few configuration actions it already had: bulk-add patients, delete a patient, authorized numbers, the text limit. Whether they move is decided in step 2.
+- A route missing from the table is refused. `tests/test_route_policy.py` fails if a route has no policy, or a policy has no route.
+
+**Two consoles from one codebase.**
+- `APP_MODE=nurse` builds `voa-ui`; `APP_MODE=admin` builds `voa-admin` (Cloud Run, IAP with `iap_admin_members`, its own service account `voa-admin`).
+- Middleware serves only the build's own pages, and the BFF refuses the other build's API routes.
+- The admin console has Schedules, Patients, Authorized numbers (with consent), Messaging and Display.
+- The nurse console lost its Settings page. It shows the calling hours read-only, and links to the admin console via `ADMIN_CONSOLE_URL`; the admin console links back via `NURSE_CONSOLE_URL`.
+- The classic dashboard hides its configuration controls ("moved to the admin console") until step 2 removes it.
+
+**Deploy.**
+- `scripts/deploy.sh demo admin` builds the admin image (`cloudbuild.yaml` builds `ui` and `admin` with their mode).
+- A new shared setting (`VOA__SERVICES__ADMIN_UI_SA`) means gateway, api and nurse must deploy together (trap 8).

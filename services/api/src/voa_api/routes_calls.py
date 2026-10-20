@@ -25,7 +25,7 @@ from voa_core import reports, review
 from voa_core.config import resolve_secret
 from voa_core.store import Where, now_iso
 
-from .auth import acting_user, require_caller, ui_callers
+from .auth import acting_user, authorize
 from .context import CALL_ID_RE, CALLS, EHR_OUTBOX, EVENTS, PENDING, REPORTS, TRANSCRIPTS, Api
 from .dialer import DialError, dial
 from .models import (
@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 
 
 def api_of(request: Request) -> Api:
-    require_caller(request, ui_callers(request))
+    authorize(request)  # per-route roles (auth.ROUTE_POLICY)
     return request.app.state.api
 
 

@@ -210,7 +210,7 @@ export function ScheduleView({
 
       {groups.length === 0 ? (
         <Panel>
-          <EmptyState title="No call runs scheduled" hint="Create a run under Settings: pick a date and time and add patients. Text bookings arrive here on their own." />
+          <EmptyState title="No call runs scheduled" hint="Runs are scheduled in the admin console, under Schedules. Text bookings arrive here on their own." />
         </Panel>
       ) : (
         groups.map(([key, { when, run, rows }]) => (

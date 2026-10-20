@@ -18,15 +18,19 @@ const VARIANT: Record<SmsVariant, string> = {
 /**
  * Top-right pill: "ADK active" / "GE-CX active" / "SMS: Unknown"
  * (docs/sms-number-switch.md). Hidden when the switch is off. With
- * `onClick` it is a button (the console opens Settings); otherwise plain.
+ * `onClick` it is a button (the admin console opens Messaging); with `href`
+ * a link (the nurse console links to the admin console, where the switch
+ * lives); otherwise display only.
  */
 export function SmsIndicator({
   mode = "live",
   onClick,
+  href,
   className,
 }: {
   mode?: SmsControlMode;
   onClick?: () => void;
+  href?: string | null;
   className?: string;
 }) {
   useTimeFormat();
@@ -46,6 +50,14 @@ export function SmsIndicator({
       {ind.label}
     </>
   );
+  if (href) {
+    return (
+      <a href={href} title={`${ind.tooltip} Change it in the admin console.`} aria-label={`${ind.label}. ${ind.tooltip} Opens the admin console.`}
+         className={cn(classes, "transition-opacity hover:opacity-85")}>
+        {content}
+      </a>
+    );
+  }
   if (onClick) {
     return (
       <button type="button" onClick={onClick} title={ind.tooltip} aria-label={`${ind.label}. ${ind.tooltip}`}
