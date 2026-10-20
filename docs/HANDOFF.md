@@ -352,3 +352,11 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 
 **Try it:** `uv run python scripts/seed_knowledge.py demo` loads 12 fictional Q&A drafts. Approve them in the admin console, use "Try it", then switch on to hear it on a call.
 - **Bit us on the first live run:** a cold Gemini client took longer than the 3 s budget to sign in, so the first question on a fresh instance always deferred. That is safe, but wrong. Warm calls matched paraphrases correctly ("Is it okay to take a shower yet?", "Where should I leave my car…"), and medication and wound questions were locked out. The matcher now warms in the background when a call starts with the knowledge base on (and when an admin opens the editor). Two sample items, shower and parking, were approved for this test; answering is still **off**.
+
+## 20 Oct: demo over, minimum instances back to 0
+- **Change:** every service is back to `min_instances = 0` (tfvars). The gateway's own default is 1, and is now overridden to 0.
+- **Trade-off:**
+  - The first call after an idle period pays a gateway cold start. A few seconds of that fall before the agent's first audio, while the patient hears silence after answering.
+  - The first nurse-console load is slower, and so is the first knowledge-base match on a new instance (warmed at call start; see above).
+  - For another demo, set the five `*_min_instances` back to 1 and apply.
+- **Still to restore:** the 24-hour text limit is still off (Admin → Messaging).
