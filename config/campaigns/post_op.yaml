@@ -1,8 +1,33 @@
 # Campaign: post-operative wellness check.
 # A campaign is one kind of outreach call described as data. The voice agent's
-# instruction, the SMS survey and the completeness check all read this file.
-# Placeholders: {org_name}, {patient_first_name}, {patient_last_name}.
+# instruction, the SMS questionnaire and the completeness check all read this
+# file. How to edit it: docs/EDITING-QUESTIONS.md.
+#
+# SAFE TO EDIT HERE (rewording):
+#   ask, note, scripts      -> what the voice agent says
+#   sms, sms_if_*,          -> what the text-message questionnaire sends
+#   sms_scripts
+#   red_flags               -> wording only; a NEW or REMOVED red flag is a
+#                              clinical change (see below)
+# NEEDS A DEVELOPER:
+#   adding, removing or renaming a question id, or changing `type`, `when` or
+#   `when_patient`. Every id needs a parser and a triage meaning in
+#   packages/voa_core/src/voa_core/survey.py, and the report the proxy files is
+#   validated field by field.
+# NEEDS A DEVELOPER AND A CLINICIAN:
+#   triage and priority rules (what makes a patient same-day, next-day or
+#   noted), red flags, and the swelling / patient-question rules. They are
+#   deliberately code, not data: survey.triage, patient_questions.py and
+#   survey._SWELLING_URGENT. Nothing in this file changes who gets escalated.
+# NOT IN THIS FILE: the SMS invite, the 1/2/3 menu, the date-of-birth check,
+#   STOP/HELP and other compliance replies (packages/voa_core/src/voa_core/copy.py).
+#
+# Placeholders in {braces} are filled in by the code; only the ones listed in
+# docs/EDITING-QUESTIONS.md exist. Voice scripts: {org_name},
+# {patient_first_name}, {patient_last_name}.
+# SMS text must stay plain GSM-7: no smart quotes, long dashes or "..." glyphs.
 # Changing patient-facing SMS copy may require re-registering the A2P campaign.
+# Check after any edit: uv run pytest -q -p no:warnings packages/voa_core packages/voa_agents
 
 id: post_op
 name: Post-operative wellness check
@@ -26,58 +51,112 @@ scripts:
   # No patient name or clinical detail on a voicemail: anyone may hear it.
   voicemail: "Hello, this is {org_name} calling with a follow-up message. Please call us back at your convenience at the number on your paperwork. Thank you."
 
-# Order matters. `when` makes a question conditional on an earlier answer.
+# Order matters: it is the order both channels ask in. `when` makes a question a
+# follow-up to an earlier answer (by text it is sent unnumbered, straight after
+# that answer); `when_patient` asks it only for some patients.
+#   ask:  what the voice agent says.   note: extra guidance for the voice agent.
+#   sms:  the text message. By text, the numbered questions are the ones with no
+#         `when`; "(3/7)" is added in front (sms_scripts.numbered_question).
 questions:
   - id: overall_feeling
     ask: "How are you feeling?"
+    sms: "How are you feeling overall since your procedure?"
     type: text
   - id: pain_present
     ask: "Are you having any pain?"
+    sms: "Are you having any pain right now? Reply YES or NO."
     type: yes_no
   - id: pain_severity
     ask: "On a scale from zero to ten, how bad is the pain?"
+    sms: "On a scale of 0 to 10, where 10 is the worst pain imaginable, what number would you give it right now?"
     type: scale_0_10
     when: {pain_present: "yes"}
     note: "For a range, record the higher number."
   - id: pain_location
     ask: "Can you describe the pain for me, like where it is and what it feels like?"
+    sms: "Please describe the pain - where is it, and what does it feel like?"
+    # Sent instead of `sms` when they already said where it hurts. {site} is the place they named.
+    sms_if_known: "You mentioned pain at your {site}. Is there pain anywhere else? Reply NO, or tell us where and what it feels like."
     type: text
     when: {pain_present: "yes"}
     note: "If they already said where it hurts, do not ask where again: say \"You mentioned your <place>. Is there pain anywhere else?\" and record both."
   - id: pain_trend
     ask: "Is it getting better, staying the same, or getting worse?"
+    sms: "Is it getting better, staying the same, or getting worse?"
     type: choice
     choices: [better, same, worse]
     when: {pain_present: "yes"}
   - id: fever_reported
     ask: "Have you had a fever, a temperature over one hundred point four, since you went home?"
+    sms: "Have you had a fever, or a temperature above 100.4F, since you were discharged? Reply YES or NO."
     type: yes_no_unknown
   - id: incision_concerns
     ask: "Have you noticed anything unusual with your incision, like spreading redness, drainage, warmth, or opening?"
+    sms: "Is there anything unusual about your incision or bandage - spreading redness, drainage, warmth, opening, or a bad smell? Reply YES or NO."
     type: yes_no
   - id: incision_description
     ask: "Can you describe what you see?"
+    sms: "Can you describe what you're seeing?"
     type: text
     when: {incision_concerns: "yes"}
   - id: legs_swollen
     ask: "Are your legs or feet swollen?"
+    sms: "Are your legs or feet swollen? Reply YES or NO."
     type: yes_no_unknown
   - id: swelling_description
     ask: "Is it in one leg or both, and is it getting worse?"
+    sms: "Is it one leg or both, and is it getting worse?"
+    # Sent instead of `sms` when their answer to legs_swollen already said which side, or the trend.
+    sms_if_side_known: "Is the swelling getting worse? Reply YES or NO."
+    sms_if_trend_known: "Is it in one leg or foot, or both?"
     type: text
     when: {legs_swollen: "yes"}
     note: "Ask only the part they have not already told you (which side, or whether it is getting worse); if they told you both, record what they said without asking."
   - id: sleeping_well
     ask: "Are you sleeping well?"
+    sms: "Are you sleeping well? Reply YES or NO."
     type: yes_no_unknown
   - id: blood_sugar_status
     ask: "What has the range of your blood sugars been?"
+    sms: "What is the range of your blood sugars? Reply with your numbers, like \"110 to 160\", or say if they have been high or low."
     type: text
     when_patient: {is_diabetic: true}
     note: "Record the numbers or words they say, e.g. \"120 to 250\"."
   - id: has_questions
     ask: "Do you have any questions for the care team?"
+    sms: "Do you have any questions for the care team? Reply NO, or type your question."
     type: open_questions
+
+# The text-message questionnaire's own lines (around the questions above).
+# Placeholders: see docs/EDITING-QUESTIONS.md. Each one may only use its own.
+sms_scripts:
+  # Sent right after the date of birth matches, together with question 1.
+  preamble: "Thank you, that's verified. I'll send {total} short questions, one at a time. Just reply to each one. Reply C at any point to stop."
+  # How a numbered question is sent. {number} of {total}; {question} is its `sms` text.
+  numbered_question: "({number}/{total}) {question}"
+  # A reply we could not read: {question} is the same prompt again.
+  unclear_answer: "Sorry, I didn't catch that. {question}"
+  # The questions loop, after a YES to has_questions. The care team answers;
+  # this line never does, so it only echoes back what was recorded.
+  ask_question: "What is your question? Please type it in one message."
+  another_question: "Any other questions? Reply with your question, or NO if that's all."
+  # {question}: what they typed (shortened to 60 characters). {another_question}: the line above.
+  question_noted: "Got it: \"{question}\". {another_question}"
+  # After the 5th question (the most we take by text). The closing follows.
+  question_noted_last: "Got it: \"{question}\". That's as many as we can take by text - your care team can help with anything else."
+  # Closings, sent once the answers are filed. Urgent = triage found something
+  # for the same day. {questions_follow_up} becomes the questions_follow_up
+  # line plus a space if they asked a question, and nothing otherwise.
+  # {medication_reminder} is the medication_reminder line (clinic request:
+  # every completed questionnaire ends with it).
+  closing_routine: "That's everything - thank you. Your care team has your answers. {questions_follow_up}{medication_reminder} If anything changes or gets worse, call your care team, or 911 in an emergency."
+  closing_urgent: "Thank you - that's everything. Based on your answers someone from your care team will reach out to you. {questions_follow_up}{medication_reminder} If things get worse before then, call your care team, or 911 in an emergency."
+  questions_follow_up: "Your care team will follow up to get your questions answered."
+  medication_reminder: "Please bring a list of your current medications to your post-op follow-up clinic visit."
+  # We stopped asking (a required answer could not be read after several tries).
+  cut_short: "Thanks - we'll stop there. Your care team has what you've told us and can follow up with you directly. In an emergency, call 911."
+  # Filing the answers failed for good. Sent once.
+  file_failed: "Thank you for your answers. We had a problem recording them - please call the number on your paperwork so your care team has them."
 
 red_flags:
   - chest pain, pressure, tightness or squeezing

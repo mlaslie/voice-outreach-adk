@@ -1,13 +1,18 @@
 """The post-op questionnaire, by text -- plan, parsers, and triage.
 
-Pure logic, no I/O, no clock, no model. Everything here is deterministic so
+Pure logic, no clock, no model; the only I/O is reading the campaign file once
+(:func:`sms_campaign`, cached). Everything here is deterministic so
 that a clinical decision can be pointed at a line of code, which is the whole
 reason this path has no LLM in it.
 
 Three things live here:
 
 * **The plan** (:func:`build_plan`) -- which questions this patient gets, fixed
-  before the first one is sent so ``(n/N)`` can never change mid-flow.
+  before the first one is sent so ``(n/N)`` can never change mid-flow. The
+  order and the follow-ups come from ``config/campaigns/post_op.yaml`` (the
+  questions' order, ``when`` and ``when_patient``); the ids, parsers and triage
+  stay here, and :func:`plan_problems` rejects a campaign that names a question
+  this module cannot parse or triage.
 * **The parsers** -- what a handset actually sends, not what a form designer
   wishes it sent.
 * **The triage** (:func:`triage`) -- ``<escalation_criteria>`` from
@@ -22,6 +27,11 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import cache
+from pathlib import Path
+
+from .campaign import Campaign, Question, load_campaign, norm_answer
+from .config import ConfigError, find_config_dir
 
 # --- The plan -----------------------------------------------------------------
 
@@ -54,7 +64,30 @@ F_SUGAR_READING = "blood_sugar_reading"
 #: collects one or more.
 F_PATIENT_QUESTIONS = "patient_questions"
 
-_PAIN_FOLLOWUPS = (F_PAIN_SEVERITY, F_PAIN_LOCATION, F_PAIN_TREND)
+#: The by-text questionnaire is the post-op campaign.
+SMS_CAMPAIGN_ID = "post_op"
+#: Patient-context flags a question's ``when_patient`` may test.
+KNOWN_PATIENT_FLAGS = frozenset({"is_diabetic"})
+
+
+@cache
+def sms_campaign() -> Campaign:
+    """The campaign the SMS questionnaire is built from (read once per process).
+
+    Raises ValueError if it names a question this module cannot handle, so a
+    bad edit fails on the first text rather than mid-questionnaire.
+    """
+    try:
+        cdir = find_config_dir()
+    except ConfigError:
+        # Running outside the repo root (and without VOA_CONFIG_DIR): look up
+        # from this file, which finds the workspace's config/ in development.
+        cdir = find_config_dir(Path(__file__).parent)
+    c = load_campaign(SMS_CAMPAIGN_ID, cdir)
+    problems = plan_problems(c)
+    if problems:
+        raise ValueError(f"campaign {c.id!r} cannot drive the SMS questionnaire: {problems}")
+    return c
 
 
 def coerce_bool(value) -> bool:
@@ -71,24 +104,83 @@ def coerce_bool(value) -> bool:
     return bool(value)
 
 
-def build_plan(patient_context: dict | None) -> list[str]:
-    """The numbered questions this patient will be asked, in order."""
-    plan = [Q_OVERALL, Q_PAIN, Q_FEVER, Q_INCISION, Q_SWELLING, Q_SLEEP]
-    if coerce_bool((patient_context or {}).get("is_diabetic")):
-        plan.append(Q_SUGAR)
-    plan.append(Q_HAS_QUESTIONS)
-    return plan
+def _patient_matches(q: Question, patient_context: dict) -> bool:
+    for key, want in q.when_patient.items():
+        have = patient_context.get(key)
+        if isinstance(want, bool):
+            # coerce_bool, not norm_answer: "1"/"on" from Firestore are true here,
+            # as they always were for the SMS plan.
+            if coerce_bool(have) != want:
+                return False
+        elif norm_answer(have) != norm_answer(want):
+            return False
+    return True
 
 
-def followups_for(field: str, answer: str) -> tuple[str, ...]:
-    """Unnumbered follow-ups triggered by an answer to a numbered question."""
-    if field == Q_PAIN and answer == "yes":
-        return _PAIN_FOLLOWUPS
-    if field == Q_INCISION and answer == "yes":
-        return (F_INCISION_DESC,)
-    if field == Q_SWELLING and answer == "yes":
-        return (F_SWELLING_DESC,)
-    return ()
+def build_plan(patient_context: dict | None, campaign: Campaign | None = None) -> list[str]:
+    """The numbered questions this patient will be asked, in order.
+
+    The campaign's questions without a ``when`` (follow-ups are unnumbered),
+    in campaign order, filtered by ``when_patient``.
+    """
+    c = campaign or sms_campaign()
+    ctx = patient_context or {}
+    return [q.id for q in c.questions if not q.when and _patient_matches(q, ctx)]
+
+
+def followups_for(field: str, answer: str, campaign: Campaign | None = None) -> tuple[str, ...]:
+    """Unnumbered follow-ups triggered by an answer to a numbered question.
+
+    The campaign's questions whose ``when`` is this answer, in campaign order.
+    """
+    c = campaign or sms_campaign()
+    got = norm_answer(answer)
+    return tuple(q.id for q in c.questions if field in q.when and norm_answer(q.when[field]) == got)
+
+
+def plan_problems(c: Campaign) -> list[str]:
+    """Why this campaign cannot drive the SMS questionnaire (empty if it can).
+
+    Every question id needs a parser and a triage meaning here; a ``when`` must
+    point at an earlier numbered question (the text flow has one level of
+    follow-ups); ``when_patient`` may only test flags the code knows.
+    """
+    out: list[str] = []
+    ids = [q.id for q in c.questions]
+    seen: dict[str, Question] = {}
+    for q in c.questions:
+        if q.id not in _PARSERS:
+            out.append(
+                f"{q.id}: unknown question id (a new question needs a parser and a "
+                "triage entry in voa_core/survey.py)"
+            )
+        if q.id in seen:
+            out.append(f"{q.id}: listed twice")
+        for key in q.when:
+            if key not in ids:
+                out.append(f"{q.id}: `when` refers to unknown question {key!r}")
+            elif key not in seen:
+                out.append(f"{q.id}: `when` refers to {key!r}, which is not asked before it")
+            elif seen[key].when:
+                out.append(
+                    f"{q.id}: `when` refers to {key!r}, which is itself a follow-up "
+                    "(the text flow has one level of follow-ups)"
+                )
+        if len(q.when) > 1:
+            out.append(f"{q.id}: `when` may test only one earlier answer")
+        if q.when and q.when_patient:
+            out.append(f"{q.id}: a follow-up cannot also have `when_patient`")
+        for key in q.when_patient:
+            if key not in KNOWN_PATIENT_FLAGS:
+                out.append(f"{q.id}: `when_patient` tests unknown flag {key!r}")
+        seen[q.id] = q
+    for field in _PARSERS:
+        if field not in ids:
+            out.append(
+                f"{field}: missing (removing a question needs a developer: the filed "
+                "report and triage expect it)"
+            )
+    return out
 
 
 # --- Parsers ------------------------------------------------------------------

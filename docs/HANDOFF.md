@@ -174,3 +174,21 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
     - Swelling: if the reply already says which side and whether it's changing, the follow-up is skipped. Otherwise it asks only the missing part.
     - "Left/right foot" now counts as one-sided swelling (same day).
   - **By voice:** an instruction rule plus notes on the two follow-ups in `config/campaigns/post_op.yaml`.
+
+## 19 Oct: questionnaire wording editable in one file (not deployed)
+
+**What changed.** The SMS questionnaire wording moved from `voa_core/copy.py` into `config/campaigns/post_op.yaml`, beside the voice wording. A non-developer can now reword both channels in one file. The guide is `docs/EDITING-QUESTIONS.md`.
+- Each question has `sms`. `pain_location` also has `sms_if_known` (`{site}`), and `swelling_description` has `sms_if_side_known` / `sms_if_trend_known`.
+- A new `sms_scripts` section holds the preamble, the numbering, the re-ask line, the questions loop, the closings, the medication reminder, `cut_short` and `file_failed`.
+- The SMS plan order and the follow-ups now come from the campaign's question order, `when` and `when_patient` (`survey.build_plan` / `followups_for`). The ids, parsers, `STRICT_FIELDS` / `UNKNOWNABLE` and triage stay in `survey.py`.
+
+**What stayed in code, and why.** The invite, the menu, the scheduling replies, the DOB gate, STOP/HELP and `survey_stopped` all stay in `copy.py`. They are sent before identity is verified (`survey_stopped` is also sent at the DOB gate), or they are carrier-registered compliance copy, so a change there is a privacy and compliance review rather than a rewording. Triage, patient-question priorities and the swelling rules stay code: they are clinical decisions and deliberately deterministic.
+
+**Guards.**
+- `test_sms_golden.py` holds every outbound message of five SMS walks plus the closings, captured before the move. The texts are byte-identical, so a deliberate rewording must update it.
+- `test_campaign_editable.py` and the runtime checks (`survey.plan_problems`, `copy.sms_copy_problems`) reject: a missing `sms`, an unknown or removed question id, a `when` on an unknown, later or follow-up question, an unknown `when_patient` flag, unknown or dropped placeholders, an unknown `sms_scripts` key, a variant on the wrong question, and non-GSM-7 characters.
+- The checks run on the first text after a deploy. A bad file fails loudly there instead of failing halfway through a patient's questionnaire.
+
+**One difference kept on purpose.** `when_patient: {is_diabetic: true}` is read with `coerce_bool` for SMS ("1"/"on" count as true, as before) but with `norm_answer` for voice (unchanged). Unifying the two would change one channel's behaviour.
+
+**Next.** Load the campaign from GCS or Firestore so that edits apply without a redeploy. Today the file is baked into the images: deploy `gateway` and `api` together.

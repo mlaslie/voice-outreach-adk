@@ -13,8 +13,10 @@ Two rules govern everything here:
 * **Compliance text appears once**, on the invite. Repeating "Reply STOP"
   on every message is how these programmes become a nuisance.
 
-No global configuration is read: everything site-specific comes in as a
-:class:`SiteCopy`, and only the factories that need it take one.
+No global configuration is read for the copy in this file's first half:
+everything site-specific comes in as a :class:`SiteCopy`, and only the
+factories that need it take one. The questionnaire wording (second half) is
+read from ``config/campaigns/post_op.yaml``; see the note there.
 
 Every string here must stay GSM-7 (no smart quotes, dashes or ellipses): one
 non-GSM character switches the whole message to UCS-2 and cuts each segment
@@ -23,7 +25,9 @@ from 160 characters to 70.
 
 from __future__ import annotations
 
+import string as _string
 from dataclasses import dataclass
+from functools import cache as _cache
 
 
 @dataclass(frozen=True)
@@ -211,9 +215,9 @@ def session_closed(site: SiteCopy) -> str:
 # Two rules on top of the ones at the top of this file:
 #
 # * NOTHING CLINICAL BEFORE VERIFICATION. Everything from ask_dob() up to the
-#   verified() line must be readable by a stranger holding the handset without
-#   disclosing anything. The questions themselves are clinical, which is the
-#   entire reason the DOB gate exists.
+#   preamble (sms_scripts.preamble in the campaign) must be readable by a
+#   stranger holding the handset without disclosing anything. The questions
+#   themselves are clinical, which is the entire reason the DOB gate exists.
 # * NEVER NARRATE A FAILED MATCH. <safety_first_rules> forbids confirming that
 #   a record exists or explaining why verification failed. "That's not the
 #   date we have" tells an unknown reader they have found a real patient.
@@ -248,68 +252,205 @@ def dob_failed() -> str:
     )
 
 
+def survey_stopped() -> str:
+    """They replied C. Not an opt-out -- they can still be called.
+
+    Stays in code, not in the campaign: it is also sent at the DOB gate, i.e.
+    BEFORE verification, so it falls under the no-clinical-content rule above.
+    """
+    return (
+        "No problem, we've stopped the questions. Your care team can follow up with you directly."
+    )
+
+
+# =============================================================================
+# The questionnaire wording: read from config/campaigns/post_op.yaml.
+#
+# The questions (`sms`, `sms_if_*`) and the questionnaire's own lines
+# (`sms_scripts`) are campaign data so a non-developer can reword them in one
+# file for both channels (docs/EDITING-QUESTIONS.md). Everything ABOVE this
+# line stays in code on purpose: the invite, menu, scheduling replies, DOB gate
+# and STOP/HELP are sent before identity is verified or are compliance copy
+# registered with the carrier (A2P 10DLC), so changing them is a privacy and
+# compliance review, not a rewording.
+#
+# A2P NOTE: SMS is in dry-run. Changed questionnaire copy may still need the
+# A2P 10DLC campaign's sample messages re-registered before sending goes live.
+# =============================================================================
+
+#: GSM 03.38 basic set plus the extension table. One character outside it
+#: switches the whole message to UCS-2 (70 characters a segment, not 160).
+GSM7 = frozenset(
+    "@\u00a3$\u00a5\u00e8\u00e9\u00f9\u00ec\u00f2\u00c7\n\u00d8\u00f8\r\u00c5\u00e5"
+    "\u0394_\u03a6\u0393\u039b\u03a9\u03a0\u03a8\u03a3\u0398\u039e\u00c6\u00e6\u00df\u00c9"
+    " !\"#\u00a4%&'()*+,-./0123456789:;<=>?\u00a1ABCDEFGHIJKLMNOPQRSTUVWXYZ\u00c4\u00d6\u00d1"
+    "\u00dc\u00a7\u00bfabcdefghijklmnopqrstuvwxyz\u00e4\u00f6\u00f1\u00fc\u00e0^{}\\[~]|\u20ac"
+)
+
+#: sms_scripts keys -> the placeholders each may use. All keys are required.
+SMS_SCRIPT_PLACEHOLDERS: dict[str, frozenset[str]] = {
+    "preamble": frozenset({"total"}),
+    "numbered_question": frozenset({"number", "total", "question"}),
+    "unclear_answer": frozenset({"question"}),
+    "ask_question": frozenset(),
+    "another_question": frozenset(),
+    "question_noted": frozenset({"question", "another_question"}),
+    "question_noted_last": frozenset({"question"}),
+    "closing_routine": frozenset({"questions_follow_up", "medication_reminder"}),
+    "closing_urgent": frozenset({"questions_follow_up", "medication_reminder"}),
+    "questions_follow_up": frozenset(),
+    "medication_reminder": frozenset(),
+    "cut_short": frozenset(),
+    "file_failed": frozenset(),
+}
+#: Placeholders a template must keep: without them the message loses its point.
+SMS_SCRIPT_REQUIRED: dict[str, frozenset[str]] = {
+    "numbered_question": frozenset({"question"}),
+    "unclear_answer": frozenset({"question"}),
+    # Clinic request (19 Oct 2026): every completed questionnaire ends with it.
+    "closing_routine": frozenset({"questions_follow_up", "medication_reminder"}),
+    "closing_urgent": frozenset({"questions_follow_up", "medication_reminder"}),
+}
+#: Per-question SMS variants: question id -> {field: placeholders}. The code
+#: (sms/conversation.py) picks the variant; a variant on any other question
+#: would never be sent, so it is rejected rather than silently ignored.
+SMS_QUESTION_VARIANTS: dict[str, dict[str, frozenset[str]]] = {
+    "pain_location": {"sms_if_known": frozenset({"site"})},
+    "swelling_description": {
+        "sms_if_side_known": frozenset(),
+        "sms_if_trend_known": frozenset(),
+    },
+}
+_VARIANT_FIELDS = ("sms_if_known", "sms_if_side_known", "sms_if_trend_known")
+
+
+def placeholders(template: str) -> set[str]:
+    """The {names} in a template. Raises ValueError on a stray brace."""
+    return {name for _, name, _, _ in _string.Formatter().parse(template) if name is not None}
+
+
+def sms_copy_problems(c) -> list[str]:
+    """Why this campaign's SMS wording cannot be sent (empty if it can)."""
+    out: list[str] = []
+
+    def check(where: str, text: str, allowed: frozenset[str], required=frozenset()) -> None:
+        try:
+            names = placeholders(text)
+        except ValueError as e:
+            out.append(f"{where}: bad braces ({e}); use {{name}} placeholders only")
+            return
+        for n in sorted(names - allowed):
+            ok = ", ".join(f"{{{a}}}" for a in sorted(allowed)) or "none"
+            out.append(f"{where}: unknown placeholder {{{n}}} (allowed: {ok})")
+        for n in sorted(required - names):
+            out.append(f"{where}: must keep the {{{n}}} placeholder")
+        bad = sorted(set(text) - GSM7)
+        if bad:
+            out.append(f"{where}: not plain GSM-7 text: {''.join(bad)!r}")
+
+    for q in c.questions:
+        if not q.sms.strip():
+            out.append(f"{q.id}: missing `sms` (every question is asked by text too)")
+        else:
+            check(f"{q.id}.sms", q.sms, frozenset())
+        variants = SMS_QUESTION_VARIANTS.get(q.id, {})
+        for field in _VARIANT_FIELDS:
+            text = getattr(q, field)
+            if field in variants:
+                if not text.strip():
+                    out.append(f"{q.id}: missing `{field}`")
+                else:
+                    check(f"{q.id}.{field}", text, variants[field])
+            elif text:
+                out.append(f"{q.id}: `{field}` is not used for this question")
+    for key in sorted(set(c.sms_scripts) - set(SMS_SCRIPT_PLACEHOLDERS)):
+        out.append(f"sms_scripts.{key}: unknown line (nothing sends it)")
+    for key, allowed in SMS_SCRIPT_PLACEHOLDERS.items():
+        text = c.sms_scripts.get(key, "")
+        if not text.strip():
+            out.append(f"sms_scripts.{key}: missing")
+        else:
+            check(f"sms_scripts.{key}", text, allowed, SMS_SCRIPT_REQUIRED.get(key, frozenset()))
+    return out
+
+
+@_cache
+def _campaign():
+    from . import survey
+
+    c = survey.sms_campaign()
+    problems = sms_copy_problems(c)
+    if problems:
+        raise ValueError(f"campaign {c.id!r} SMS copy is not sendable: {problems}")
+    return c
+
+
+def _q(field: str):
+    return next(q for q in _campaign().questions if q.id == field)
+
+
+def _script(key: str, **values) -> str:
+    return _campaign().sms_scripts[key].format(**values)
+
+
+@_cache
+def _question_texts() -> dict[str, str]:
+    return {q.id: q.sms for q in _campaign().questions if not q.when}
+
+
+@_cache
+def _followup_texts() -> dict[str, str]:
+    out = {q.id: q.sms for q in _campaign().questions if q.when}
+    # The questions loop's prompt: a pseudo follow-up queued after a bare YES
+    # to has_questions (not a campaign question; voice records questions with
+    # a tool instead).
+    out["patient_questions"] = _script("ask_question")
+    return out
+
+
+def question_text(field: str) -> str:
+    """A numbered question's SMS text (without the "(n/N)")."""
+    return _question_texts()[field]
+
+
+def followup_text(field: str) -> str:
+    """An unnumbered follow-up's SMS text (the default wording)."""
+    return _followup_texts()[field]
+
+
+def __getattr__(name: str):
+    # The old module constants, now read from the campaign on first use.
+    lazy = {
+        "QUESTION_TEXT": lambda: dict(_question_texts()),
+        "FOLLOWUP_TEXT": lambda: dict(_followup_texts()),
+        "ANOTHER_QUESTION": another_question,
+        "MEDICATION_LIST_REMINDER": lambda: _script("medication_reminder"),
+        "QUESTIONS_FOLLOW_UP": lambda: _script("questions_follow_up"),
+        "SWELLING_TREND_ONLY": swelling_trend_only,
+        "SWELLING_SIDE_ONLY": swelling_side_only,
+    }
+    if name in lazy:
+        return lazy[name]()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def survey_preamble(total: int) -> str:
     """Sent with question 1, immediately after a successful match."""
-    return (
-        f"Thank you, that's verified. I'll send {total} short questions, one at a time. "
-        "Just reply to each one. Reply C at any point to stop."
-    )
+    return _script("preamble", total=total)
 
 
 def question(index: int, total: int, text: str) -> str:
     """A numbered question. Follow-ups are deliberately NOT numbered."""
-    return f"({index}/{total}) {text}"
+    return _script("numbered_question", number=index, total=total, question=text)
 
-
-# The numbered questions. Wording tracks the voice agent's <wellness_check>
-# (config/campaigns/post_op.yaml) so a by-text report says the same thing a
-# call would.
-#
-# A2P NOTE: SMS is in dry-run. Patient-facing SMS copy changed on 19 Oct 2026
-# (new questions, the questions loop, the medication-list reminder in the
-# closings). Changed copy may need the A2P 10DLC campaign's sample messages
-# re-registered before this goes live -- check before turning sending on.
-QUESTION_TEXT = {
-    "overall_feeling": "How are you feeling overall since your procedure?",
-    "pain_present": "Are you having any pain right now? Reply YES or NO.",
-    "fever_reported": (
-        "Have you had a fever, or a temperature above 100.4F, since you were "
-        "discharged? Reply YES or NO."
-    ),
-    "incision_concerns": (
-        "Is there anything unusual about your incision or bandage - spreading "
-        "redness, drainage, warmth, opening, or a bad smell? Reply YES or NO."
-    ),
-    "legs_swollen": "Are your legs or feet swollen? Reply YES or NO.",
-    "sleeping_well": "Are you sleeping well? Reply YES or NO.",
-    "blood_sugar_status": (
-        "What is the range of your blood sugars? Reply with your numbers, "
-        'like "110 to 160", or say if they have been high or low.'
-    ),
-    "has_questions": (
-        "Do you have any questions for the care team? Reply NO, or type your question."
-    ),
-}
-
-# Unnumbered follow-ups. Every one of these is REQUIRED by the proxy once its
-# parent answer is "yes", so none of them is optional. ("patient_questions" is
-# the questions loop: asked after a bare YES to has_questions.)
-FOLLOWUP_TEXT = {
-    "pain_severity": (
-        "On a scale of 0 to 10, where 10 is the worst pain imaginable, what "
-        "number would you give it right now?"
-    ),
-    "pain_location": "Please describe the pain - where is it, and what does it feel like?",
-    "pain_trend": "Is it getting better, staying the same, or getting worse?",
-    "incision_description": "Can you describe what you're seeing?",
-    "swelling_description": "Is it one leg or both, and is it getting worse?",
-    "patient_questions": "What is your question? Please type it in one message.",
-}
 
 # The questions loop. The care team answers the questions -- never this line --
 # so the acknowledgement only echoes back what was recorded.
 _ECHO_MAX = 60
-ANOTHER_QUESTION = "Any other questions? Reply with your question, or NO if that's all."
+
+
+def another_question() -> str:
+    return _script("another_question")
 
 
 def _echo(question_text: str) -> str:
@@ -319,57 +460,32 @@ def _echo(question_text: str) -> str:
 
 def question_noted(question_text: str) -> str:
     """Acknowledge one question and offer another."""
-    return f'Got it: "{_echo(question_text)}". {ANOTHER_QUESTION}'
+    return _script(
+        "question_noted", question=_echo(question_text), another_question=another_question()
+    )
 
 
 def question_noted_last(question_text: str) -> str:
     """Acknowledge the last question we can take (the cap). The closing follows."""
-    return (
-        f'Got it: "{_echo(question_text)}". That\'s as many as we can take by text - '
-        "your care team can help with anything else."
-    )
+    return _script("question_noted_last", question=_echo(question_text))
 
 
 def unclear_answer(retry_text: str) -> str:
-    return f"Sorry, I didn't catch that. {retry_text}"
-
-
-def survey_stopped() -> str:
-    """They replied C. Not an opt-out -- they can still be called."""
-    return (
-        "No problem, we've stopped the questions. Your care team can follow up with you directly."
-    )
+    return _script("unclear_answer", question=retry_text)
 
 
 def survey_cut_short() -> str:
     """We stopped asking. Their answers so far are still filed."""
-    return (
-        "Thanks - we'll stop there. Your care team has what you've told us "
-        "and can follow up with you directly. In an emergency, call 911."
-    )
+    return _script("cut_short")
 
 
-#: Every completed survey ends with this (clinic request, 19 Oct 2026).
-MEDICATION_LIST_REMINDER = (
-    "Please bring a list of your current medications to your post-op follow-up clinic visit."
-)
-QUESTIONS_FOLLOW_UP = "Your care team will follow up to get your questions answered."
-
-
-def _closing(lead: str, tail: str, asked_questions: bool) -> str:
-    parts = [lead]
-    if asked_questions:
-        parts.append(QUESTIONS_FOLLOW_UP)
-    parts += [MEDICATION_LIST_REMINDER, tail]
-    return " ".join(parts)
+def _closing(key: str, asked_questions: bool) -> str:
+    qfu = _script("questions_follow_up") + " " if asked_questions else ""
+    return _script(key, questions_follow_up=qfu, medication_reminder=_script("medication_reminder"))
 
 
 def survey_done_routine(asked_questions: bool = False) -> str:
-    return _closing(
-        "That's everything - thank you. Your care team has your answers.",
-        "If anything changes or gets worse, call your care team, or 911 in an emergency.",
-        asked_questions,
-    )
+    return _closing("closing_routine", asked_questions)
 
 
 def survey_done_urgent(asked_questions: bool = False) -> str:
@@ -378,30 +494,25 @@ def survey_done_urgent(asked_questions: bool = False) -> str:
     Telling a patient who just reported 9/10 pain that "that's everything"
     and nothing more is the kind of ending that reads as being dismissed.
     """
-    return _closing(
-        "Thank you - that's everything. Based on your answers someone from your "
-        "care team will reach out to you.",
-        "If things get worse before then, call your care team, or 911 in an emergency.",
-        asked_questions,
-    )
+    return _closing("closing_urgent", asked_questions)
 
 
 def survey_file_failed() -> str:
     """The submission failed permanently. Sent once, never repeated."""
-    return (
-        "Thank you for your answers. We had a problem recording them - "
-        "please call the number on your paperwork so your care team has them."
-    )
+    return _script("file_failed")
 
 
 # Follow-ups reworded from what the patient already said (survey.known_pain_site,
 # survey.swelling_known): never ask "where?" right after they told us where.
 def pain_elsewhere(site: str) -> str:
-    return (
-        f"You mentioned pain at your {site}. Is there pain anywhere else? "
-        "Reply NO, or tell us where and what it feels like."
-    )
+    return _q("pain_location").sms_if_known.format(site=site)
 
 
-SWELLING_TREND_ONLY = "Is the swelling getting worse? Reply YES or NO."
-SWELLING_SIDE_ONLY = "Is it in one leg or foot, or both?"
+def swelling_trend_only() -> str:
+    """The side is known: ask only whether it is getting worse."""
+    return _q("swelling_description").sms_if_side_known
+
+
+def swelling_side_only() -> str:
+    """The trend is known: ask only which side."""
+    return _q("swelling_description").sms_if_trend_known

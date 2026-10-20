@@ -2,6 +2,11 @@
 
 The single source for what a call asks, in what order, and what it says. The
 voice agent's instruction, the completeness check and the SMS survey read it.
+
+The SMS wording lives here too (``Question.sms`` and its variants, and
+``Campaign.sms_scripts``); ``voa_core.copy`` formats it and ``voa_core.survey``
+derives the by-text plan from the question order. What each SMS field may
+contain is checked by ``copy.sms_copy_problems`` and ``survey.plan_problems``.
 """
 
 from __future__ import annotations
@@ -30,6 +35,13 @@ class Question(BaseModel):
     when: dict[str, str] = Field(default_factory=dict)  # earlier answer conditions
     when_patient: dict[str, Any] = Field(default_factory=dict)  # patient-context conditions
     note: str = ""
+    # SMS prompt. Required for every question in the by-text plan (checked by
+    # copy.sms_copy_problems, which also limits the variants to the questions
+    # whose code reads them).
+    sms: str = ""
+    sms_if_known: str = ""  # pain_location: the patient already named a site ({site})
+    sms_if_side_known: str = ""  # swelling_description: side said, ask only the trend
+    sms_if_trend_known: str = ""  # swelling_description: trend said, ask only the side
 
 
 class Campaign(BaseModel):
@@ -43,6 +55,8 @@ class Campaign(BaseModel):
     follow_up_tiers: list[str]
     outcomes: list[str]
     custom_vocabulary: list[str] = Field(default_factory=list)
+    #: The SMS questionnaire's own lines (preamble, questions loop, closings).
+    sms_scripts: dict[str, str] = Field(default_factory=dict)
 
     def for_patient(self, patient: dict[str, Any]) -> list[Question]:
         """Questions this patient can be asked (patient-context conditions only)."""

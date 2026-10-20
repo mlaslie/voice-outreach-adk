@@ -146,10 +146,10 @@ def _next_prompt(
     """
     if pending:
         if pending[0] == survey_mod.F_PATIENT_QUESTIONS and _questions_so_far(answers or {}):
-            return messages.ANOTHER_QUESTION, False
+            return messages.another_question(), False
         return _followup_text(pending[0], answers or {}), False
     field = plan[index]
-    return messages.question(index + 1, len(plan), messages.QUESTION_TEXT[field]), True
+    return messages.question(index + 1, len(plan), messages.question_text(field)), True
 
 
 def _followup_text(field: str, answers: dict) -> str:
@@ -159,10 +159,10 @@ def _followup_text(field: str, answers: dict) -> str:
     if field == survey_mod.F_SWELLING_DESC:
         side, trend = survey_mod.swelling_known(answers)
         if side and not trend:
-            return messages.SWELLING_TREND_ONLY
+            return messages.swelling_trend_only()
         if trend and not side:
-            return messages.SWELLING_SIDE_ONLY
-    return messages.FOLLOWUP_TEXT[field]
+            return messages.swelling_side_only()
+    return messages.followup_text(field)
 
 
 def _drop_answered(pending: list[str], answers: dict) -> list[str]:
@@ -300,7 +300,7 @@ def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
 
     if dobcheck.matches(parsed, ctx.get("patient_dob")):
         plan = survey_mod.build_plan(ctx)
-        first = messages.question(1, len(plan), messages.QUESTION_TEXT[plan[0]])
+        first = messages.question(1, len(plan), messages.question_text(plan[0]))
         return Decision(
             reply=messages.survey_preamble(len(plan)),
             extra_replies=(first,),
@@ -475,7 +475,7 @@ def _handle_question_loop(
         return _advance(session, answers, plan, pending[1:], index)
     if kind == "yes":
         return Decision(
-            reply=messages.FOLLOWUP_TEXT[survey_mod.F_PATIENT_QUESTIONS],
+            reply=messages.followup_text(survey_mod.F_PATIENT_QUESTIONS),
             state=store.STATE_SURVEY,
             retry=0,
             note="survey-question-prompt",
