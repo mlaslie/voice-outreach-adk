@@ -317,6 +317,15 @@ export interface CallSettingsResponse {
   timezone: string;
   /** Optional until every backend serves it; treat missing as 24h. */
   display?: DisplaySettings;
+  /** The company name patients hear and read (voice script, voicemail, texts). */
+  organization?: OrganizationSettings;
+}
+
+export interface OrganizationSettings {
+  org_name: string;
+  /** The configured name (site.org_name) that "Reset" returns to. */
+  default: string;
+  is_default: boolean;
 }
 
 export interface CallRunInput {

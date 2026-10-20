@@ -99,6 +99,9 @@ export function liveAdminActions(r: AdminRefreshers): AdminActions {
     async saveDisplay(body) {
       r.setSettings(await api.setDisplaySettings(body));
     },
+    async saveOrganization(orgName) {
+      r.setSettings(await api.setOrganization(orgName));
+    },
     async addNumber(phone, label, smsConsent) {
       // Two separate permissions (lib/consent.ts): the allowlist authorises
       // calls; the consent record authorises texts, and is optional.

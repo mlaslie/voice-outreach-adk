@@ -56,6 +56,8 @@ export interface AdminActions {
   saveRecall(body: RecallSettings): Promise<void>;
   /** Save how times show for nurses (12- or 24-hour). */
   saveDisplay(body: DisplaySettings): Promise<void>;
+  /** The company name patients hear and read; "" resets it to the configured one. */
+  saveOrganization(orgName: string): Promise<void>;
   /** Authorise calls to a number, and record its answer on texts (optional, separate). */
   addNumber(phone: string, label: string, smsConsent: boolean): Promise<void>;
   /** Stop authorising calls to a number. */

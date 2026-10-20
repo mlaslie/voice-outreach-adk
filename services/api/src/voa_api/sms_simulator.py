@@ -94,6 +94,7 @@ async def start(api: Api, phone: str, *, diabetic: bool, by: str) -> dict[str, A
     """Stage a missed call for the test patient and send the invite now."""
     _require_dry_run(api)
     await _require_number(api, phone)
+    await sms.refresh_org(api)
     if await sms.is_opted_out(api, phone):
         raise SimulatorError(409, "This number has opted out of texts (STOP).")
 

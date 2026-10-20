@@ -48,10 +48,12 @@ def build_voice_agent(
         patient = ctx.state.get("patient", {})
         if template is None:
             campaign = load_campaign(ctx.state.get("campaign_id", "post_op"))
-            return build_instruction(campaign, org_name=cfg.site.org_name, patient=patient)
+            # The admin console's company name, resolved by the gateway when the call starts.
+            org = ctx.state.get("org_name") or cfg.site.org_name
+            return build_instruction(campaign, org_name=org, patient=patient)
         return template.format(
             agent_name=AGENT_NAME,
-            org_name=cfg.site.org_name,
+            org_name=ctx.state.get("org_name") or cfg.site.org_name,
             patient_first_name=patient.get("first_name", ""),
             patient_last_name=patient.get("last_name", ""),
         )

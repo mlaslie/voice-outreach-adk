@@ -42,7 +42,12 @@ function Router({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
 function Sample({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
   const [data] = useState(() => demoData());
   const [settings, setSettings] = useState<CallSettingsResponse>(
-    () => ({ recall: DEFAULT_RECALL, timezone: "America/New_York", display: { time_format: "24h" } }),
+    () => ({
+      recall: DEFAULT_RECALL,
+      timezone: "America/New_York",
+      display: { time_format: "24h" },
+      organization: { org_name: "Acme Health", default: "Acme Health", is_default: true },
+    }),
   );
   // Sample numbers change in this tab only, so the page can be tried out.
   const [allowlist, setAllowlist] = useState<AllowlistResponse>(() => demoAllowlist(data.entries).allowlist);
@@ -62,6 +67,14 @@ function Sample({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
       cancelRun: explain,
       saveRecall: explain,
       // The toggle changes the format locally so the design can be seen both ways.
+      saveOrganization: async (orgName) => {
+        setSettings((s) => {
+          const def = s.organization?.default ?? "Acme Health";
+          const name = orgName.trim() || def;
+          return { ...s, organization: { org_name: name, default: def, is_default: name === def } };
+        });
+        localOnly("Company name changed");
+      },
       saveDisplay: async (body) => {
         setSettings((s) => ({ ...s, display: body }));
         setTimeFormat(body.time_format);

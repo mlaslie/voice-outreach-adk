@@ -126,12 +126,22 @@ class Retryable(Exception):
 
 
 def site_copy(api: Api) -> SiteCopy:
+    from voa_core import organization
+
     return SiteCopy(
-        org_name=api.cfg.site.org_name,
+        # The admin console's company name (refreshed by refresh_org at each entry point).
+        org_name=organization.cached(api.store, api.cfg.site.org_name),
         support_email=api.cfg.site.support_email,
         voice_number=api.cfg.sms.voice_number,
         survey_enabled=api.cfg.sms.survey_enabled,
     )
+
+
+async def refresh_org(api: Api) -> None:
+    """Load the current company name before building any patient-facing text."""
+    from voa_core import organization
+
+    await organization.org_name(api.store, api.cfg.site.org_name)
 
 
 def scheduling(api: Api) -> SchedulingPolicy:
@@ -775,6 +785,7 @@ async def handle_inbound(api: Api, phone: str, body: str, message_id: str) -> di
     if processing fails before anything was persisted, so the retry runs; once
     effects are persisted the message is consumed and never re-run.
     """
+    await refresh_org(api)
     phone = (phone or "").strip()
     body = (body or "").strip()[:MAX_INBOUND_CHARS]
     if not is_e164(phone):
@@ -1026,6 +1037,7 @@ async def submit_survey(api: Api, snap: dict) -> dict:
     the worst outcome this feature has. A retryable closing failure raises
     :class:`Retryable` (review S-3) instead of being swallowed.
     """
+    await refresh_org(api)
     filing_id = snap["filing_id"]
     phone = snap["phone"]
     marker = await api.store.get(FILINGS, filing_id) or {}
@@ -1166,6 +1178,7 @@ async def submit_survey(api: Api, snap: dict) -> dict:
 async def file_abandoned_survey(api: Api, phone: str, session: dict) -> bool:
     """A lapsed questionnaire that already carries an urgent finding is filed
     (with no outcome) rather than dropped. Anything else lapses silently."""
+    await refresh_org(api)
     if session.get("state") not in st.SURVEY_STATES or session.get("survey_submitted_at"):
         return False
     answers = session.get("survey_answers") or {}
@@ -1261,6 +1274,7 @@ async def _defer_invite(api: Api, payload: dict, opens: datetime) -> dict:
 
 
 async def send_invite(api: Api, payload: dict) -> dict:
+    await refresh_org(api)
     phone, call_id = payload.get("phone") or "", payload.get("call_id") or ""
     if not api.cfg.sms.enabled:
         return {"skipped": "sms disabled"}

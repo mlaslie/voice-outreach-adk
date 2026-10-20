@@ -262,6 +262,11 @@ export const api = {
     return request<CallSettingsResponse>("/call-settings/display", json("PUT", body));
   },
 
+  /** The company name in the voice script, voicemail and texts; "" resets it. */
+  setOrganization(orgName: string): Promise<CallSettingsResponse> {
+    return request<CallSettingsResponse>("/call-settings/organization", json("PUT", { org_name: orgName }));
+  },
+
   // ---- Outbound allowlist -------------------------------------------------
   //
   // Authorising a number means authorising real calls to it; the backend

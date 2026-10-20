@@ -135,6 +135,7 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["DELETE", `call-runs/${ID32}`],
     ["PUT", "call-settings/recall"],
     ["PUT", "call-settings/display"],
+    ["PUT", "call-settings/organization"],
     ["POST", "allowlist"],
     ["DELETE", "allowlist/%2B12025550123"],
     ["POST", "sms/consent"],

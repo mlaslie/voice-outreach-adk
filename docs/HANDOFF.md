@@ -254,3 +254,12 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 **Deploy.**
 - `scripts/deploy.sh demo admin` builds the admin image (`cloudbuild.yaml` builds `ui` and `admin` with their mode).
 - A new shared setting (`VOA__SERVICES__ADMIN_UI_SA`) means gateway, api and nurse must deploy together (trap 8).
+- **Company name in the admin console (20 Oct).**
+  - Admin → Display → Company name sets `call_settings/organization`. It falls back to `site.org_name`.
+  - `voa_core.organization` reads it through a 60 s cache, and it drives:
+    - the voice script (the gateway puts it in session state at call start);
+    - the voicemail clip (re-rendered and cached per name);
+    - every SMS (refreshed at each SMS entry point).
+  - `PUT /api/call-settings/organization` is admin-only. Validation: 2–60 GSM-7 characters, no braces. An empty name resets to the default.
+  - The UI warns that the name is part of the SMS consent wording and the A2P 10DLC brand registration.
+  - The staff UI's own logo and name are still build-time branding (admin plan step 4).

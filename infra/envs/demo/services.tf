@@ -169,6 +169,13 @@ resource "google_cloud_scheduler_job" "dispatch_due" {
 
 # Operators can mint ID tokens as the dashboard SA to exercise the private API
 # exactly as the dashboard does (local UI development, deployed e2e tests).
+resource "google_service_account_iam_member" "operators_impersonate_admin" {
+  for_each           = toset(var.operators)
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${module.sa.emails["${local.p}-admin"]}"
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = each.value
+}
+
 resource "google_service_account_iam_member" "operators_impersonate_ui" {
   for_each           = toset(var.operators)
   service_account_id = "projects/${var.project_id}/serviceAccounts/${module.sa.emails["${local.p}-ui"]}"

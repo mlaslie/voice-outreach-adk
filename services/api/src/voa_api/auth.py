@@ -99,6 +99,7 @@ ROUTE_POLICY: dict[str, frozenset[str]] = {
     "GET /api/call-settings": READ,
     "PUT /api/call-settings/recall": ADMIN,
     "PUT /api/call-settings/display": ADMIN,
+    "PUT /api/call-settings/organization": ADMIN,
     "GET /api/allowlist": READ,
     "POST /api/allowlist": ADMIN_OR_AGENT,
     "DELETE /api/allowlist/{phone}": ADMIN_OR_AGENT,

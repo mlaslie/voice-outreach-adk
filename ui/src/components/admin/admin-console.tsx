@@ -25,7 +25,7 @@ import { SmsNumberCard } from "@/components/nurse/sms-number-card";
 import { RunsPanel } from "./runs-panel";
 import { PatientsPanel } from "./patients-panel";
 import { AllowlistPanel, ConsentMap } from "./allowlist-panel";
-import { TextLimitPanel, TimeDisplayPanel } from "./settings-panels";
+import { CompanyNamePanel, TextLimitPanel, TimeDisplayPanel } from "./settings-panels";
 
 export type Section = "schedules" | "patients" | "numbers" | "messaging" | "display";
 
@@ -39,7 +39,7 @@ const SECTIONS: { key: Section; label: string; short: string; blurb: string; ico
   { key: "messaging", label: "Messaging", short: "Texts", icon: MessageSquareText,
     blurb: "The shared SMS number, the missed-call text limit, and a dry-run text test." },
   { key: "display", label: "Display", short: "Display", icon: Clock,
-    blurb: "How times show for nurses." },
+    blurb: "The company name patients hear and read, and how times show for nurses." },
 ];
 
 export interface AdminData {
@@ -196,7 +196,10 @@ export function AdminConsole({
                 </>
               ) : null}
               {section === "display" ? (
-                <TimeDisplayPanel saved={settings?.display?.time_format ?? null} actions={actions} />
+                <>
+                  <CompanyNamePanel org={settings?.organization ?? null} actions={actions} />
+                  <TimeDisplayPanel saved={settings?.display?.time_format ?? null} actions={actions} />
+                </>
               ) : null}
             </div>
           </div>

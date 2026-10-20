@@ -117,11 +117,17 @@ class Gateway:
         self._twilio_token: str | None = None
         self._softphone_secret: str | None = None
 
-    def voicemail_text(self) -> str:
-        return load_campaign("post_op").script("voicemail", org_name=self.cfg.site.org_name)
+    def voicemail_text(self, org_name: str | None = None) -> str:
+        return load_campaign("post_op").script(
+            "voicemail", org_name=org_name or self.cfg.site.org_name
+        )
 
     async def voicemail_clip(self) -> bytes | None:
-        return await self.prompts.ensure(self.voicemail_text())
+        # The clip says the company name: a new name renders (and caches) a new clip.
+        from voa_core import organization
+
+        org = await organization.org_name(self.store, self.cfg.site.org_name)
+        return await self.prompts.ensure(self.voicemail_text(org))
 
     def _secret(self, ref: str) -> str:
         """Resolve a secret, failing closed: a missing secret or version yields ""

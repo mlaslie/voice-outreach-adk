@@ -195,10 +195,23 @@ class CallSession:
                 self.sink.remember_patient(self.call_id, self.patient_override)
             if not patient:
                 self.timeline.add("call.no_patient_context")
+            from voa_core import organization
+
+            store = getattr(self.sink, "store", None)
+            org = (
+                await organization.org_name(store, self.cfg.site.org_name)
+                if store is not None
+                else self.cfg.site.org_name
+            )
             session = await self.runner.session_service.create_session(
                 app_name=self.runner.app_name,
                 user_id=self.call_id,
-                state={"patient": patient, "campaign_id": self.campaign_id, "answers": {}},
+                state={
+                    "patient": patient,
+                    "campaign_id": self.campaign_id,
+                    "answers": {},
+                    "org_name": org,  # the admin console's company name (or config)
+                },
             )
             self.session_id = session.id
             self.facts = call_facts.register(session.id)

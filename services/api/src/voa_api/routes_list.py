@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 from urllib.parse import unquote
@@ -24,6 +25,7 @@ from .models import (
 )
 from .routes_calls import api_of
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", dependencies=[Depends(api_of)])
 CURRENT_RUN = "current"
 
@@ -78,10 +80,16 @@ async def hours_text(api: Api, cfg: compliance.RecallSettings) -> str:
 
 
 async def _settings_body(api: Api, recall: compliance.RecallSettings | None = None) -> dict:
+    from voa_core import organization
+
+    default = api.cfg.site.org_name
+    name = await organization.org_name(api.store, default)
     return {
         "recall": (recall or await recall_settings(api)).model_dump(),
         "timezone": _tz(api),
         "display": {"time_format": await nurse_time_format(api)},
+        # The company name patients hear and read; "default" is the configured one.
+        "organization": {"org_name": name, "default": default, "is_default": name == default},
     }
 
 
@@ -580,6 +588,46 @@ async def put_recall(body: compliance.RecallSettings, request: Request):
         SETTINGS, "recall", {**body.model_dump(), "updated_by": acting_user(request)}
     )
     return await _settings_body(api, body)
+
+
+class OrganizationSettings(BaseModel):
+    """The company name in the voice script, voicemail and texts. Empty resets it to
+    the configured default (site.org_name)."""
+
+    org_name: str | None = None
+
+
+@router.put("/call-settings/organization")
+async def put_organization(body: OrganizationSettings, request: Request):
+    from voa_core import organization
+
+    api = _api(request)
+    if body.org_name and body.org_name.strip():
+        try:
+            name = organization.validate(body.org_name)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        await api.store.set(
+            organization.COLLECTION,
+            organization.DOC_ID,
+            {
+                "org_name": name,
+                "updated_by": acting_user(request),
+                "updated_at": now_iso(api.now()),
+            },
+        )
+    else:
+        await api.store.delete(organization.COLLECTION, organization.DOC_ID)
+    organization.forget(api.store)
+    log.info(
+        "company name changed",
+        extra={
+            "event": "organization.changed",
+            "by": acting_user(request),
+            "reset": not body.org_name,
+        },
+    )
+    return await _settings_body(api)
 
 
 class DisplaySettings(BaseModel):

@@ -81,6 +81,7 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["GET", /^call-settings$/, "both"],
   ["PUT", /^call-settings\/recall$/, "admin"],
   ["PUT", /^call-settings\/display$/, "admin"],
+  ["PUT", /^call-settings\/organization$/, "admin"],
 
   // Outbound allowlist
   ["GET", /^allowlist$/, "both"],
