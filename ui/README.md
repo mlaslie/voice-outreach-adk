@@ -56,7 +56,7 @@ the components use; only their transport changed.
 | `NEXT_PUBLIC_SUPPORT_EMAIL` | build | Help / withdrawal address under the consent checkbox. |
 | `NEXT_PUBLIC_PRIVACY_URL`, `NEXT_PUBLIC_TERMS_URL` | build | Policy links beside the consent checkbox. |
 | `NEXT_PUBLIC_LOGO_URL`, `NEXT_PUBLIC_LOGO_WIDE_URL` | build, optional | Nurse-console logos (a path under `public/` or a full URL). Unset shows a placeholder mark. `public/brand/` is gitignored: never commit a real organisation's logo. |
-| `APP_MODE` → `NEXT_PUBLIC_APP_MODE` | build | `nurse` (default; service `voa-ui`, the nurse console at `/nurse`, plus `/classic`) or `admin` (service `voa-admin`, the admin console at `/admin`). The Docker build refuses any other value. `src/middleware.ts` serves only that build's pages, and the BFF refuses the other build's API routes (`src/lib/bff.ts`). Locally: `NEXT_PUBLIC_APP_MODE=admin npm run dev`. |
+| `APP_MODE` → `NEXT_PUBLIC_APP_MODE` | build | `nurse` (default; service `voa-ui`, the nurse console at `/nurse`; the retired `/classic` redirects there) or `admin` (service `voa-admin`, the admin console at `/admin`). The Docker build refuses any other value. `src/middleware.ts` serves only that build's pages, and the BFF refuses the other build's API routes (`src/lib/bff.ts`). Locally: `NEXT_PUBLIC_APP_MODE=admin npm run dev`. |
 | `ADMIN_CONSOLE_URL` | runtime, nurse service, optional | The admin console's URL. Set ⇒ the nurse sidebar shows an "Admin console" link and the SMS indicator links there. |
 | `NURSE_CONSOLE_URL` | runtime, admin service, optional | The nurse console's URL. Set ⇒ the admin sidebar shows "Open nurse console". |
 

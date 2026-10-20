@@ -40,9 +40,15 @@ from .models import (
 log = logging.getLogger(__name__)
 
 
-def api_of(request: Request) -> Api:
-    authorize(request)  # per-route roles (auth.ROUTE_POLICY)
-    return request.app.state.api
+async def api_of(request: Request):
+    """Per-route roles (auth.ROUTE_POLICY), then, after a successful configuration
+    change, one audit line (audit.py)."""
+    authorize(request)
+    api: Api = request.app.state.api
+    yield api
+    from . import audit
+
+    await audit.record(api, request)
 
 
 router = APIRouter(prefix="/api", dependencies=[Depends(api_of)])
@@ -463,6 +469,44 @@ async def place_call(body: PlaceCallRequest, request: Request):
     except DialError as exc:
         raise HTTPException(exc.status, exc.detail) from None
     return {"call_sid": call_id, "status": "queued"}
+
+
+@router.get("/calls/{call_id}/events")
+async def call_events(call_id: str, request: Request):
+    """The gateway's millisecond timeline for one call (admin diagnostics). Events
+    carry names and statuses only: tool names and results, never patient answers."""
+    _check_id(call_id)
+    api: Api = request.app.state.api
+    doc = await api.store.get(EVENTS, call_id) or {}
+    tl = list(doc.get("timeline") or [])
+
+    def first(name: str):
+        return next((e.get("ms") for e in tl if e.get("event") == name), None)
+
+    start, audio = first("media.start"), first("agent.audio_start")
+    return {
+        "call_id": call_id,
+        "available": bool(tl),
+        "timeline": tl,
+        "summary": {
+            "events": len(tl),
+            "first_audio_ms": (audio - start) if audio is not None and start is not None else None,
+            "tool_calls": sum(1 for e in tl if e.get("event") == "tool.call"),
+            "interruptions": sum(1 for e in tl if e.get("event") == "agent.interrupted"),
+            "errors": sum(1 for e in tl if str(e.get("event", "")).startswith("live.")),
+        },
+    }
+
+
+@router.get("/audit")
+async def audit_log(request: Request, limit: int = 200):
+    """Configuration changes, newest first (audit.py)."""
+    from . import audit
+
+    api: Api = request.app.state.api
+    rows = await api.store.query(audit.COLLECTION)
+    rows.sort(key=lambda r: r[1].get("at", ""), reverse=True)
+    return {"entries": [{"id": i, **d} for i, d in rows[: max(1, min(limit, 1000))]]}
 
 
 @router.post("/calls/{call_id}/recording-link")

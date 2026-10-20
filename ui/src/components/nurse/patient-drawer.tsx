@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { toast } from "sonner";
-import { ArrowUpRight, CalendarClock, CalendarPlus, History, PenLine, Phone, Plus, X, XCircle } from "lucide-react";
+import { CalendarClock, CalendarPlus, History, PenLine, Phone, Plus, X, XCircle } from "lucide-react";
 import { CallDoc, CallRun, CallSettingsResponse, CancelEvent } from "@/lib/types";
 import { inCallingWindow, isoToZonedInput, nextCallingSlot, windowText, zonedInputToIso } from "@/lib/nurse/window";
 import { DEFAULT_RECALL } from "./recall-settings";
@@ -162,11 +162,6 @@ function Body({
           <a href={`tel:${s.phone}`} className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-brand-deep transition-transform hover:-translate-y-px">
             <Phone className="h-3.5 w-3.5" /> Call {formatPhone(s.phone)}
           </a>
-          {call ? (
-            <a href="/classic" className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-4 py-2 text-[13px] font-semibold text-white ring-1 ring-white/20 transition-colors hover:bg-white/15">
-              Full record <ArrowUpRight className="h-3.5 w-3.5" />
-            </a>
-          ) : null}
         </div>
         {tabs.length > 1 ? (
           <div className="relative mt-5 flex gap-1 rounded-full bg-black/20 p-1" role="tablist">

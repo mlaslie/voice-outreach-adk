@@ -5,7 +5,9 @@ import { AppMode } from "./mode";
  * without Next (src/middleware.ts applies it).
  *
  *   admin build:  /  -> /admin;  /nurse and /classic -> /admin
- *   nurse build:  /admin -> 404
+ *   nurse build:  /admin -> 404;  /classic -> /nurse
+ *   (/classic was the retired classic dashboard; old bookmarks land on the
+ *   build's console.)
  *   both:         /api/backend/*, /health, /_next/* and static files pass
  *
  * The BFF (lib/bff.ts) separately refuses the other build's API routes, so
@@ -40,5 +42,6 @@ export function decideRoute(mode: AppMode, pathname: string): RouteDecision {
     return NEXT;
   }
   if (under(pathname, "/admin")) return { action: "not_found" };
+  if (under(pathname, "/classic")) return { action: "redirect", to: "/nurse" };
   return NEXT;
 }

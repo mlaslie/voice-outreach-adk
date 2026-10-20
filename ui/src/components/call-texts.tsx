@@ -88,12 +88,22 @@ export function CallTexts({
     );
   }
 
+  return <TextThread messages={messages} caption={`${messages.length} message${messages.length === 1 ? "" : "s"} for this call`} />;
+}
+
+/**
+ * A text thread, oldest first: our texts on the left, the patient's on the
+ * right. Presentational only, so sample data can use it without a request.
+ */
+export function TextThread({ messages, caption }: { messages: SmsMessage[]; caption?: string }) {
   return (
     <div className="space-y-2">
-      <p className="flex items-center gap-1.5 text-xs text-ink-soft">
-        <MessageSquare className="h-3.5 w-3.5" />
-        {messages.length} message{messages.length === 1 ? "" : "s"} for this call
-      </p>
+      {caption ? (
+        <p className="flex items-center gap-1.5 text-xs text-ink-soft">
+          <MessageSquare className="h-3.5 w-3.5" />
+          {caption}
+        </p>
+      ) : null}
       <ol className="space-y-2">
         {messages.map((m) => {
           const outbound = m.direction === "outbound";

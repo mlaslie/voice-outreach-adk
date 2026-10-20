@@ -127,7 +127,7 @@ export function SidebarShell({
   );
 }
 
-/** A sidebar footer link to a page outside this console (the other console, classic). */
+/** A sidebar footer link to a page outside this console (the other console). */
 export function SidebarLink({
   href,
   icon: Icon,

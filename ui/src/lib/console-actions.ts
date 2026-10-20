@@ -1,9 +1,10 @@
 import { toast } from "sonner";
 import { api } from "./api";
 import { CONSENT_VERSION, consentLabel } from "./consent";
-import { setSmsConsent } from "./followups";
+import { cancelCallback, fetchMessages, setSmsConsent } from "./followups";
 import { deleteInChunks } from "./nurse/delete-calls";
-import { AdminActions, NurseActions } from "./nurse/actions";
+import { BULK_LIMIT, importInChunks } from "./call-list-csv";
+import { AdminActions, AdminReads, NurseActions } from "./nurse/actions";
 import { CallSettingsResponse } from "./types";
 
 /**
@@ -38,6 +39,11 @@ export function liveNurseActions(r: NurseRefreshers): NurseActions {
       r.refreshEntries();
       r.refreshRuns();
     },
+    async placeCall(body) {
+      const res = await api.placeCall(body);
+      r.refreshCalls();
+      return res.call_sid;
+    },
     async setFollowUp(sid, body) {
       const updated = await api.setFollowUp(sid, body);
       r.refreshCalls();
@@ -56,6 +62,7 @@ export function liveNurseActions(r: NurseRefreshers): NurseActions {
 
 export interface AdminRefreshers {
   refresh(): void;
+  refreshFollowUps(): void;
   refreshEntries(): void;
   refreshRuns(): void;
   refreshAllowlist(): void;
@@ -74,6 +81,13 @@ export function liveAdminActions(r: AdminRefreshers): AdminActions {
       await api.deleteCallListEntry(id);
       r.refreshEntries();
       r.refreshRuns(); // the backend drops a deleted patient from their run
+    },
+    async importEntries(entries, onProgress) {
+      try {
+        return await importInChunks(entries, async (chunk) => (await api.bulkCreateCallListEntries(chunk)).count, BULK_LIMIT, onProgress);
+      } finally {
+        r.refreshEntries();
+      }
     },
     async resetCompleted() {
       await api.resetCallList();
@@ -118,9 +132,28 @@ export function liveAdminActions(r: AdminRefreshers): AdminActions {
       await setSmsConsent(phone, granted, CONSENT_VERSION);
       r.refreshAllowlist();
     },
+    async cancelCallback(callbackId) {
+      await cancelCallback(callbackId);
+      r.refreshFollowUps();
+    },
+    async startTestCall() {
+      const { softphone_url, expires_in } = await api.startTestCall();
+      return { softphone_url, expires_in };
+    },
     refresh: r.refresh,
   };
 }
+
+/** The admin console's on-demand reads, from the API. */
+export const liveAdminReads: AdminReads = {
+  async messages(phone, callSid) {
+    return (await fetchMessages(phone, callSid)).messages ?? [];
+  },
+  callEvents: (callId) => api.getCallEvents(callId),
+  async audit() {
+    return (await api.getAudit(200)).entries ?? [];
+  },
+};
 
 /** Sample data: every action explains itself instead of calling the API. */
 export function explainSample(): Promise<void> {

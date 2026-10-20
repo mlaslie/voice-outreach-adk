@@ -56,6 +56,10 @@ function Sample({ adminConsoleUrl }: { adminConsoleUrl: string | null }) {
       callEntries: explain,
       cancelEntries: explain,
       rescheduleEntry: explain,
+      placeCall: async () => {
+        toast.info("Sample data: nothing is sent. No call was placed.");
+        return null;
+      },
       setFollowUp: async (sid, body) => {
         await explain();
         const call = data.calls.find((c) => (c.call_sid ?? c.doc_id) === sid);

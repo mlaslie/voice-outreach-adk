@@ -1,6 +1,6 @@
 # Nurse UI and Admin UI, EHR scheduling API, branding: plan
 
-**Status:** proposal (20 Oct 2026). Nothing is built yet.
+**Status:** steps 1 and 2 built and deployed (20 Oct 2026); steps 3–6 proposed.
 
 **Companion plans:**
 - `docs/ANALYTICS-PLAN.md`: its Analytics tab lands in the nurse UI.

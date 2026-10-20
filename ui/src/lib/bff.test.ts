@@ -11,6 +11,7 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", `calls/${SID}`],
     ["GET", `calls/${SID}/transcript`],
     ["GET", `calls/${SID}/recording`],
+    ["GET", `calls/${SID}/events`],
     ["POST", `calls/${SID}/follow-up`],
     ["POST", "calls/batch-delete"],
     ["GET", "follow-ups/open"],
@@ -49,6 +50,7 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["POST", "sms/test/reply"],
     ["GET", "sms/control"],
     ["POST", "sms/control"],
+    ["GET", "audit"],
   ])("allows %s %s (in the build that owns it)", (method, path) => {
     expect(matchRoute(method, path, "nurse") ?? matchRoute(method, path, "admin")).not.toBeNull();
   });
@@ -82,6 +84,10 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", "SMS/control"],
     ["POST", "twilio/sms"], // the webhook itself is never reachable through the BFF
     ["GET", "admin"],
+    ["DELETE", "audit"], // the audit log is read-only
+    ["POST", "audit"],
+    ["GET", "audit/x"],
+    ["POST", `calls/${SID}/events`],
     ["GET", ""],
     ["GET", "calls/"],
     ["GET", "/calls"],
@@ -143,17 +149,25 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["POST", "sms/control"],
     ["POST", "sms/test/start"],
     ["POST", "sms/test/reply"],
+    ["POST", "test-call"], // Admin → Testing ("Test in browser")
+  ];
+  // Admin-only reads: the engineering timeline and the audit log.
+  const ADMIN_READS: [string, string][] = [
+    ["GET", `calls/${SID}/events`],
+    ["GET", "audit"],
   ];
   // Clinical work: the nurse console only.
   const NURSE_ROUTES: [string, string][] = [
     ["POST", `calls/${SID}/follow-up`],
     ["POST", "calls/batch-delete"],
     ["POST", "place-call"],
-    ["POST", "test-call"],
     ["POST", "call-list/cancel"],
     ["POST", `call-list/${ID32}/reschedule`],
     ["POST", "call-list/run"],
     ["POST", "call-list/run/cancel"],
+  ];
+  // Writes both consoles may make: cancelling a booked text callback.
+  const BOTH_WRITES: [string, string][] = [
     ["DELETE", "sms/callbacks/cb_123"],
   ];
   // Not proxied at all yet (no screen uses them); refused by both builds,
@@ -193,6 +207,16 @@ describe("matchRoute: each build calls only its own routes", () => {
     expect(matchRoute(method, path, "nurse")).not.toBeNull();
   });
 
+  it.each(ADMIN_READS)("the nurse build refuses admin read %s %s; the admin build allows it", (method, path) => {
+    expect(matchRoute(method, path, "nurse")).toBeNull();
+    expect(matchRoute(method, path, "admin")).not.toBeNull();
+  });
+
+  it.each(BOTH_WRITES)("both builds allow write %s %s", (method, path) => {
+    expect(matchRoute(method, path, "nurse")).not.toBeNull();
+    expect(matchRoute(method, path, "admin")).not.toBeNull();
+  });
+
   it.each(NURSE_NOT_PROXIED)("the admin build refuses %s %s", (method, path) => {
     expect(matchRoute(method, path, "admin")).toBeNull();
   });
@@ -202,22 +226,28 @@ describe("matchRoute: each build calls only its own routes", () => {
     expect(matchRoute(method, path, "admin")).not.toBeNull();
   });
 
-  it("tags every GET 'both' and every write 'nurse' or 'admin'", () => {
-    for (const [method, re, scope] of ALLOWED_ROUTES) {
-      if (method === "GET") expect(scope, String(re)).toBe("both");
-      else expect(["nurse", "admin"], `${method} ${re}`).toContain(scope);
+  it("tags every GET 'both' except the admin-only reads listed above", () => {
+    const adminReads = ALLOWED_ROUTES.filter(([m, , scope]) => m === "GET" && scope !== "both");
+    expect(adminReads.every(([, , scope]) => scope === "admin")).toBe(true);
+    expect(adminReads.length).toBe(ADMIN_READS.length);
+    for (const [method, path] of ADMIN_READS) {
+      expect(adminReads.some(([, re]) => re.test(path)), `${method} ${path}`).toBe(true);
     }
   });
 
-  it("lists every write route above, so a new one has to be placed in a build", () => {
-    const writes = ALLOWED_ROUTES.filter(([m]) => m !== "GET").length;
-    expect(ADMIN_ROUTES.length + NURSE_ROUTES.length).toBe(writes);
-    expect(READS.length).toBe(ALLOWED_ROUTES.length - writes);
+  it("lists every route above, so a new one has to be placed in a build", () => {
+    const writes = ALLOWED_ROUTES.filter(([m]) => m !== "GET");
+    const reads = ALLOWED_ROUTES.length - writes.length;
+    expect(ADMIN_ROUTES.length + NURSE_ROUTES.length + BOTH_WRITES.length).toBe(writes.length);
+    expect(writes.filter(([, , scope]) => scope === "both").length).toBe(BOTH_WRITES.length);
+    expect(READS.length + ADMIN_READS.length).toBe(reads);
   });
 
   it("defaults to the nurse build when no mode is given (NEXT_PUBLIC_APP_MODE unset)", () => {
     expect(matchRoute("POST", "call-list/run")).not.toBeNull();
     expect(matchRoute("POST", "call-runs")).toBeNull();
+    expect(matchRoute("GET", "audit")).toBeNull();
+    expect(matchRoute("POST", "test-call")).toBeNull();
   });
 });
 

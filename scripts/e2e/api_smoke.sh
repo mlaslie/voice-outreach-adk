@@ -34,7 +34,7 @@ check 422 "$(acode -X POST "$API/api/call-list" -d '{"phone":"+12025550177","pat
 acode -X DELETE "$API/api/allowlist/%2B12025550177" >/dev/null
 got="$(code -X POST "$API/api/place-call" -d '{"phone":"+12025550177","patient_name":"Smoke Test","patient_id":"SMOKE-1","patient_dob":"1950-03-15"}')"
 if [[ "$got" == 403 || "$got" == 503 ]]; then echo "ok   place-call to a non-allowlisted number refused ($got)"; else echo "FAIL place-call not refused: $got"; fail=1; fi
-check 200 "$(code -X POST "$API/api/test-call" -d "{\"entry_id\":\"$ENTRY\"}")" "POST /api/test-call"
+check 200 "$(acode -X POST "$API/api/test-call" -d "{\"entry_id\":\"$ENTRY\"}")" "POST /api/test-call (admin: Testing)"
 SOFTPHONE="$(python3 -c 'import json;print(json.load(open("/tmp/voa_smoke_body"))["softphone_url"])')"
 check 200 "$(acode -X DELETE "$API/api/call-list/$ENTRY")" "DELETE /api/call-list/{id} (admin)"
 check 201 "$(acode -X POST "$API/api/allowlist" -d '{"phone":"+12025550177","label":"smoke"}')" "POST /api/allowlist (again)"

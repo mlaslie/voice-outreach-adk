@@ -381,3 +381,49 @@ export interface AllowlistResponse {
   /** True when OUTBOUND_ALLOWLIST="*" — every destination is permitted. */
   unrestricted: boolean;
 }
+
+/**
+ * One gateway event on a call's millisecond timeline (Admin → Call
+ * diagnostics). `ms` counts from the gateway session's start. Events carry
+ * names and statuses only (tool names and results), never patient answers.
+ */
+export interface CallEvent {
+  ms: number;
+  event: string;
+  [detail: string]: unknown;
+}
+
+export interface CallEventsSummary {
+  events: number;
+  /** media.start to the agent's first audio, or null when either is missing. */
+  first_audio_ms: number | null;
+  tool_calls: number;
+  interruptions: number;
+  /** live.* events. */
+  errors: number;
+}
+
+/** GET /api/calls/{id}/events (admin only). */
+export interface CallEventsResponse {
+  call_id: string;
+  /** False when the call has no timeline (an SMS-only call, a call that never connected). */
+  available: boolean;
+  timeline: CallEvent[];
+  summary: CallEventsSummary;
+}
+
+/** One configuration change (GET /api/audit, admin only). */
+export interface AuditEntry {
+  id: string;
+  at: string;
+  /** The signed-in user (X-Acting-User), or null for a service caller. */
+  by: string | null;
+  /** The route template, e.g. "PUT /api/call-settings/display". */
+  action: string;
+  /** Path parameters, phone numbers masked: {phone: "+1•••4567"}. */
+  target: Record<string, string>;
+}
+
+export interface AuditResponse {
+  entries: AuditEntry[];
+}

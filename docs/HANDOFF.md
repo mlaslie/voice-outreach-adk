@@ -263,3 +263,22 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - `PUT /api/call-settings/organization` is admin-only. Validation: 2–60 GSM-7 characters, no braces. An empty name resets to the default.
   - The UI warns that the name is part of the SMS consent wording and the A2P 10DLC brand registration.
   - The staff UI's own logo and name are still build-time branding (admin plan step 4).
+
+## 20 Oct: admin plan step 2 (classic dashboard retired)
+
+**Admin console additions.**
+- **Messaging:** text conversations (open the thread) and booked callbacks (cancel).
+- **Testing:** test in browser, test by text.
+- **Call diagnostics:** the gateway's millisecond timeline per call, with first audio, tool calls, interruptions and errors. Names and statuses only, never answers.
+- **Audit log.**
+- **Patients:** CSV import with a preview and per-row errors. It sends at most 200 rows per batch, and rejects a patient ID already on the list.
+
+**Nurse console.** "New call" (ad hoc place call) in the Call queue header.
+
+**Removed.** `/classic` and every component only it used. `/classic` now redirects to the build's own console.
+
+**API.**
+- `GET /api/calls/{id}/events` (admin) and `GET /api/audit` (admin). `POST /api/test-call` is now admin-only.
+- **Audit:** `routes_calls.api_of` writes `audit_log` after any successful write to an admin route (plus batch delete): who, when, route, path parameters with phones masked. Request bodies are never stored.
+
+**Not ported:** the classic live HUD (the active-calls strip while a call is in progress). Nurses see "Calling now" in the queue; engineers see the timeline after the call.

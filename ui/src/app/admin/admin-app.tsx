@@ -8,21 +8,25 @@ import { AdminConsole } from "@/components/admin/admin-console";
 import { ConsentMap } from "@/components/admin/allowlist-panel";
 import { DEFAULT_RECALL } from "@/components/nurse/recall-settings";
 import { demoAllowlist, demoData } from "@/lib/nurse/demo";
+import { demoAdminReads, demoAdminSessions } from "@/lib/admin-demo";
 import { AdminActions } from "@/lib/nurse/actions";
-import { explainSample, liveAdminActions } from "@/lib/console-actions";
+import { explainSample, liveAdminActions, liveAdminReads } from "@/lib/console-actions";
 import { consentLabel } from "@/lib/consent";
 import { api, ApiError } from "@/lib/api";
-import { fetchSmsConsent } from "@/lib/followups";
-import { AllowlistResponse, CallSettingsResponse } from "@/lib/types";
+import { ScheduledCallback, fetchSmsConsent } from "@/lib/followups";
+import { AllowlistResponse, CallDoc, CallSettingsResponse } from "@/lib/types";
 import { useCallList } from "@/hooks/use-call-list";
 import { useCallRuns } from "@/hooks/use-call-runs";
+import { useFollowUps } from "@/hooks/use-followups";
 import { setTimeFormat } from "@/lib/time";
 
 /**
  * The admin console (client side; page.tsx passes the runtime link in).
  *
  *   /admin             the real backend (default)
- *   /admin?data=demo   the nurse console's fictional sample data
+ *   /admin?data=demo   the nurse console's fictional sample data, plus
+ *                      sample texts, a fictional call timeline and audit
+ *                      entries (lib/admin-demo.ts); no action calls the API
  */
 export function AdminApp({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
   return (
@@ -41,6 +45,8 @@ function Router({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
 
 function Sample({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
   const [data] = useState(() => demoData());
+  // Imported sample patients join this tab's list only.
+  const [entries, setEntries] = useState(() => data.entries);
   const [settings, setSettings] = useState<CallSettingsResponse>(
     () => ({
       recall: DEFAULT_RECALL,
@@ -52,6 +58,9 @@ function Sample({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
   // Sample numbers change in this tab only, so the page can be tried out.
   const [allowlist, setAllowlist] = useState<AllowlistResponse>(() => demoAllowlist(data.entries).allowlist);
   const [consent, setConsent] = useState<ConsentMap>(() => demoAllowlist(data.entries).consent);
+  const [sessions] = useState(() => demoAdminSessions(data));
+  const [callbacks, setCallbacks] = useState<ScheduledCallback[]>(() => data.callbacks);
+  const reads = useMemo(() => demoAdminReads(sessions, data.calls), [sessions, data.calls]);
   useEffect(() => { setTimeFormat("24h"); }, []);
 
   const actions = useMemo<AdminActions>(() => {
@@ -61,6 +70,23 @@ function Sample({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
       live: false,
       saveEntry: explain,
       deleteEntry: explain,
+      importEntries: async (rows, onProgress) => {
+        const at = new Date().toISOString();
+        setEntries((list) => [
+          ...list,
+          ...rows.map((e, i) => ({
+            ...e,
+            entry_id: `sample${Date.now().toString(16)}${String(i).padStart(6, "0")}`,
+            list_status: "pending" as const,
+            attempts: 0,
+            created_at: at,
+            updated_at: at,
+          })),
+        ]);
+        onProgress?.(rows.length, rows.length);
+        localOnly(`${rows.length === 1 ? "1 patient" : `${rows.length} patients`} added`);
+        return { added: rows.length, rejected: [] };
+      },
       resetCompleted: explain,
       createRun: explain,
       updateRun: explain,
@@ -102,15 +128,24 @@ function Sample({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
         setConsent((c) => ({ ...c, [phone]: granted }));
         localOnly("Consent changed");
       },
+      cancelCallback: async (callbackId) => {
+        setCallbacks((cbs) => cbs.map((c) => (c.callback_id === callbackId ? { ...c, status: "canceled" as const } : c)));
+        localOnly("Callback cancelled");
+      },
+      startTestCall: async () => {
+        toast.info("Sample data: nothing is sent. A browser test call runs against the live backend only; switch to live data to try it.");
+        return null;
+      },
       refresh: () => {},
     };
   }, []);
 
   return (
     <AdminConsole
-      data={{ entries: data.entries, runs: data.runs }}
+      data={{ entries, runs: data.runs, sessions, callbacks, calls: data.calls }}
       mode="demo"
       actions={actions}
+      reads={reads}
       allowlist={allowlist}
       consent={consent}
       settings={settings}
@@ -124,6 +159,8 @@ function Live({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
   const { runs, refresh: refreshRuns } = useCallRuns();
   const { allowlist, error: allowlistError, refresh: refreshAllowlist } = useAllowlist();
   const consent = useConsent(allowlist);
+  const { sessions, callbacks, error: followUpsError, refresh: refreshFollowUps } = useFollowUps();
+  const { calls, error: callsError, refresh: refreshCalls } = useRecentCalls();
   const [settings, setSettings] = useState<CallSettingsResponse | null>(null);
   const [settingsFailed, setSettingsFailed] = useState(false);
 
@@ -142,19 +179,25 @@ function Live({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
     refreshRuns();
     refreshAllowlist();
     loadSettings();
-  }, [refreshEntries, refreshRuns, refreshAllowlist, loadSettings]);
+    refreshFollowUps();
+    refreshCalls();
+  }, [refreshEntries, refreshRuns, refreshAllowlist, loadSettings, refreshFollowUps, refreshCalls]);
 
   const actions = useMemo<AdminActions>(
-    () => liveAdminActions({ refresh, refreshEntries, refreshRuns, refreshAllowlist, setSettings }),
-    [refresh, refreshEntries, refreshRuns, refreshAllowlist],
+    () => liveAdminActions({ refresh, refreshEntries, refreshRuns, refreshAllowlist, refreshFollowUps, setSettings }),
+    [refresh, refreshEntries, refreshRuns, refreshAllowlist, refreshFollowUps],
   );
 
   return (
     <AdminConsole
-      data={{ entries, runs }}
+      data={{ entries, runs, sessions, callbacks, calls }}
       mode="live"
       loading={loading}
       actions={actions}
+      reads={liveAdminReads}
+      followUpsError={followUpsError}
+      callsError={callsError}
+      onRefreshCalls={refreshCalls}
       allowlist={allowlist}
       allowlistError={allowlistError}
       consent={consent}
@@ -166,6 +209,24 @@ function Live({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
       ]}
     />
   );
+}
+
+/** The newest calls (Call diagnostics), re-read every 30 s; the last good list is kept on a failure. */
+function useRecentCalls() {
+  const [calls, setCalls] = useState<CallDoc[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.getCalls({ limit: 200 })
+      .then((r) => { if (alive) { setCalls(r.calls ?? []); setError(null); } })
+      .catch((e) => { if (alive) setError(e instanceof ApiError ? e.message : "Could not load recent calls"); });
+    load();
+    const id = setInterval(load, 30_000);
+    return () => { alive = false; clearInterval(id); };
+  }, [n]);
+  const refresh = useCallback(() => setN((x) => x + 1), []);
+  return { calls, error, refresh };
 }
 
 /** The outbound allowlist; `refresh` re-reads it after a change. */

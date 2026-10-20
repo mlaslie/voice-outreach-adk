@@ -9,7 +9,7 @@ import {
   ClipboardCheck,
   Clock,
   FlaskConical,
-  LayoutGrid,
+  PhoneOutgoing,
   Search,
   SlidersHorizontal,
   Siren,
@@ -36,6 +36,7 @@ import { CompletedPreset, CompletedView, KIND } from "./completed-view";
 import { TIER } from "./follow-up-list";
 import { SmsIndicator } from "@/components/sms-indicator";
 import { DrawerSubject, PatientDrawer } from "./patient-drawer";
+import { NewCallDialog } from "./new-call-dialog";
 
 // Settings moved to the admin console (docs/ADMIN-PLAN.md step 1).
 export type View = "schedule" | "completed";
@@ -76,6 +77,7 @@ export function NurseConsole({
   const [view, setView] = useState<View>("schedule");
   const [query, setQuery] = useState("");
   const [drawer, setDrawer] = useState<DrawerSubject | null>(null);
+  const [newCallOpen, setNewCallOpen] = useState(false);
   // Call status opened at a filter, from a KPI tile or the emergency banner.
   // (The separate Follow-ups tab was removed on 19 Oct: it repeated Call
   // status's follow-up filters.)
@@ -224,6 +226,15 @@ export function NurseConsole({
               <div className="flex items-center gap-2">
                 {running ? <Pill tone="good" pulse>Calls in progress</Pill> : null}
                 {loading ? <Pill tone="muted" pulse>Loading</Pill> : null}
+                {view === "schedule" ? (
+                  <button
+                    type="button"
+                    onClick={() => setNewCallOpen(true)}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-[13px] font-semibold text-white shadow-sm transition-transform hover:-translate-y-px"
+                  >
+                    <PhoneOutgoing className="h-3.5 w-3.5" /> New call
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -253,6 +264,7 @@ export function NurseConsole({
         onClose={() => setDrawer(null)}
         onCallUpdated={() => actions.refresh()}
       />
+      <NewCallDialog open={newCallOpen} onOpenChange={setNewCallOpen} actions={actions} allowlist={allowlist} />
     </div>
   );
 }
@@ -286,14 +298,9 @@ function Sidebar({
       subtitle="Post-op nurse console"
       basePath="/nurse"
       mode={mode}
-      footer={
-        <>
-          {adminConsoleUrl ? (
-            <SidebarLink href={adminConsoleUrl} icon={SlidersHorizontal} external>Admin console</SidebarLink>
-          ) : null}
-          <SidebarLink href="/classic" icon={LayoutGrid}>Classic dashboard</SidebarLink>
-        </>
-      }
+      footer={adminConsoleUrl ? (
+        <SidebarLink href={adminConsoleUrl} icon={SlidersHorizontal} external>Admin console</SidebarLink>
+      ) : null}
     >
       {NAV.map(({ view: v, label, icon }) => (
         <NavButton

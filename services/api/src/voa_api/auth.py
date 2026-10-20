@@ -78,7 +78,9 @@ ROUTE_POLICY: dict[str, frozenset[str]] = {
     "POST /api/calls/batch-delete": NURSE,
     "POST /api/calls/{call_id}/recording-link": NURSE,
     "POST /api/place-call": NURSE,
-    "POST /api/test-call": NURSE | ADMIN,  # classic "Test in browser" until step 2
+    "POST /api/test-call": ADMIN,  # Admin → Testing ("Test in browser")
+    "GET /api/calls/{call_id}/events": ADMIN,  # Admin → Call diagnostics
+    "GET /api/audit": ADMIN,  # Admin → Audit log
     # the call queue: nurses run, cancel and reschedule calls
     "GET /api/call-list": READ,
     "GET /api/call-list/run": READ,

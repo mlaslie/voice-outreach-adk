@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CsvError, EXAMPLE_CSV, parseCallListCsv } from "./call-list-csv";
+import { BULK_LIMIT, CsvError, EXAMPLE_CSV, importInChunks, parseCallListCsv, previewCallListCsv } from "./call-list-csv";
 
 const HEADER = "phone,patient_name,patient_id,patient_dob,operation_name,operation_date,is_diabetic";
 const ROW = "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false";
@@ -95,5 +95,87 @@ describe("parseCallListCsv", () => {
     it("rejects an empty file", () => {
       expect(() => parseCallListCsv("")).toThrow(CsvError);
     });
+  });
+});
+
+describe("previewCallListCsv: every row checked before anything is sent", () => {
+  const H = "phone,patient_name,patient_id,patient_dob,operation_name,operation_date,is_diabetic";
+
+  it("keeps good rows and lists every error on a bad one", () => {
+    const p = previewCallListCsv([
+      H,
+      "+12025550123,Jane Doe,P-1001,1950-03-15,Knee,2026-07-22,false",
+      "2025550123,,P 1!,03/15/1950,,,",
+      "+12025550145,John Smith,P-1002,1962-11-04,,,true",
+    ].join("\n"));
+    expect(p.valid.map((e) => e.patient_id)).toEqual(["P-1001", "P-1002"]);
+    expect(p.invalid).toBe(1);
+    const bad = p.rows[1];
+    expect(bad.row).toBe(3);
+    expect(bad.entry).toBeNull();
+    expect(bad.cells.phone).toBe("2025550123");
+    expect(bad.errors.join(" | ")).toMatch(/patient_name is required/);
+    expect(bad.errors.join(" | ")).toMatch(/phone must be E\.164/);
+    expect(bad.errors.join(" | ")).toMatch(/patient_dob must be YYYY-MM-DD/);
+    expect(bad.errors.join(" | ")).toMatch(/patient_id may only contain/);
+  });
+
+  it("rejects a duplicate patient_id in the file, and one already on the list", () => {
+    const p = previewCallListCsv([
+      H,
+      "+12025550123,Jane Doe,P-1001,1950-03-15,,,",
+      "+12025550124,Jane Again,P-1001,1950-03-15,,,",
+      "+12025550125,Old Patient,P-0009,1950-03-15,,,",
+    ].join("\n"), ["P-0009"]);
+    expect(p.rows[1].errors[0]).toMatch(/duplicate patient_id — already used on row 2/);
+    expect(p.rows[2].errors[0]).toMatch(/already on the patient list/);
+    expect(p.valid).toHaveLength(1);
+  });
+
+  it("rejects a date that is not on the calendar, a future DOB and a bad operation date", () => {
+    const p = previewCallListCsv([
+      H,
+      "+12025550123,A,P-1,1950-02-30,,,",
+      "+12025550124,B,P-2,2999-01-01,,,",
+      "+12025550125,C,P-3,1950-01-01,,2026-13-01,",
+    ].join("\n"));
+    expect(p.rows[0].errors[0]).toMatch(/not a real date/);
+    expect(p.rows[1].errors[0]).toMatch(/in the future/);
+    expect(p.rows[2].errors[0]).toMatch(/operation_date/);
+  });
+
+  it("still throws for file-level problems", () => {
+    expect(() => previewCallListCsv("")).toThrow(CsvError);
+    expect(() => previewCallListCsv(H)).toThrow(/no patient rows/);
+    expect(() => previewCallListCsv("phone\n+12025550123")).toThrow(/Missing required columns/);
+  });
+});
+
+describe("importInChunks", () => {
+  const entry = (i: number) => ({
+    phone: `+1202555${String(i).padStart(4, "0")}`, patient_name: `P${i}`, patient_id: `P-${i}`,
+    patient_dob: "1950-01-01", is_diabetic: false,
+  });
+
+  it("sends at most BULK_LIMIT rows per request", async () => {
+    const sizes: number[] = [];
+    const rows = Array.from({ length: 450 }, (_, i) => entry(i));
+    const r = await importInChunks(rows, async (c) => { sizes.push(c.length); return c.length; });
+    expect(BULK_LIMIT).toBe(200);
+    expect(sizes).toEqual([200, 200, 50]);
+    expect(r).toEqual({ added: 450, rejected: [] });
+  });
+
+  it("reports a refused chunk as rejected and carries on", async () => {
+    const rows = Array.from({ length: 5 }, (_, i) => entry(i));
+    let n = 0;
+    const progress: number[] = [];
+    const r = await importInChunks(rows, async (c) => {
+      if (++n === 2) throw new Error("Call list is full");
+      return c.length;
+    }, 2, (done) => progress.push(done));
+    expect(r.added).toBe(3);
+    expect(r.rejected).toEqual([{ count: 2, reason: "Call list is full" }]);
+    expect(progress).toEqual([2, 4, 5]);
   });
 });

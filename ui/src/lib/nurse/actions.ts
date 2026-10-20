@@ -1,6 +1,9 @@
 import {
-  BatchDeleteResult, CallDoc, CallListEntry, CallListEntryInput, CallRun, CallRunInput, DisplaySettings, FollowUpOverrideRequest, RecallSettings, RescheduleTarget,
+  AuditEntry, BatchDeleteResult, CallDoc, CallEventsResponse, CallListEntry, CallListEntryInput, CallRun, CallRunInput, DisplaySettings,
+  FollowUpOverrideRequest, PlaceCallRequest, RecallSettings, RescheduleTarget,
 } from "../types";
+import type { SmsMessage } from "../followups";
+import type { ImportResult } from "../call-list-csv";
 
 /**
  * What each console can DO, as opposed to what it shows.
@@ -22,6 +25,11 @@ export interface NurseActions {
   cancelEntries(entryIds: string[], reason: string): Promise<void>;
   /** Put a cancelled patient back on the queue. */
   rescheduleEntry(entryId: string, target: RescheduleTarget): Promise<void>;
+  /**
+   * Call one patient now with details typed in (not from the call list). The
+   * number must be authorized. Returns the new call's id, or null on sample data.
+   */
+  placeCall(body: PlaceCallRequest): Promise<string | null>;
   /** A nurse changes the follow-up tier, with a reason. Returns the updated call. */
   setFollowUp(callSid: string, body: FollowUpOverrideRequest): Promise<CallDoc>;
   /**
@@ -44,6 +52,12 @@ export interface AdminActions {
   /** Create (entry null) or update a call-list entry. */
   saveEntry(entry: CallListEntry | null, body: CallListEntryInput): Promise<void>;
   deleteEntry(entryId: string): Promise<void>;
+  /**
+   * Add checked CSV rows to the call list, at most 200 per request (the
+   * backend's limit). Never throws for a refused chunk: it is counted as
+   * rejected in the result.
+   */
+  importEntries(entries: CallListEntryInput[], onProgress?: (done: number, total: number) => void): Promise<ImportResult>;
   /** Put every completed entry back to pending. */
   resetCompleted(): Promise<void>;
   /** Schedule a run (at least one patient). */
@@ -64,8 +78,25 @@ export interface AdminActions {
   removeNumber(phone: string): Promise<void>;
   /** Record or withdraw a number's agreement to receive texts. */
   setConsent(phone: string, granted: boolean): Promise<void>;
+  /** Cancel a callback a patient booked by text. Nobody is called. */
+  cancelCallback(callbackId: string): Promise<void>;
+  /**
+   * Start a browser test call as the fictional test patient (no phone line).
+   * Returns the short-lived softphone link, or null on sample data.
+   */
+  startTestCall(): Promise<{ softphone_url: string; expires_in: number } | null>;
   /** Re-read everything (after an action). */
   refresh(): void;
+}
+
+/**
+ * What the admin console reads on demand (a thread, a call's timeline, the
+ * audit log). Live: the API. Sample data: fictional values, no request.
+ */
+export interface AdminReads {
+  messages(phone: string, callSid?: string | null): Promise<SmsMessage[]>;
+  callEvents(callId: string): Promise<CallEventsResponse>;
+  audit(): Promise<AuditEntry[]>;
 }
 
 export const FOLLOW_UP_OPTIONS: { value: string; label: string; hint: string }[] = [

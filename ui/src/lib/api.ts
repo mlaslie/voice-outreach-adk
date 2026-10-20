@@ -1,6 +1,8 @@
 import {
   AllowlistEntry,
   AllowlistResponse,
+  AuditResponse,
+  CallEventsResponse,
   BatchDeleteResponse,
   CallDoc,
   CallListEntry,
@@ -148,14 +150,24 @@ export const api = {
     return request<TranscriptResponse>(`/calls/${encodeURIComponent(sid)}/transcript`);
   },
 
+  /** Admin only: the gateway's millisecond event timeline for one call (names and statuses, no answers). */
+  getCallEvents(sid: string): Promise<CallEventsResponse> {
+    return request<CallEventsResponse>(`/calls/${encodeURIComponent(sid)}/events`);
+  },
+
+  /** Admin only: configuration changes, newest first. */
+  getAudit(limit = 200): Promise<AuditResponse> {
+    return request<AuditResponse>(`/audit?limit=${encodeURIComponent(String(limit))}`);
+  },
+
   placeCall(body: PlaceCallRequest): Promise<PlaceCallResponse> {
     return request<PlaceCallResponse>("/place-call", json("POST", body));
   },
 
   /**
-   * Start a browser test call: the backend stages a patient (a call-list entry,
-   * or the fictional test patient) and returns a short-lived softphone URL on the
-   * gateway. No phone line is used.
+   * Admin only. Start a browser test call: the backend stages a patient (a
+   * call-list entry, or the fictional test patient) and returns a short-lived
+   * softphone URL on the gateway. No phone line is used.
    */
   startTestCall(entryId?: string): Promise<{ call_sid: string; softphone_url: string; expires_in: number }> {
     return request("/test-call", json("POST", entryId ? { entry_id: entryId } : {}));

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { CalendarClock, Pencil, Plus, RotateCcw, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
+import { CalendarClock, Download, FileUp, Pencil, Plus, RotateCcw, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { AllowlistResponse, CallListEntry, CallRun, CallSettingsResponse } from "@/lib/types";
 import { AdminActions } from "@/lib/nurse/actions";
 import { isAllowed } from "@/lib/nurse/allowlist";
@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 import { EmptyState, Panel, Pill, Tone } from "@/components/nurse/parts";
 import { fmtDateTime } from "@/lib/time";
 import { EntryDialog } from "@/components/nurse/entry-dialog";
+import { CsvError, CsvPreview, downloadExampleCsv, previewCallListCsv } from "@/lib/call-list-csv";
+import { ImportDialog } from "./import-dialog";
 
 /**
  * Admin → Patients: the call list (add, edit, delete, reset completed), with
@@ -36,6 +38,22 @@ export function PatientsPanel({
 }) {
   const [dialog, setDialog] = useState<{ open: boolean; entry: CallListEntry | null }>({ open: false, entry: null });
   const [busy, setBusy] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [imported, setImported] = useState<{ name: string; preview: CsvPreview } | null>(null);
+
+  // Read and check the whole file in the browser; nothing is sent until the
+  // admin has seen every row (ImportDialog).
+  const pickFile = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const file = ev.target.files?.[0];
+    ev.target.value = ""; // so picking the same file again fires onChange
+    if (!file) return;
+    try {
+      const preview = previewCallListCsv(await file.text(), entries.map((e) => e.patient_id));
+      setImported({ name: file.name, preview });
+    } catch (err) {
+      toast.error(err instanceof CsvError ? err.message : "Could not read that file.");
+    }
+  };
 
   // The scheduled run each patient is in (at most one; the backend enforces it).
   const runOf = new Map<string, CallRun>();
@@ -89,6 +107,19 @@ export function PatientsPanel({
             <RotateCcw className="h-3.5 w-3.5" /> Reset completed
           </button>
           <button
+            onClick={downloadExampleCsv}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[13px] font-semibold text-ink-soft hover:text-ink"
+          >
+            <Download className="h-3.5 w-3.5" /> Example CSV
+          </button>
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-ink-soft ring-1 ring-black/[0.08] hover:text-ink"
+          >
+            <FileUp className="h-3.5 w-3.5" /> Import CSV
+          </button>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={pickFile} aria-hidden tabIndex={-1} />
+          <button
             onClick={() => setDialog({ open: true, entry: null })}
             className="inline-flex items-center gap-1.5 rounded-full bg-brand px-4 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-brand-dark"
           >
@@ -99,7 +130,7 @@ export function PatientsPanel({
 
       <Panel className="overflow-hidden">
         {sorted.length === 0 ? (
-          <EmptyState title="No patients on the list" hint="Add a patient with the details the agent needs and, optionally, a planned call time." />
+          <EmptyState title="No patients on the list" hint="Add a patient with the details the agent needs and, optionally, a planned call time, or import a CSV. The example CSV shows the columns." />
         ) : (
           <table className="w-full text-left text-[13px]">
             <thead className="bg-mist/60 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
@@ -196,6 +227,12 @@ export function PatientsPanel({
         actions={actions}
         tz={settings?.timezone ?? "America/New_York"}
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
+      />
+      <ImportDialog
+        fileName={imported?.name ?? ""}
+        preview={imported?.preview ?? null}
+        actions={actions}
+        onClose={() => setImported(null)}
       />
     </>
   );

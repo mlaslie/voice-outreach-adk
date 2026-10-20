@@ -36,7 +36,10 @@ const PHONE = "\\+[0-9]{6,15}";
  * Which build may use a route (docs/ADMIN-PLAN.md section 2):
  *   - "nurse": clinical work, only the nurse console (service voa-ui);
  *   - "admin": configuration, only the admin console (service voa-admin);
- *   - "both":  reads, which both consoles show.
+ *   - "both":  reads, which both consoles show, and cancelling a booked
+ *              text callback (nurses and admins both may).
+ * Two reads are admin only: a call's millisecond event timeline (Call
+ * diagnostics) and the configuration audit log.
  * The API enforces the same split by caller identity and refuses an admin
  * route from the nurse UI's service account. Enforcing it here as well means
  * neither build can even try the other's writes.
@@ -52,10 +55,11 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["GET", new RegExp(`^calls/${ID}$`), "both"],
   ["GET", new RegExp(`^calls/${ID}/transcript$`), "both"],
   ["GET", new RegExp(`^calls/${ID}/recording$`), "both"],
+  ["GET", new RegExp(`^calls/${ID}/events$`), "admin"],
   ["POST", new RegExp(`^calls/${ID}/follow-up$`), "nurse"],
   ["GET", /^follow-ups\/open$/, "both"],
   ["POST", /^place-call$/, "nurse"],
-  ["POST", /^test-call$/, "nurse"],
+  ["POST", /^test-call$/, "admin"],
 
   // Call list: patient records are configuration; running, cancelling and
   // rescheduling calls is the nurses' work.
@@ -91,7 +95,7 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   // SMS follow-ups
   ["GET", /^sms\/sessions$/, "both"],
   ["GET", /^sms\/callbacks$/, "both"],
-  ["DELETE", new RegExp(`^sms/callbacks/${ID}$`), "nurse"],
+  ["DELETE", new RegExp(`^sms/callbacks/${ID}$`), "both"],
   ["GET", /^sms\/messages$/, "both"],
   ["GET", /^sms\/consent$/, "both"],
   ["POST", /^sms\/consent$/, "admin"],
@@ -103,6 +107,9 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   // Dry-run simulator (the backend refuses unless SMS is in dry-run mode)
   ["POST", /^sms\/test\/start$/, "admin"],
   ["POST", /^sms\/test\/reply$/, "admin"],
+
+  // Configuration audit log (newest first)
+  ["GET", /^audit$/, "admin"],
 ];
 
 /** Whether a route of this scope is served by a build in this mode. */

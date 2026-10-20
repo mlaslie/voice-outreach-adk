@@ -27,7 +27,15 @@ describe("decideRoute: pages per build", () => {
     expect(decideRoute("nurse", path)).toEqual({ action: "not_found" });
   });
 
-  it.each(["/", "/nurse", "/classic", "/administrator", "/nursery"])("nurse: %s is served", (path) => {
+  it.each(["/classic", "/classic/", "/classic/anything"])("nurse: the retired %s goes to /nurse", (path) => {
+    expect(decideRoute("nurse", path)).toEqual({ action: "redirect", to: "/nurse" });
+  });
+
+  it("nurse: a path that only starts like /classic is not redirected", () => {
+    expect(decideRoute("nurse", "/classical")).toEqual({ action: "next" });
+  });
+
+  it.each(["/", "/nurse", "/administrator", "/nursery"])("nurse: %s is served", (path) => {
     expect(decideRoute("nurse", path)).toEqual({ action: "next" });
   });
 

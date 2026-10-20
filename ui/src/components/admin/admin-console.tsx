@@ -2,32 +2,38 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { toast } from "sonner";
 import {
+  Activity,
   AlertTriangle,
   CalendarClock,
   Clock,
   FlaskConical,
+  Headphones,
   MessageSquareText,
+  ScrollText,
   ShieldCheck,
   Stethoscope,
   Users,
 } from "lucide-react";
 import { useTimeFormat } from "@/lib/time";
-import { AdminActions } from "@/lib/nurse/actions";
-import { AllowlistResponse, CallListEntry, CallRun, CallSettingsResponse } from "@/lib/types";
-import { BrandTile, Panel, Pill } from "@/components/nurse/parts";
+import { AdminActions, AdminReads } from "@/lib/nurse/actions";
+import { AllowlistResponse, CallDoc, CallListEntry, CallRun, CallSettingsResponse } from "@/lib/types";
+import { FollowUpSession, ScheduledCallback, isOpen, upcoming } from "@/lib/followups";
+import { BrandTile, Pill } from "@/components/nurse/parts";
 import { Backdrop, MobileNav, NavButton, NavIcon, SidebarLink, SidebarShell } from "@/components/console-shell";
 import { SmsIndicator } from "@/components/sms-indicator";
-import { SmsTestDialog } from "@/components/sms-test-dialog";
 import { RecallSettingsPanel } from "@/components/nurse/recall-settings";
 import { SmsNumberCard } from "@/components/nurse/sms-number-card";
 import { RunsPanel } from "./runs-panel";
 import { PatientsPanel } from "./patients-panel";
 import { AllowlistPanel, ConsentMap } from "./allowlist-panel";
 import { CompanyNamePanel, TextLimitPanel, TimeDisplayPanel } from "./settings-panels";
+import { BookedCallbacksPanel, TextConversationsPanel } from "./messaging-panels";
+import { TestByTextPanel, TestInBrowserPanel } from "./testing-panels";
+import { DiagnosticsPanel } from "./diagnostics-panel";
+import { AuditPanel } from "./audit-panel";
 
-export type Section = "schedules" | "patients" | "numbers" | "messaging" | "display";
+export type Section = "schedules" | "patients" | "numbers" | "messaging" | "display" | "testing" | "diagnostics" | "audit";
 
 const SECTIONS: { key: Section; label: string; short: string; blurb: string; icon: NavIcon }[] = [
   { key: "schedules", label: "Schedules", short: "Runs", icon: CalendarClock,
@@ -37,14 +43,25 @@ const SECTIONS: { key: Section; label: string; short: string; blurb: string; ico
   { key: "numbers", label: "Authorized numbers", short: "Numbers", icon: ShieldCheck,
     blurb: "The numbers the agent may dial, and which of them agreed to texts." },
   { key: "messaging", label: "Messaging", short: "Texts", icon: MessageSquareText,
-    blurb: "The shared SMS number, the missed-call text limit, and a dry-run text test." },
+    blurb: "The shared SMS number, the missed-call text limit, text conversations and booked callbacks." },
   { key: "display", label: "Display", short: "Display", icon: Clock,
     blurb: "The company name patients hear and read, and how times show for nurses." },
+  { key: "testing", label: "Testing", short: "Test", icon: Headphones,
+    blurb: "Try the agent yourself with the fictional test patient: by voice in this browser, or by text. No phone line." },
+  { key: "diagnostics", label: "Call diagnostics", short: "Diagnose", icon: Activity,
+    blurb: "Millisecond timings, tool calls, interruptions and errors for one call. No answers or transcripts." },
+  { key: "audit", label: "Audit log", short: "Audit", icon: ScrollText,
+    blurb: "Every configuration change, with who made it and when." },
 ];
 
 export interface AdminData {
   entries: CallListEntry[];
   runs: CallRun[];
+  /** Text follow-up sessions and booked callbacks (Messaging). */
+  sessions: FollowUpSession[];
+  callbacks: ScheduledCallback[];
+  /** Recent calls (Call diagnostics, and naming a conversation's call). */
+  calls: CallDoc[];
 }
 
 /**
@@ -57,8 +74,12 @@ export function AdminConsole({
   mode,
   loading,
   actions,
+  reads,
   allowlist,
   allowlistError,
+  followUpsError,
+  callsError,
+  onRefreshCalls,
   consent,
   settings,
   unavailable = [],
@@ -68,6 +89,13 @@ export function AdminConsole({
   mode: "demo" | "live";
   loading?: boolean;
   actions: AdminActions;
+  /** On-demand reads: a text thread, a call's timeline, the audit log. */
+  reads: AdminReads;
+  /** The last read of text sessions / callbacks failed. */
+  followUpsError?: string | null;
+  /** The last read of recent calls failed. */
+  callsError?: string | null;
+  onRefreshCalls?: () => void;
   allowlist: AllowlistResponse | null;
   allowlistError?: string | null;
   consent: ConsentMap;
@@ -79,22 +107,21 @@ export function AdminConsole({
 }) {
   useTimeFormat(); // re-render when the 12h/24h setting changes
   const [section, setSection] = useState<Section>("schedules");
-  const [smsTestOpen, setSmsTestOpen] = useState(false);
+  const [diagnosed, setDiagnosed] = useState<string | null>(null);
   const now = useNow();
   const current = SECTIONS.find((s) => s.key === section)!;
+  const tz = settings?.timezone;
 
   const counts: Partial<Record<Section, number>> = {
     schedules: data.runs.filter((r) => r.status === "scheduled" || r.status === "dispatching").length,
     patients: data.entries.length,
     numbers: allowlist?.count,
+    messaging: data.sessions.filter((s) => isOpen(s.state)).length + upcoming(data.callbacks).length,
   };
 
-  const openSmsTest = () => {
-    if (!actions.live) {
-      toast.info("Sample data: the text test runs against the live backend only. Switch to live data to try it.");
-      return;
-    }
-    setSmsTestOpen(true);
+  const diagnose = (callId: string) => {
+    setDiagnosed(callId);
+    setSection("diagnostics");
   };
 
   return (
@@ -176,25 +203,36 @@ export function AdminConsole({
                 <>
                   <SmsNumberCard mode={mode} />
                   <TextLimitPanel live={actions.live} />
-                  <Panel className="flex flex-wrap items-center gap-3 px-5 py-3.5">
-                    <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand-deep">
-                      <MessageSquareText className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-display text-[15px] font-semibold text-ink">Test by text</h3>
-                      <p className="text-[12px] text-ink-muted">
-                        Play the patient in the text follow-up, end to end. Dry run: nothing is sent to a phone.
-                      </p>
-                    </div>
-                    <button
-                      onClick={openSmsTest}
-                      className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-ink-soft ring-1 ring-black/[0.08] hover:text-ink"
-                    >
-                      <MessageSquareText className="h-3.5 w-3.5" /> Test by text
-                    </button>
-                  </Panel>
+                  <TextConversationsPanel
+                    sessions={data.sessions}
+                    calls={data.calls}
+                    error={followUpsError}
+                    reads={reads}
+                    now={now}
+                    onOpenCall={diagnose}
+                    timeZone={tz}
+                  />
+                  <BookedCallbacksPanel callbacks={data.callbacks} actions={actions} now={now} timeZone={tz} />
                 </>
               ) : null}
+              {section === "testing" ? (
+                <>
+                  <TestInBrowserPanel actions={actions} />
+                  <TestByTextPanel live={actions.live} />
+                </>
+              ) : null}
+              {section === "diagnostics" ? (
+                <DiagnosticsPanel
+                  calls={data.calls}
+                  callsError={callsError}
+                  reads={reads}
+                  selected={diagnosed}
+                  onSelect={setDiagnosed}
+                  onRefresh={onRefreshCalls}
+                  timeZone={tz}
+                />
+              ) : null}
+              {section === "audit" ? <AuditPanel reads={reads} timeZone={tz} /> : null}
               {section === "display" ? (
                 <>
                   <CompanyNamePanel org={settings?.organization ?? null} actions={actions} />
@@ -211,7 +249,6 @@ export function AdminConsole({
         active={section}
         onSelect={setSection}
       />
-      {actions.live ? <SmsTestDialog open={smsTestOpen} onOpenChange={setSmsTestOpen} /> : null}
     </div>
   );
 }
