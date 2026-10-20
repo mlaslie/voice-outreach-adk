@@ -198,3 +198,6 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - In-progress calls and cancelled queue entries are skipped. Deletes go in chunks of 100 through `POST /api/calls/batch-delete`, which removes the call, its report, transcript, timeline and recording.
   - Each request logs `calls.batch_deleted` with who did it and the counts, never ids.
   - The architecture overview with a "where to change it" guide is in `docs/architecture.html`.
+- **"A deleted call still shows in Gemini Enterprise" (20 Oct).**
+  - The call wasn't deleted. Call status was on Today, so Select all only covered today's calls. The 17 Oct calls stayed, and the nurse agent's "Needs you now" lists open follow-ups of any age. Selection mode now says so, with a "Show everything" link.
+  - **A real bug found on the way:** the gateway's end-of-call save recreated an empty call record (only `recording_uri`) when the call had been deleted while it ended (the smoke test's cleanup). `finish` now skips its writes and the upload when the call is gone.

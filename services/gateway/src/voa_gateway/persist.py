@@ -120,6 +120,16 @@ class StoreCallSink:
         log.info("report saved", extra={"event": "report.saved", "outcome": clean.get("outcome")})
 
     async def finish(self, call_id, *, transcript, timeline, recording_wav) -> None:
+        self._patients.pop(call_id, None)
+        # A call deleted while it was ending (a nurse's bulk delete, a smoke test's
+        # cleanup) must stay deleted: writing the transcript or the recording link
+        # here used to recreate an empty call record with no patient.
+        if await self.store.get(CALLS, call_id) is None:
+            log.info(
+                "call deleted before it finished; nothing saved",
+                extra={"event": "call.finish_skipped"},
+            )
+            return
         now = now_iso()
         await self.store.set(TRANSCRIPTS, call_id, {"turns": transcript, "created_at": now})
         await self.store.set(EVENTS, call_id, {"timeline": timeline, "created_at": now})
@@ -128,11 +138,15 @@ class StoreCallSink:
             await self.store.transact(
                 CALLS,
                 call_id,
-                lambda cur: lifecycle.merge_call_doc(
-                    cur, {"recording_uri": uri}, now=datetime.now(UTC)
+                # Never create the doc: only add the link to a call that still exists.
+                lambda cur: (
+                    None
+                    if cur is None
+                    else lifecycle.merge_call_doc(
+                        cur, {"recording_uri": uri}, now=datetime.now(UTC)
+                    )
                 ),
             )
-        self._patients.pop(call_id, None)
 
     def _upload(self, call_id: str, wav: bytes) -> str:
         from google.cloud import storage

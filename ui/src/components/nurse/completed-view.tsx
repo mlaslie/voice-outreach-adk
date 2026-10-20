@@ -179,6 +179,15 @@ export function CompletedView({
       </div>
       <FilterChips options={action} value={filter} onChange={setFilter} />
       <FilterChips options={outcome} value={filter} onChange={setFilter} />
+      {selecting && scope !== "all" ? (
+        <p className="text-[13px] text-ink-soft" role="note">
+          Only {scope === "today" ? "today's" : "this week's"} calls are shown, so only they can be selected.{" "}
+          <button type="button" className="font-semibold text-brand-deep underline underline-offset-2" onClick={() => setScope("all")}>
+            Show everything
+          </button>{" "}
+          to include older calls.
+        </p>
+      ) : null}
 
       <Panel className="overflow-hidden">
         {rows.length === 0 ? (
