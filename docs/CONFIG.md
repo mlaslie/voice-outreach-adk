@@ -16,7 +16,7 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `models.text_location` | `VOA__MODELS__TEXT_LOCATION` | str | `'global'` |  |
 | `models.tts` | `VOA__MODELS__TTS` | str | `'gemini-2.5-flash-tts'` |  |
 | `models.tts_location` | `VOA__MODELS__TTS_LOCATION` | str | `'us-central1'` |  |
-| `voice.voice_name` | `VOA__VOICE__VOICE_NAME` | str | `'Aoede'` |  |
+| `voice.voice_name` | `VOA__VOICE__VOICE_NAME` | str | `'Algenib'` |  |
 | `voice.language_code` | `VOA__VOICE__LANGUAGE_CODE` | str | `'en-US'` |  |
 | `voice.custom_vocabulary` | `VOA__VOICE__CUSTOM_VOCABULARY` | list | `[]` |  |
 | `voice.session_resumption` | `VOA__VOICE__SESSION_RESUMPTION` | bool | `True` |  |

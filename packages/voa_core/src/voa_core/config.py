@@ -51,7 +51,7 @@ class ModelsConfig(_Strict):
 
 
 class VoiceConfig(_Strict):
-    voice_name: str = "Aoede"
+    voice_name: str = "Algenib"
     language_code: str = "en-US"
     custom_vocabulary: list[str] = Field(default_factory=list)
     session_resumption: bool = True

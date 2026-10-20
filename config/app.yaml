@@ -19,7 +19,7 @@ models:
   tts_location: us-central1
 
 voice:
-  voice_name: Aoede
+  voice_name: Algenib
   language_code: en-US
   custom_vocabulary: []
   session_resumption: true
