@@ -268,3 +268,12 @@ async def test_reschedule_into_the_next_opening_confirms_then_writes(t):
     check(out)
     assert "back on the queue" in out.as_text()
     assert t.backend.writes == [("reschedule", eid, None, p.params["when"])]
+
+
+async def test_home_card_has_a_dashboard_button(t, monkeypatch):
+    from voa_nurse import cards
+
+    monkeypatch.setattr(cards, "DASHBOARD_URL", "https://dash.example.org")
+    card, _ = await wl.view_home()
+    check(card)
+    assert "[New follow-up call]  [Previous calls]  [Settings]  [Dashboard]" in card.as_text()

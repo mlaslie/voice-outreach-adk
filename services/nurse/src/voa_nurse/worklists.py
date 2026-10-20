@@ -453,6 +453,7 @@ async def view_home():
             card.button("New follow-up call", event("call_form")),
             card.button("Previous calls", event("list_calls", before_today=True)),
             card.button("Settings", event("wl_settings")),
+            card.dashboard_button("Dashboard"),
         ),
     )
     card.line(

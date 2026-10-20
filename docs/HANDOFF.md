@@ -229,3 +229,4 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - New Terraform variables `api_min_instances`, `ui_min_instances` and `nurse_min_instances`, default 0, alongside `gateway_min_instances` (default 1).
   - The demo tfvars sets all four to 1, so nothing waits on a cold start.
   - Set them back to 0 after the demo to save cost.
+- **The home card (main menu) also has Dashboard** next to Settings. It is the one card without the automatic footer, so the earlier change missed it.
