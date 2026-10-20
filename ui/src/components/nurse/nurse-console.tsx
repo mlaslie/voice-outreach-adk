@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useTimeFormat } from "@/lib/time";
 import {
   AlertTriangle,
+  BarChart3,
   CalendarDays,
   ClipboardCheck,
   Clock,
@@ -26,6 +27,7 @@ import {
   completedItems,
   followUpItems,
   scheduleItems,
+  procedureOf,
   CompletedFilter,
   DayScope,
 } from "@/lib/nurse/model";
@@ -37,13 +39,15 @@ import { TIER } from "./follow-up-list";
 import { SmsIndicator } from "@/components/sms-indicator";
 import { DrawerSubject, PatientDrawer } from "./patient-drawer";
 import { NewCallDialog } from "./new-call-dialog";
+import { AnalyticsView } from "./analytics-view";
 
 // Settings moved to the admin console (docs/ADMIN-PLAN.md step 1).
-export type View = "schedule" | "completed";
+export type View = "schedule" | "completed" | "analytics";
 
 const NAV: { view: View; label: string; blurb: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { view: "schedule", label: "Call queue", blurb: "Who is due a call and when. Call anyone now, or everyone.", icon: CalendarDays },
   { view: "completed", label: "Call status", blurb: "What happened on each call today, and what it needs from you.", icon: ClipboardCheck },
+  { view: "analytics", label: "Analytics", blurb: "Reach, what patients report, and follow-up workload over time.", icon: BarChart3 },
 ];
 
 export function NurseConsole({
@@ -121,7 +125,7 @@ export function NurseConsole({
   const emergencies = openFollowUps.filter((i) => i.tier === "emergency");
   const overdueCallIds = useMemo(
     () => new Set(openFollowUps.filter((i) => i.overdue).map((i) => i.call.doc_id)), [openFollowUps]);
-  const counts: Record<View, number> = {
+  const counts: Partial<Record<View, number>> = {
     schedule: all.schedule.length,
     completed: all.completed.filter((i) => isSameDay(i.at, now)).length,
   };
@@ -149,7 +153,7 @@ export function NurseConsole({
   const current = NAV.find((n) => n.view === view);
 
   return (
-    <div className="relative min-h-[calc(100vh-37px)] overflow-hidden bg-[#f4f6f5] font-sans text-ink">
+    <div className="relative min-h-[calc(100vh-37px)] overflow-hidden bg-console font-sans text-ink">
       <Backdrop />
       <div className="relative mx-auto flex max-w-[1500px] gap-6 p-4 lg:p-6">
         <Sidebar view={view} onView={setView} counts={counts} mode={mode} emergencies={emergencies.length} adminConsoleUrl={adminConsoleUrl} />
@@ -246,12 +250,23 @@ export function NurseConsole({
                              overdueCallIds={overdueCallIds} preset={preset}
                              actions={actions} latestCall={(id) => callById.get(id)} onRemoved={onCallsRemoved} />
             ) : null}
+            {view === "analytics" ? (
+              <AnalyticsView
+                mode={mode}
+                entries={data.entries}
+                calls={calls}
+                onOpenCall={(id) => {
+                  const c = callById.get(id);
+                  if (c) setDrawer({ name: c.patient_name ?? "Patient", patientId: c.patient_id, phone: c.to, procedure: procedureOf(c), tone: "emergency", call: c, context: "Emergency reported" });
+                }}
+              />
+            ) : null}
           </div>
         </main>
       </div>
 
       <MobileNav
-        items={NAV.map(({ view: v, icon }) => ({ key: v, icon, label: v === "schedule" ? "Queue" : "Status", count: counts[v] }))}
+        items={NAV.map(({ view: v, icon }) => ({ key: v, icon, label: v === "schedule" ? "Queue" : v === "completed" ? "Status" : "Analytics", count: counts[v] }))}
         active={view}
         onSelect={setView}
       />
@@ -288,7 +303,7 @@ function Sidebar({
 }: {
   view: View;
   onView: (v: View) => void;
-  counts: Record<View, number>;
+  counts: Partial<Record<View, number>>;
   mode: "demo" | "live";
   emergencies: number;
   adminConsoleUrl: string | null;

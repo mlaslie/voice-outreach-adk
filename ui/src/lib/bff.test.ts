@@ -51,6 +51,13 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", "sms/control"],
     ["POST", "sms/control"],
     ["GET", "audit"],
+    ["GET", "branding"],
+    ["PUT", "branding"],
+    ["DELETE", "branding"],
+    ["GET", "branding/assets/logo"],
+    ["GET", "branding/assets/logo_wide"],
+    ["GET", "branding/assets/favicon"],
+    ["PUT", "branding/assets/favicon"],
   ])("allows %s %s (in the build that owns it)", (method, path) => {
     expect(matchRoute(method, path, "nurse") ?? matchRoute(method, path, "admin")).not.toBeNull();
   });
@@ -150,6 +157,9 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["POST", "sms/test/start"],
     ["POST", "sms/test/reply"],
     ["POST", "test-call"], // Admin → Testing ("Test in browser")
+    ["PUT", "branding"], // Admin → Branding
+    ["DELETE", "branding"],
+    ["PUT", "branding/assets/logo"], // and logo_wide, favicon: one route
   ];
   // Admin-only reads: the engineering timeline and the audit log.
   const ADMIN_READS: [string, string][] = [
@@ -195,7 +205,29 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["GET", "sms/consent"],
     ["GET", "sms/settings"],
     ["GET", "sms/control"],
+    // Both consoles wear the branding (the layout reads it; images go through the BFF).
+    ["GET", "branding"],
+    ["GET", "branding/assets/logo"], // and logo_wide, favicon: one route
   ];
+
+  it("serves every branding image kind: reads to both builds, uploads to admin only", () => {
+    for (const kind of ["logo", "logo_wide", "favicon"]) {
+      expect(matchRoute("GET", `branding/assets/${kind}`, "nurse")).not.toBeNull();
+      expect(matchRoute("GET", `branding/assets/${kind}`, "admin")).not.toBeNull();
+      expect(matchRoute("PUT", `branding/assets/${kind}`, "nurse")).toBeNull();
+      expect(matchRoute("PUT", `branding/assets/${kind}`, "admin")).not.toBeNull();
+    }
+  });
+
+  it("refuses unknown branding images and other methods", () => {
+    for (const mode of ["nurse", "admin"] as const) {
+      expect(matchRoute("GET", "branding/assets/banner", mode)).toBeNull();
+      expect(matchRoute("GET", "branding/assets/..", mode)).toBeNull();
+      expect(matchRoute("GET", "branding/assets/logo/x", mode)).toBeNull();
+      expect(matchRoute("POST", "branding", mode)).toBeNull();
+      expect(matchRoute("DELETE", "branding/assets/logo", mode)).toBeNull();
+    }
+  });
 
   it.each(ADMIN_ROUTES)("the nurse build refuses admin route %s %s; the admin build allows it", (method, path) => {
     expect(matchRoute(method, path, "nurse")).toBeNull();

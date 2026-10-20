@@ -35,6 +35,8 @@ locals {
     VOA__SMS__VOICE_NUMBER           = var.twilio_from_number
     VOA__SERVICES__RECORDINGS_BUCKET = module.recordings.name
     VOA__SERVICES__PROMPTS_BUCKET    = module.prompts.name
+    VOA__SERVICES__BRANDING_BUCKET   = module.branding.name
+    VOA__SERVICES__INGEST_SA         = module.sa.emails["${local.p}-ingest"]
     VOA__TELEPHONY__VOICE_PROVIDER   = "twilio"
     # Real texts still need sms_dry_run = false (and, with a shared number, control).
     VOA__TELEPHONY__SMS_PROVIDER           = "twilio"
@@ -136,7 +138,7 @@ module "api" {
   public          = false
   # Index-keyed bindings: append new callers at the END, or existing ones are
   # replaced (briefly revoked) on apply.
-  invokers      = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-tasks-invoker"], module.sa.members["${local.p}-nurse"], module.sa.members["${local.p}-admin"]]
+  invokers      = [module.sa.members["${local.p}-ui"], module.sa.members["${local.p}-tasks-invoker"], module.sa.members["${local.p}-nurse"], module.sa.members["${local.p}-admin"], module.sa.members["${local.p}-ingest"]]
   min_instances = var.api_min_instances
   max_instances = 5
   concurrency   = 40
@@ -169,6 +171,14 @@ resource "google_cloud_scheduler_job" "dispatch_due" {
 
 # Operators can mint ID tokens as the dashboard SA to exercise the private API
 # exactly as the dashboard does (local UI development, deployed e2e tests).
+# Operators can act as the EHR feed (sample feed script, integration tests).
+resource "google_service_account_iam_member" "operators_impersonate_ingest" {
+  for_each           = toset(var.operators)
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${module.sa.emails["${local.p}-ingest"]}"
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = each.value
+}
+
 resource "google_service_account_iam_member" "operators_impersonate_admin" {
   for_each           = toset(var.operators)
   service_account_id = "projects/${var.project_id}/serviceAccounts/${module.sa.emails["${local.p}-admin"]}"
@@ -213,6 +223,7 @@ module "ui" {
     API_BASE_URL      = local.api_url
     NODE_ENV          = "production"
     ADMIN_CONSOLE_URL = var.admin_image == "" ? "" : local.admin_url
+    ANALYTICS_URL     = var.analytics_image == "" ? "" : "https://${local.p}-analytics-${local.url_suffix}"
   }
 }
 

@@ -504,7 +504,7 @@ export function matchesFollowUp(item: FollowUpItem, f: FollowUpFilter, now: Date
 
 // ---------------------------------------------------------------------------
 
-function procedureOf(c: CallDoc): string | undefined {
+export function procedureOf(c: CallDoc): string | undefined {
   const v = c.patient_context?.operation_name;
   return typeof v === "string" && v ? v : undefined;
 }

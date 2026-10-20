@@ -231,6 +231,10 @@ class Backend:
     async def get_call_settings(self) -> dict:
         return await self.request("GET", "/api/call-settings")
 
+    async def get_branding(self) -> dict:
+        """Admin → Branding (the cards follow its brand colour)."""
+        return await self.request("GET", "/api/branding")
+
     # --- allowlist ---------------------------------------------------------------
 
     async def get_allowlist(self) -> dict:

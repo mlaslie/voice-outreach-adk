@@ -341,6 +341,7 @@ class NurseExecutor(AgentExecutor):
         ) or {}
         user = await d.identity.resolve(headers)
         await wl.refresh_time_format(d.backend)
+        await wl.refresh_brand(d.backend)
         allowed = d.settings.allowed()
         if allowed and (user or "") not in allowed:
             # Review A-4: the allowlist gates every turn, reads included.

@@ -229,3 +229,21 @@ variable "nurse_extra_invokers" {
   type        = list(string)
   default     = []
 }
+
+variable "analytics_image" {
+  description = "voa-analytics image (service and export job). Empty skips both."
+  type        = string
+  default     = ""
+}
+
+variable "analytics_min_instances" {
+  description = "Warm analytics service instances (0 saves cost)."
+  type        = number
+  default     = 0
+}
+
+variable "analytics_export_schedule" {
+  description = "Cron for the Firestore -> BigQuery export job (clinic timezone)."
+  type        = string
+  default     = "*/15 * * * *"
+}

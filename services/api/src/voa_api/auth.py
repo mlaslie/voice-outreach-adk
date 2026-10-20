@@ -54,13 +54,15 @@ def task_callers(request: Request) -> set[str]:
 
 # --------------------------------------------------------------------------- roles
 
-NURSE_UI, ADMIN_UI, NURSE_AGENT = "nurse_ui", "admin_ui", "nurse_agent"
+NURSE_UI, ADMIN_UI, NURSE_AGENT, INGEST = "nurse_ui", "admin_ui", "nurse_agent", "ingest"
 READ = frozenset({NURSE_UI, ADMIN_UI, NURSE_AGENT})
 NURSE = frozenset({NURSE_UI, NURSE_AGENT})
 ADMIN = frozenset({ADMIN_UI})
 # Configuration the Gemini Enterprise nurse agent can also do today, each behind a
 # confirm button. Whether these move to admin-only is decided in admin plan step 2.
 ADMIN_OR_AGENT = frozenset({ADMIN_UI, NURSE_AGENT})
+# The EHR feed (docs/ADMIN-PLAN.md section 3): batch routes only.
+FEED = frozenset({INGEST})
 
 #: "METHOD /path/template" -> who may call it. Every dashboard route must be here
 #: (tests/test_route_policy.py fails otherwise).
@@ -118,12 +120,28 @@ ROUTE_POLICY: dict[str, frozenset[str]] = {
     "POST /api/sms/control": ADMIN,
     "POST /api/sms/test/start": ADMIN,
     "POST /api/sms/test/reply": ADMIN,
+    # staff-console branding (admin plan step 4)
+    "GET /api/branding": READ,
+    "PUT /api/branding": ADMIN,
+    "DELETE /api/branding": ADMIN,
+    "GET /api/branding/assets/{kind}": READ,
+    "PUT /api/branding/assets/{kind}": ADMIN,
+    # EHR feed (admin plan step 3): idempotent call batches
+    "PUT /api/v1/call-batches/{source}/{batch_id}": FEED,
+    "GET /api/v1/call-batches/{source}/{batch_id}": FEED | ADMIN,
+    "DELETE /api/v1/call-batches/{source}/{batch_id}": FEED,
+    "GET /api/v1/call-batches": ADMIN,
 }
 
 
 def _role_emails(request: Request) -> dict[str, str]:
     s = request.app.state.api.cfg.services
-    return {NURSE_UI: s.ui_sa, ADMIN_UI: s.admin_ui_sa, NURSE_AGENT: s.nurse_agent_sa}
+    return {
+        NURSE_UI: s.ui_sa,
+        ADMIN_UI: s.admin_ui_sa,
+        NURSE_AGENT: s.nurse_agent_sa,
+        INGEST: s.ingest_sa,
+    }
 
 
 def route_key(request: Request) -> str:

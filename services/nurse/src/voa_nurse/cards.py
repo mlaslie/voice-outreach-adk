@@ -21,6 +21,7 @@ the AudioPlayer; it is never returned to the model or logged.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
@@ -34,6 +35,9 @@ PAGE = 8
 
 # Set once at startup by configure(); module globals so every card sees them.
 BRAND = "#22873B"
+# The configured colour; worklists.refresh_brand() follows Admin → Branding at runtime
+# and returns to this when the admin resets it.
+BRAND_DEFAULT = "#22873B"
 TZ = ZoneInfo("America/New_York")
 DASHBOARD_URL = ""
 DISPLAY_NAME = "Post-op Calling Agent (ADK)"
@@ -50,12 +54,21 @@ def configure(
     display_name: str = DISPLAY_NAME,
     time_format: timefmt.TimeFormat = "24h",
 ) -> None:
-    global BRAND, TZ, DASHBOARD_URL, DISPLAY_NAME, TIME_FORMAT
+    global BRAND, BRAND_DEFAULT, TZ, DASHBOARD_URL, DISPLAY_NAME, TIME_FORMAT
     TZ = ZoneInfo(timezone)
     DASHBOARD_URL = dashboard_url.rstrip("/")
-    BRAND = brand
+    BRAND = BRAND_DEFAULT = brand
     DISPLAY_NAME = display_name
     TIME_FORMAT = time_format
+
+
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def set_brand(color: str | None) -> None:
+    """The cards' primaryColor: a valid #RRGGBB, else the configured default."""
+    global BRAND
+    BRAND = color if isinstance(color, str) and _HEX.match(color) else BRAND_DEFAULT
 
 
 def set_time_format(fmt: timefmt.TimeFormat) -> None:

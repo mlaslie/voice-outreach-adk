@@ -31,6 +31,8 @@ export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 // are checked against the real value, never a percent-encoded disguise.
 const ID = "[A-Za-z0-9_-]{1,64}";
 const PHONE = "\\+[0-9]{6,15}";
+/** A branding image (lib/branding.ts ASSET_KINDS). */
+const ASSET = "(logo|logo_wide|favicon)";
 
 /**
  * Which build may use a route (docs/ADMIN-PLAN.md section 2):
@@ -110,6 +112,15 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
 
   // Configuration audit log (newest first)
   ["GET", /^audit$/, "admin"],
+
+  // Staff-console branding (Admin → Branding). Both consoles read it (the root
+  // layout applies it on the server; the favicon and logos are images served
+  // through here); only the admin console changes it.
+  ["GET", /^branding$/, "both"],
+  ["PUT", /^branding$/, "admin"],
+  ["DELETE", /^branding$/, "admin"],
+  ["GET", new RegExp(`^branding/assets/${ASSET}$`), "both"],
+  ["PUT", new RegExp(`^branding/assets/${ASSET}$`), "admin"],
 ];
 
 /** Whether a route of this scope is served by a build in this mode. */
@@ -244,4 +255,5 @@ export const FORWARD_RESPONSE_HEADERS = [
   "cache-control",
   "etag",
   "content-disposition",
+  "x-content-type-options",
 ] as const;

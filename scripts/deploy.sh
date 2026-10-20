@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Build images for the given services at HEAD and roll them out with Terraform.
-#   scripts/deploy.sh demo gateway api ui admin nurse
+#   scripts/deploy.sh demo gateway api ui admin nurse analytics
 # Refuses a dirty tree (via build.sh); only touches the *_image lines in tfvars.
 set -euo pipefail
 ENV_NAME="${1:?usage: deploy.sh <env> <service>...}"; shift
-[[ $# -gt 0 ]] || { echo "name at least one service: gateway api ui admin nurse" >&2; exit 1; }
+[[ $# -gt 0 ]] || { echo "name at least one service: gateway api ui admin nurse analytics" >&2; exit 1; }
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TF="$ROOT/infra/envs/$ENV_NAME"
 TAG="$("$ROOT/scripts/build.sh" "$ENV_NAME" "$@" | tail -1)"

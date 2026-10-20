@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { GoogleAuth, IdTokenClient } from "google-auth-library";
+import { apiBase, authHeader } from "@/lib/backend-auth";
+import { invalidateBranding } from "@/lib/branding-server";
 import {
   FORWARD_REQUEST_HEADERS,
   FORWARD_RESPONSE_HEADERS,
@@ -8,7 +9,6 @@ import {
   actingUser,
   checkWrite,
   matchRoute,
-  needsIdToken,
 } from "@/lib/bff";
 
 /**
@@ -27,27 +27,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const PREFIX = "/api/backend/";
-
-function apiBase(): string {
-  return (process.env.API_BASE_URL ?? "").replace(/\/+$/, "");
-}
-
-let idTokenClient: { audience: string; client: Promise<IdTokenClient> } | null = null;
-
-/** Cached per audience; the client refreshes the token itself before it expires. */
-async function authHeader(audience: string): Promise<string | null> {
-  if (!needsIdToken(audience)) return null;
-  if (!idTokenClient || idTokenClient.audience !== audience) {
-    idTokenClient = { audience, client: new GoogleAuth().getIdTokenClient(audience) };
-  }
-  try {
-    const headers = await (await idTokenClient.client).getRequestHeaders();
-    return headers.get("authorization");
-  } catch (err) {
-    idTokenClient = null; // retry from scratch next time
-    throw err;
-  }
-}
 
 function fail(status: number, detail: string) {
   return NextResponse.json({ detail }, { status, headers: { "Cache-Control": "no-store" } });
@@ -120,6 +99,9 @@ async function handle(req: NextRequest): Promise<Response> {
   } catch {
     return fail(502, "Could not reach the backend.");
   }
+
+  // An admin changed the branding: this instance's next page load reads it afresh.
+  if (WRITE_METHODS.has(method) && upstream.ok && route.segments[0] === "branding") invalidateBranding();
 
   const out = new Headers();
   for (const name of FORWARD_RESPONSE_HEADERS) {

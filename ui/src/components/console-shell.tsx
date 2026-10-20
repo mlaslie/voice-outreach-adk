@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Activity, ArrowUpRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { LOGO_WIDE_URL, ORG_NAME } from "@/lib/site";
+import { useBranding } from "@/components/branding-provider";
 import { BrandTile } from "@/components/nurse/parts";
 
 /**
@@ -84,14 +84,16 @@ export function SidebarShell({
   children: React.ReactNode;
   footer?: React.ReactNode;
 }) {
+  // Admin → Branding when set, else the build-time NEXT_PUBLIC_* values (lib/site.ts).
+  const { logoWideUrl, staffOrgName } = useBranding();
   return (
     <aside className="sticky top-6 hidden h-[calc(100vh-37px-3rem)] w-[17rem] shrink-0 flex-col overflow-hidden rounded-[32px] bg-gradient-to-b from-brand-deep to-brand-deep-dark p-5 text-white shadow-[0_24px_60px_-24px_rgba(22,59,63,0.7)] lg:flex">
       <div className="pointer-events-none absolute -left-16 -top-16 h-56 w-56 rounded-full bg-brand-bright/25 blur-3xl" />
-      {LOGO_WIDE_URL ? (
+      {logoWideUrl ? (
         <div className="relative">
           <div className="rounded-2xl bg-white px-4 py-3 shadow-lg">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={LOGO_WIDE_URL} alt={ORG_NAME} className="mx-auto h-11 w-auto" />
+            <img src={logoWideUrl} alt={staffOrgName} className="mx-auto h-11 max-w-full w-auto object-contain" />
           </div>
           <div className="mt-3 px-1 text-[12px] font-semibold uppercase tracking-[0.14em] text-white/60">
             {subtitle}
@@ -101,7 +103,7 @@ export function SidebarShell({
         <div className="relative flex items-center gap-3 px-1">
           <BrandTile className="h-12 w-12" />
           <div className="min-w-0">
-            <div className="truncate font-display text-[15px] font-semibold leading-tight">{ORG_NAME}</div>
+            <div className="truncate font-display text-[15px] font-semibold leading-tight">{staffOrgName}</div>
             <div className="text-[12px] text-white/60">{subtitle}</div>
           </div>
         </div>

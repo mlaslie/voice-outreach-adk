@@ -282,3 +282,40 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 - **Audit:** `routes_calls.api_of` writes `audit_log` after any successful write to an admin route (plus batch delete): who, when, route, path parameters with phones masked. Request bodies are never stored.
 
 **Not ported:** the classic live HUD (the active-calls strip while a call is in progress). Nurses see "Calling now" in the queue; engineers see the timeline after the call.
+
+## 20 Oct: admin steps 3–4 (ingest API, branding) and analytics phase 1
+
+**EHR scheduling API (admin step 3).**
+- `PUT /api/v1/call-batches/{source}/{batch_id}` creates call runs and call-list entries from a batch. It is idempotent (a replay changes nothing), returns a result per item, and upserts on `(source, external_id)`.
+- Only the new `voa-ingest` service account may call it. The contract is in `docs/INGEST-API.md`.
+- `scripts/sample_ehr_feed.py` sends fictional patients as that account; operators may impersonate it.
+- Every ingest write lands in the audit log.
+
+**Branding (admin step 4).**
+- Admin → Branding sets the title, the staff-facing organisation name, logos, favicon and 8 colour tokens. It has a live preview, a WCAG contrast check (warn only), and Reset to defaults.
+- Storage: values in Firestore `settings/branding`; images in the `branding` bucket, served through the BFF.
+- Images are checked by magic bytes, and SVG is refused.
+- The root layout reads branding per request (cached 60 s; any failure falls back to the built-in look). The nurse agent's cards pick up the brand colour.
+- The patient-facing company name is a separate setting (Display) and is unchanged.
+- Known: the default theme's urgent badge text is 3.96:1 against its tint, so the editor shows one contrast warning even at the defaults.
+
+**Analytics phase 1 (`docs/ANALYTICS-PLAN.md`).**
+- The new package `services/analytics` holds two pieces:
+  - A Cloud Run Job `voa-analytics-export`, every 15 min, does a full refresh: Firestore → de-identified rows → BigQuery dataset `voa_analytics`, tables `fact_calls`, `fact_reasons`, `fact_questions` and `export_meta`.
+  - A private service `voa-analytics` serves `/analytics/summary`. Only the nurse UI's identity may call it.
+- **De-identification:**
+  - Rows are built from an allow-list of fields.
+  - The patient key is an HMAC with the `analytics-key` secret.
+  - No names, numbers, DOB, free text or question text.
+  - Triage reason phrases are kept; nurse and agent reasons are not.
+  - A test plants PHI in a call and checks that none reaches any row.
+- **Nurse UI → Analytics** has three sections:
+  - Outreach: the reach and voice funnel, text completions, unreached patients.
+  - Clinical picture: tiers by day, top reasons, symptoms, pain score, questions, emergencies.
+  - Nurse workload: open and overdue items by tier, time to sign-off, tier changes.
+  - Names are resolved in the browser from data the console already holds.
+- **One-time setup after the first apply:** `openssl rand -hex 32 | gcloud secrets versions add analytics-key --data-file=-`. Until then the export job exits with code 2 and the tab shows "unavailable".
+- **Decisions to revisit:**
+  - Test calls (softphone and SMS simulator) are counted; `is_test` is in the table if they should be excluded.
+  - The service and the job share one identity, so the service could write its dataset. Split them for production.
+  - The full refresh should become incremental at scale.

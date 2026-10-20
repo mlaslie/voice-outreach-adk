@@ -16,7 +16,7 @@ from fastapi import Request
 from voa_core.logging import mask_phone
 from voa_core.store import new_id, now_iso
 
-from .auth import ADMIN_UI, ROUTE_POLICY, acting_user, route_key
+from .auth import ADMIN_UI, INGEST, ROUTE_POLICY, acting_user, route_key
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ EXTRA = frozenset({"POST /api/calls/batch-delete"})
 def audited(key: str) -> bool:
     method = key.split(" ", 1)[0]
     roles = ROUTE_POLICY.get(key, frozenset())
-    return method in WRITE_METHODS and (ADMIN_UI in roles or key in EXTRA)
+    return method in WRITE_METHODS and (ADMIN_UI in roles or INGEST in roles or key in EXTRA)
 
 
 def _target(params: dict[str, Any]) -> dict[str, str]:

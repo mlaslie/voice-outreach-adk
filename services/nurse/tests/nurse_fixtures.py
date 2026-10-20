@@ -756,6 +756,9 @@ class FakeBackend:
             "timezone": "America/New_York",
         }
 
+    async def get_branding(self):
+        return {"colors": {}}
+
     async def get_allowlist(self):
         return {"mode": "list", "unrestricted": False, "entries": self.state["allowlist"]}
 

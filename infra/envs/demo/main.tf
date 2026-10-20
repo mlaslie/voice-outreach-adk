@@ -60,9 +60,17 @@ module "sa" {
       display_name  = "Admin console (Next.js BFF, APP_MODE=admin)"
       project_roles = local.common_runtime_roles
     }
+    "${local.p}-ingest" = {
+      display_name  = "EHR feed: creates call batches through /api/v1/call-batches only"
+      project_roles = []
+    }
     "${local.p}-nurse" = {
       display_name  = "Nurse assistant (Gemini Enterprise A2A agent)"
       project_roles = concat(local.common_runtime_roles, ["roles/aiplatform.user", "roles/datastore.user"])
+    }
+    "${local.p}-analytics" = {
+      display_name  = "Analytics: export job (Firestore -> BigQuery) and the read-only analytics service"
+      project_roles = concat(local.common_runtime_roles, ["roles/datastore.viewer", "roles/bigquery.jobUser"])
     }
     "${local.p}-tasks-invoker" = {
       display_name  = "OIDC identity for Cloud Tasks and Scheduler"
@@ -132,6 +140,19 @@ module "prompts" {
     "roles/storage.objectViewer"  = [local.gateway]
     "roles/storage.objectCreator" = [local.gateway] # caches rendered clips
     "roles/storage.objectAdmin"   = [local.api]
+  }
+  depends_on = [module.services]
+}
+
+# Staff-console branding images uploaded in the admin console (no PHI).
+module "branding" {
+  source        = "../../modules/storage"
+  project_id    = var.project_id
+  location      = var.region
+  name          = "${var.project_id}-${local.p}-branding"
+  force_destroy = true # reset in the admin console restores the built-in look
+  iam = {
+    "roles/storage.objectAdmin" = [local.api]
   }
   depends_on = [module.services]
 }

@@ -103,8 +103,10 @@ class ServicesConfig(_Strict):
     ui_sa: str = ""  # the nurse dashboard's runtime SA
     admin_ui_sa: str = ""  # the admin console's runtime SA (configuration routes)
     nurse_agent_sa: str = ""  # post-v1 nurse assistant
+    ingest_sa: str = ""  # EHR feed: may only call the /api/v1/call-batches routes
     recordings_bucket: str = ""
     prompts_bucket: str = ""
+    branding_bucket: str = ""  # logo / wide logo / favicon set in the admin console
     store: Literal["firestore", "memory"] = "firestore"
     queue_dial: str = "voa-dial"
     queue_events: str = "voa-events"

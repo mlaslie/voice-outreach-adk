@@ -656,6 +656,25 @@ async def refresh_time_format(api) -> None:
     cards.set_time_format(timefmt.coerce(display.get("time_format"), cards.TIME_FORMAT))
 
 
+_brand_checked_at = -_FORMAT_TTL_S
+
+
+async def refresh_brand(api) -> None:
+    """Follow Admin → Branding's brand colour for the cards' primaryColor, at most
+    once a minute. No override means the configured colour; on a backend error the
+    last known colour stays."""
+    global _brand_checked_at
+    now = time.monotonic()
+    if now - _brand_checked_at < _FORMAT_TTL_S:
+        return
+    _brand_checked_at = now
+    try:
+        colors = (await api.get_branding()).get("colors") or {}
+    except Exception:  # fail-safe: branding must never break a turn
+        return
+    cards.set_brand(colors.get("brand") if isinstance(colors, dict) else None)
+
+
 async def _calling_hours() -> dict:
     """The clinic's calling hours, which the API also enforces on every reschedule."""
     try:

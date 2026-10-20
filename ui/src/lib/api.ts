@@ -22,6 +22,7 @@ import {
   TranscriptResponse,
 } from "./types";
 import type { SmsMessage } from "./followups";
+import type { AssetKind, BrandingPatch, BrandingResponse } from "./branding";
 
 /** Dry-run SMS simulator (POST /api/sms/test/*). Never sends a real text. */
 export interface SmsTestPatient {
@@ -322,6 +323,30 @@ export const api = {
   /** Point the number's incoming-text webhook here ("take") or at the other system ("give"). */
   setSmsControl(action: SmsControlAction): Promise<SmsControlStatus> {
     return request<SmsControlStatus>("/sms/control", json("POST", { action }));
+  },
+
+  // ---- Staff-console branding (Admin → Branding) -------------------------
+
+  getBranding(): Promise<BrandingResponse> {
+    return request<BrandingResponse>("/branding");
+  },
+
+  /** Partial update; "" or null puts a field back to its default. */
+  saveBranding(patch: BrandingPatch): Promise<BrandingResponse> {
+    return request<BrandingResponse>("/branding", json("PUT", patch));
+  },
+
+  /** Reset to defaults: deletes every setting and uploaded image. */
+  resetBranding(): Promise<BrandingResponse> {
+    return request<BrandingResponse>("/branding", { method: "DELETE" });
+  },
+
+  /** PNG, JPEG, WebP or ICO (never SVG), checked again by the API. */
+  uploadBrandingAsset(kind: AssetKind, contentType: string, dataBase64: string): Promise<BrandingResponse> {
+    return request<BrandingResponse>(
+      `/branding/assets/${kind}`,
+      json("PUT", { content_type: contentType, data_base64: dataBase64 }),
+    );
   },
 
   /** Same-origin SSE feed of call updates (proxied, streamed, by the BFF). */

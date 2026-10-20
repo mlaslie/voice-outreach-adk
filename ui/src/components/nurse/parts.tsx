@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import { fmtClock } from "@/lib/time";
-import { LOGO_URL, ORG_NAME } from "@/lib/site";
+import { useBranding } from "@/components/branding-provider";
 import { initials } from "@/lib/nurse/model";
 
 // ---------------------------------------------------------------------------
@@ -155,18 +155,18 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
 // ---------------------------------------------------------------------------
 
 /**
- * The organisation's logo from LOGO_URL (config), or an original, generic
- * pineapple placeholder. The placeholder is deliberately NOT any
- * organisation's registered mark — drop the real asset in via
- * NEXT_PUBLIC_LOGO_URL.
+ * The organisation's logo from Admin → Branding, else NEXT_PUBLIC_LOGO_URL
+ * (config), else an original, generic pineapple placeholder. The placeholder
+ * is deliberately NOT any organisation's registered mark.
  */
 /** A square tile holding the logo: the real mark edge to edge, or the placeholder on white. */
 export function BrandTile({ className }: { className?: string }) {
+  const { logoUrl, staffOrgName } = useBranding();
   return (
-    <div className={cn("grid shrink-0 place-items-center overflow-hidden rounded-2xl shadow-sm", LOGO_URL ? "" : "bg-white/95", className)}>
-      {LOGO_URL ? (
+    <div className={cn("grid shrink-0 place-items-center overflow-hidden rounded-2xl shadow-sm", logoUrl ? "" : "bg-white/95", className)}>
+      {logoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={LOGO_URL} alt={ORG_NAME} className="h-full w-full object-cover" />
+        <img src={logoUrl} alt={staffOrgName} className="h-full w-full object-cover" />
       ) : (
         <BrandMark className="h-[65%]" />
       )}
@@ -179,9 +179,10 @@ export function BrandMark({ className }: { className?: string }) {
   // container (the desktop sidebar on a phone) breaks every other copy's
   // gradient references.
   const id = React.useId().replace(/:/g, "");
-  if (LOGO_URL) {
+  const { logoUrl, staffOrgName } = useBranding();
+  if (logoUrl) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={LOGO_URL} alt={ORG_NAME} className={cn("h-10 w-auto", className)} />;
+    return <img src={logoUrl} alt={staffOrgName} className={cn("h-10 w-auto", className)} />;
   }
   return (
     <svg viewBox="0 0 40 48" className={cn("h-10 w-auto", className)} role="img" aria-label="Logo placeholder">

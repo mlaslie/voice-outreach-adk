@@ -10,6 +10,7 @@ import {
   FlaskConical,
   Headphones,
   MessageSquareText,
+  Palette,
   ScrollText,
   ShieldCheck,
   Stethoscope,
@@ -32,8 +33,9 @@ import { BookedCallbacksPanel, TextConversationsPanel } from "./messaging-panels
 import { TestByTextPanel, TestInBrowserPanel } from "./testing-panels";
 import { DiagnosticsPanel } from "./diagnostics-panel";
 import { AuditPanel } from "./audit-panel";
+import { BrandingPanel } from "./branding-panel";
 
-export type Section = "schedules" | "patients" | "numbers" | "messaging" | "display" | "testing" | "diagnostics" | "audit";
+export type Section = "schedules" | "patients" | "numbers" | "messaging" | "display" | "branding" | "testing" | "diagnostics" | "audit";
 
 const SECTIONS: { key: Section; label: string; short: string; blurb: string; icon: NavIcon }[] = [
   { key: "schedules", label: "Schedules", short: "Runs", icon: CalendarClock,
@@ -46,6 +48,8 @@ const SECTIONS: { key: Section; label: string; short: string; blurb: string; ico
     blurb: "The shared SMS number, the missed-call text limit, text conversations and booked callbacks." },
   { key: "display", label: "Display", short: "Display", icon: Clock,
     blurb: "The company name patients hear and read, and how times show for nurses." },
+  { key: "branding", label: "Branding", short: "Brand", icon: Palette,
+    blurb: "The staff consoles' title, organisation name, logos and colours. Patients never see these." },
   { key: "testing", label: "Testing", short: "Test", icon: Headphones,
     blurb: "Try the agent yourself with the fictional test patient: by voice in this browser, or by text. No phone line." },
   { key: "diagnostics", label: "Call diagnostics", short: "Diagnose", icon: Activity,
@@ -125,7 +129,7 @@ export function AdminConsole({
   };
 
   return (
-    <div className="relative min-h-[calc(100vh-37px)] overflow-hidden bg-[#f4f6f5] font-sans text-ink">
+    <div className="relative min-h-[calc(100vh-37px)] overflow-hidden bg-console font-sans text-ink">
       <Backdrop />
       <div className="relative mx-auto flex max-w-[1500px] gap-6 p-4 lg:p-6">
         <SidebarShell
@@ -233,6 +237,9 @@ export function AdminConsole({
                 />
               ) : null}
               {section === "audit" ? <AuditPanel reads={reads} timeZone={tz} /> : null}
+              {section === "branding" ? (
+                <BrandingPanel live={actions.live} onOpenDisplay={() => setSection("display")} />
+              ) : null}
               {section === "display" ? (
                 <>
                   <CompanyNamePanel org={settings?.organization ?? null} actions={actions} />

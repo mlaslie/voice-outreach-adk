@@ -11,6 +11,11 @@
  * Only colour and type are set here — no logo or wordmark is committed (an
  * operator supplies those at build time with NEXT_PUBLIC_LOGO_URL /
  * NEXT_PUBLIC_LOGO_WIDE_URL; public/brand/ is gitignored).
+ *
+ * These are the defaults. Admin → Branding overrides some of them at runtime
+ * (brand, brand-deep, brand-bright, brand-red, brand-coral, brand-yellow,
+ * brand-blue, console and their derived shades; lib/branding.ts), so keep
+ * lib/branding.ts COLOR_TOKENS in step when changing one of those.
  * ======================================================================== */
 
 @theme {
@@ -31,6 +36,7 @@
   --color-mist: #f1f1f1;
   --color-mist-cool: #dadee3;
   --color-sand: #efe7dd;             /* off-white */
+  --color-console: #f4f6f5;          /* console background */
 
   /* Secondary / status hues */
   --color-brand-blue: #00749e;
