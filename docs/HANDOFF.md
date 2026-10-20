@@ -218,3 +218,6 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - The gateway now also has `storage.objectViewer` on the recordings bucket.
   - The nurse agent's detail card has "Play recording", which renders an A2UI `AudioPlayer`. The model never sees the link.
   - Trade-off (review A-9): anyone holding a link can play that one recording until it expires. The earlier design sent nurses to the dashboard instead.
+- **Detail card buttons in two rows (20 Oct).** Six buttons in one row ran past the card's edge in Gemini Enterprise.
+  - Row 1, for reviewing the call: History · Transcript (Texts for SMS calls) · Play recording.
+  - Row 2, for acting on it: Call back · Change tier · Open in dashboard · Main menu.

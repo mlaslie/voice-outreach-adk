@@ -301,3 +301,18 @@ def test_truncated_lists_say_so():
     """Review A-1: a bounded list is labelled, not passed off as complete."""
     text = cards.follow_up_card([CALL], truncated=True).as_text()
     assert "Based on the newest 1 calls" in text
+
+
+def test_detail_card_buttons_sit_in_two_short_rows(monkeypatch):
+    monkeypatch.setattr(cards, "DASHBOARD_URL", "https://dash.example.org")
+    card = cards.call_detail_card(CALL)
+    by_id = {c["id"]: c for c in card.comps}
+
+    def labels(row_id):
+        return [by_id[by_id[b]["child"]]["text"] for b in by_id[row_id]["children"]]
+
+    rows = [labels(i) for i in card.body[-2:]]
+    assert rows[0] == ["History", "Transcript", "Play recording"]
+    assert rows[1] == ["Call back", "Change tier", "Open in dashboard", "Main menu"]
+    card.add_menu_button()  # the executor's automatic one is not added twice
+    assert sum(1 for c in card.comps if c.get("text") == "Main menu") == 1

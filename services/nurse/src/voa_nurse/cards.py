@@ -508,16 +508,21 @@ def call_detail_card(c: dict) -> Card:
         dash = card.dashboard_button("Open in dashboard")
     assessed = triage.is_assessment(c)
     sms = c.get("channel") == "sms"
-    return card.buttons(
-        card.button("Change tier", event("wl_tier_form", call_sid=sid)) if assessed else None,
+    # Two short rows: six buttons in one row ran past the card's edge in Gemini
+    # Enterprise. Row 1 is for reviewing the call, row 2 for acting on it.
+    card.buttons(
+        card.button("History", event("patient_history", call_sid=sid)),
         card.button(
             "Texts" if sms else "Transcript",
             event("show_texts" if sms else "show_transcript", call_sid=sid),
         ),
-        card.button("History", event("patient_history", call_sid=sid)),
-        card.button("Call back", event("propose_redial", call_sid=sid)),
         rec,
+    )
+    return card.buttons(
+        card.button("Call back", event("propose_redial", call_sid=sid)),
+        card.button("Change tier", event("wl_tier_form", call_sid=sid)) if assessed else None,
         dash,
+        card.menu_button(),
     )
 
 
