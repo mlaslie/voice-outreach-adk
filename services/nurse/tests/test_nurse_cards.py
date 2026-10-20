@@ -167,7 +167,7 @@ def test_detail_card_plays_the_recording_never_the_private_api():
     ]
     assert "https://dashboard.example.org" in blob
     text = card.as_text()
-    assert "[Play recording]" in text and "[Open in dashboard]" in text
+    assert "[Play recording]" in text and "[Dashboard]" in text
 
 
 def test_no_recording_means_no_play_button():
@@ -313,6 +313,24 @@ def test_detail_card_buttons_sit_in_two_short_rows(monkeypatch):
 
     rows = [labels(i) for i in card.body[-2:]]
     assert rows[0] == ["History", "Transcript", "Play recording"]
-    assert rows[1] == ["Call back", "Change tier", "Open in dashboard", "Main menu"]
+    assert rows[1] == ["Call back", "Change tier", "Dashboard", "Main menu"]
     card.add_menu_button()  # the executor's automatic one is not added twice
     assert sum(1 for c in card.comps if c.get("text") == "Main menu") == 1
+
+
+def test_every_card_footer_has_a_dashboard_link(monkeypatch):
+    monkeypatch.setattr(cards, "DASHBOARD_URL", "https://dash.example.org")
+    card = cards.Card("Needs you now")
+    card.line("Nobody right now.")
+    card.add_menu_button()
+    assert card.as_text().endswith("[Main menu]  [Dashboard]")
+    # A card that already links to the dashboard does not get a second link.
+    other = cards.Card("x")
+    other.put(other.row(other.dashboard_button("Open dashboard")))
+    other.add_menu_button()
+    assert other.as_text().count("dashboard") + other.as_text().count("Dashboard") == 1
+    # No dashboard configured: Main menu alone.
+    monkeypatch.setattr(cards, "DASHBOARD_URL", "")
+    bare = cards.Card("y")
+    bare.add_menu_button()
+    assert bare.as_text().endswith("[Main menu]")

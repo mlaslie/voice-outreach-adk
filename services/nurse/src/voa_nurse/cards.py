@@ -200,6 +200,7 @@ class Card:
         self.data_model: dict | None = None  # initial values for input components
         self.is_menu = False  # the home card gets no Main menu button
         self.has_menu_button = False  # placed by the card itself; don't add another
+        self.has_dashboard_button = False
         self.text_lines: list[str] = []  # appended to as_text() only (text mode)
         self._n = 0
         if title:
@@ -235,7 +236,10 @@ class Card:
         return self.add("Button", **props)
 
     def dashboard_button(self, label: str = "Open dashboard") -> str | None:
-        return self.button(label, open_url(DASHBOARD_URL)) if DASHBOARD_URL else None
+        if not DASHBOARD_URL:
+            return None
+        self.has_dashboard_button = True
+        return self.button(label, open_url(DASHBOARD_URL))
 
     def divider(self) -> str:
         return self.add("Divider")
@@ -250,8 +254,11 @@ class Card:
         return self.button("Main menu", event("welcome"))
 
     def add_menu_button(self) -> None:
+        """The footer every card gets: Main menu, plus a quick link to the web
+        dashboard unless the card already has one."""
         if not self.has_menu_button:
-            self.put(self.row(self.menu_button()))
+            dash = None if self.has_dashboard_button else self.dashboard_button("Dashboard")
+            self.put(self.row(self.menu_button(), dash))
 
     def put(self, *ids: str | None) -> Card:
         self.body.extend(i for i in ids if i)
@@ -500,12 +507,12 @@ def call_detail_card(c: dict) -> Card:
         )
 
     sid = c["doc_id"]
-    rec = dash = None
+    rec = None
     if has_recording(c):
         # A-9: the button asks for a short-lived signed link to this one call
         # (recording_card); the private API's recording URL never reaches the browser.
         rec = card.button("Play recording", event("play_recording", call_sid=sid))
-        dash = card.dashboard_button("Open in dashboard")
+    dash = card.dashboard_button("Dashboard")
     assessed = triage.is_assessment(c)
     sms = c.get("channel") == "sms"
     # Two short rows: six buttons in one row ran past the card's edge in Gemini

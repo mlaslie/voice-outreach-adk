@@ -221,3 +221,7 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 - **Detail card buttons in two rows (20 Oct).** Six buttons in one row ran past the card's edge in Gemini Enterprise.
   - Row 1, for reviewing the call: History · Transcript (Texts for SMS calls) · Play recording.
   - Row 2, for acting on it: Call back · Change tier · Open in dashboard · Main menu.
+- **Dashboard button on every nurse-agent card (20 Oct).**
+  - The automatic footer is now "Main menu · Dashboard", unless the card already links to the dashboard.
+  - The call detail card always has "Dashboard" in its second row. Before, it appeared only when the call had a recording.
+  - Nothing is added when `VOA_NURSE_DASHBOARD_URL` is unset.
