@@ -192,3 +192,8 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 **One difference kept on purpose.** `when_patient: {is_diabetic: true}` is read with `coerce_bool` for SMS ("1"/"on" count as true, as before) but with `norm_answer` for voice (unchanged). Unifying the two would change one channel's behaviour.
 
 **Next.** Load the campaign from GCS or Firestore so that edits apply without a redeploy. Today the file is baked into the images: deploy `gateway` and `api` together.
+- **Bulk delete in Call status (20 Oct).**
+  - Turn on Select to tick rows, or use Select all on the rows currently shown, then Delete.
+  - In-progress calls and cancelled queue entries are skipped. Deletes go in chunks of 100 through `POST /api/calls/batch-delete`, which removes the call, its report, transcript, timeline and recording.
+  - Each request logs `calls.batch_deleted` with who did it and the counts, never ids.
+  - The architecture overview with a "where to change it" guide is published as an artifact. It isn't in the repo.

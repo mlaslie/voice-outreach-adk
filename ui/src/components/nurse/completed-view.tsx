@@ -3,6 +3,9 @@
 import { useEffect, useState } from "react";
 import {
   Ban,
+  Check,
+  ListChecks,
+  Trash2,
   CalendarClock,
   CheckCircle2,
   MessageCircleReply,
@@ -24,6 +27,14 @@ import { QuestionCountPill } from "@/components/patient-questions";
 import { Avatar, ChipOption, EmptyState, FilterChips, Panel, Pill, Tone, ago, clock, isSameDay } from "./parts";
 import { ReasonSummaryLine } from "@/components/follow-up-reasons";
 import { reasonsFor } from "@/lib/follow-up-reasons";
+import { CallDoc } from "@/lib/types";
+import { NurseActions } from "@/lib/nurse/actions";
+import {
+  DeletePlan, effectiveSelection, planDeletion, selectAllState, toggleAll, toggleOne,
+} from "@/lib/nurse/delete-calls";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Button } from "@/components/ui/button";
+import { DeleteCallsDialog } from "./delete-calls-dialog";
 
 export const KIND: Record<CompletedKind, { label: string; tone: Tone; icon: React.ComponentType<{ className?: string }> }> = {
   completed_phone: { label: "Completed · phone", tone: "good", icon: CheckCircle2 },
@@ -62,6 +73,9 @@ export function CompletedView({
   onOpen,
   overdueCallIds = new Set<string>(),
   preset,
+  actions,
+  latestCall,
+  onRemoved,
 }: {
   items: CompletedItem[];
   now: Date;
@@ -69,6 +83,12 @@ export function CompletedView({
   /** Calls whose open follow-up is past its callback window. */
   overdueCallIds?: Set<string>;
   preset?: CompletedPreset | null;
+  /** Needed for multi-select delete; without it there is no Select button. */
+  actions?: NurseActions;
+  /** The freshest copy of a call, to skip one that is in progress again. */
+  latestCall?: (docId: string) => CallDoc | undefined;
+  /** Calls the backend confirmed gone (rows leave the board at once). */
+  onRemoved?: (callIds: string[]) => void;
 }) {
   const [scope, setScope] = useState<DayScope>(preset?.scope ?? "today");
   const [filter, setFilter] = useState<CompletedFilter>(preset?.filter ?? "all");
@@ -104,8 +124,27 @@ export function CompletedView({
 
   const rows = inRange.filter((i) => matches(i, filter));
 
+  // Multi-select delete (cleaning up demo calls). Only the selected rows that
+  // are SHOWN count, so a row hidden by a filter or search is never deleted.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [plan, setPlan] = useState<DeletePlan | null>(null);
+  const chosen = effectiveSelection(selected, rows);
+  const allState = selectAllState(selected, rows);
+  const stopSelecting = () => { setSelecting(false); setSelected(new Set()); };
+  const askDelete = () => {
+    const ids = new Set(chosen);
+    setPlan(planDeletion(rows.filter((r) => ids.has(r.id)), latestCall));
+  };
+  const removed = (callIds: string[]) => {
+    if (!callIds.length) return;
+    setSelected((s) => { const next = new Set(s); callIds.forEach((id) => next.delete(id)); return next; });
+    onRemoved?.(callIds);
+  };
+
   return (
-    <div className="space-y-4">
+    // Room under the list for the fixed action bar while selecting.
+    <div className={cn("space-y-4", selecting && "pb-24")}>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex rounded-full bg-white/70 p-1 ring-1 ring-black/[0.06]" role="tablist" aria-label="Time range">
           {SCOPES.map((s) => (
@@ -125,6 +164,18 @@ export function CompletedView({
           {inRange.length} {inRange.length === 1 ? "call" : "calls"}
           {scope === "today" ? ` · ${now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}` : ""}
         </span>
+        {actions ? (
+          <button
+            type="button"
+            aria-pressed={selecting}
+            onClick={() => (selecting ? stopSelecting() : setSelecting(true))}
+            className={cn("ml-auto inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-semibold ring-1 transition-colors",
+              selecting ? "bg-brand-deep text-white ring-brand-deep" : "bg-white/70 text-ink-soft ring-black/[0.06] hover:text-ink")}
+          >
+            <ListChecks className="h-4 w-4" aria-hidden />
+            {selecting ? "Selecting" : "Select"}
+          </button>
+        ) : null}
       </div>
       <FilterChips options={action} value={filter} onChange={setFilter} />
       <FilterChips options={outcome} value={filter} onChange={setFilter} />
@@ -140,13 +191,28 @@ export function CompletedView({
             {rows.map((i) => {
               const k = KIND[i.kind];
               const tierTone = i.followUp ? TIER_TONE[i.followUp] : undefined;
+              const isSel = selecting && selected.has(i.id);
               return (
                 <li key={i.id}>
                   <button
-                    onClick={() => onOpen(i)}
-                    className="grid w-full grid-cols-[1fr_auto] items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-brand/[0.035]"
+                    type="button"
+                    onClick={() => (selecting ? setSelected((s) => toggleOne(s, i.id)) : onOpen(i))}
+                    {...(selecting
+                      ? { role: "checkbox", "aria-checked": isSel, "aria-label": `Select ${i.patientName}, ${k.label}, ${clock(i.at)}` }
+                      : {})}
+                    className={cn("grid w-full grid-cols-[1fr_auto] items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-brand/[0.035] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/50",
+                      isSel && "bg-brand-red/[0.05] hover:bg-brand-red/[0.07]")}
                   >
                     <div className="flex min-w-0 items-center gap-3.5">
+                      {selecting ? (
+                        <span
+                          aria-hidden
+                          className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-md ring-1 transition-colors",
+                            isSel ? "bg-brand-red text-white ring-brand-red" : "bg-white ring-black/25")}
+                        >
+                          {isSel ? <Check className="h-3.5 w-3.5" /> : null}
+                        </span>
+                      ) : null}
                       <Avatar name={i.patientName} tone={tierTone ?? k.tone} />
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
@@ -208,6 +274,49 @@ export function CompletedView({
           </ul>
         )}
       </Panel>
+
+      {selecting ? (
+        <div
+          role="toolbar"
+          aria-label="Selected calls"
+          className="fixed inset-x-3 bottom-[5.5rem] z-40 mx-auto flex max-w-3xl flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-white/95 px-4 py-2.5 shadow-xl ring-1 ring-black/[0.08] backdrop-blur lg:bottom-6 lg:left-[calc(17rem+3rem)] lg:right-6"
+          onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); stopSelecting(); } }}
+        >
+          <label className="flex cursor-pointer items-center gap-2 text-[13px] font-semibold text-ink">
+            <Checkbox
+              checked={allState}
+              onCheckedChange={() => setSelected((s) => toggleAll(s, rows))}
+              disabled={!rows.length}
+              aria-label={allState === true ? `Clear all ${rows.length} shown` : `Select all ${rows.length} shown`}
+            />
+            Select all ({rows.length})
+          </label>
+          <span role="status" aria-live="polite" className="text-[13px] tabular-nums text-ink-soft">
+            {chosen.length} selected
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())} disabled={!chosen.length}>
+              Clear
+            </Button>
+            <Button size="sm" variant="destructive" onClick={askDelete} disabled={!chosen.length}>
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              Delete {chosen.length}
+            </Button>
+            <Button size="sm" variant="secondary" onClick={stopSelecting}>
+              Done
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {actions ? (
+        <DeleteCallsDialog
+          plan={plan}
+          actions={actions}
+          onOpenChange={(open) => { if (!open) setPlan(null); }}
+          onRemoved={removed}
+        />
+      ) : null}
     </div>
   );
 }

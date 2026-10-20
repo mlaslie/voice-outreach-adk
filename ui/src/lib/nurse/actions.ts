@@ -1,5 +1,5 @@
 import {
-  CallDoc, CallListEntry, CallListEntryInput, CallRun, CallRunInput, DisplaySettings, FollowUpOverrideRequest, RecallSettings, RescheduleTarget,
+  BatchDeleteResult, CallDoc, CallListEntry, CallListEntryInput, CallRun, CallRunInput, DisplaySettings, FollowUpOverrideRequest, RecallSettings, RescheduleTarget,
 } from "../types";
 
 /**
@@ -35,6 +35,15 @@ export interface NurseActions {
   saveDisplay(body: DisplaySettings): Promise<void>;
   /** A nurse changes the follow-up tier, with a reason. Returns the updated call. */
   setFollowUp(callSid: string, body: FollowUpOverrideRequest): Promise<CallDoc>;
+  /**
+   * Permanently delete calls (record, answers, transcript, recording) by
+   * call doc id, in chunks of 100. Never throws for a failed chunk: those ids
+   * come back as errors. `onChunk` reports each chunk as it lands.
+   */
+  deleteCalls(
+    callIds: string[],
+    onChunk?: (results: BatchDeleteResult[], done: number, total: number) => void,
+  ): Promise<BatchDeleteResult[]>;
   /** Re-read everything (after an action). */
   refresh(): void;
 }

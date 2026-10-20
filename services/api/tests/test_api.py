@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -257,7 +258,7 @@ def test_a_nurse_sets_several_reasons_and_the_agents_are_kept():
     assert client.post(f"/api/calls/{cid}/follow-up", json={"follow_up": "none"}).status_code == 422
 
 
-def test_transcript_list_and_delete():
+def test_transcript_list_and_delete(caplog):
     client, api = make()
     cid = "CA" + "b" * 32
     run(
@@ -281,8 +282,24 @@ def test_transcript_list_and_delete():
     assert t["available"] and [x["role"] for x in t["turns"]] == ["agent", "patient"]
     assert client.get("/api/calls").json()["count"] == 1
     assert client.get("/api/calls/not-an-id").status_code == 400
-    r = client.post("/api/calls/batch-delete", json={"call_sids": [cid, "bad"]}).json()["results"]
+    # create_app reinstalls the root handlers, so listen on the route's logger directly.
+    route_log = logging.getLogger("voa_api.routes_calls")
+    route_log.addHandler(caplog.handler)
+    try:
+        r = client.post(
+            "/api/calls/batch-delete",
+            json={"call_sids": [cid, "bad"]},
+            headers={"x-acting-user": "nurse@example.org"},
+        ).json()["results"]
+    finally:
+        route_log.removeHandler(caplog.handler)
     assert [x["status"] for x in r] == ["deleted", "invalid_sid"]
+    assert run(api.store.get("calls", cid)) is None
+    assert run(api.store.get("transcripts", cid)) is None
+    rec = [x for x in caplog.records if getattr(x, "event", "") == "calls.batch_deleted"][-1]
+    assert (rec.requested, rec.count, rec.failed, rec.by) == (2, 1, 0, "nurse@example.org")
+    # Counts and the nurse only: no call ids, names or numbers in the audit line.
+    assert cid not in str(vars(rec).values())
 
 
 def test_allowlist_endpoints():

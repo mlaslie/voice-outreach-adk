@@ -82,13 +82,28 @@ export function NurseConsole({
   };
   const now = useNow();
 
+  // Calls deleted from Call status leave every list at once, before the
+  // stream and the open-follow-ups poll catch up.
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
+  const calls = useMemo(
+    () => (deletedIds.size ? data.calls.filter((c) => !deletedIds.has(c.doc_id)) : data.calls),
+    [data.calls, deletedIds],
+  );
+  const callById = useMemo(() => new Map(calls.map((c) => [c.doc_id, c])), [calls]);
+  const onCallsRemoved = (ids: string[]) => {
+    if (!ids.length) return;
+    setDeletedIds((s) => new Set([...s, ...ids]));
+    const gone = new Set(ids);
+    setDrawer((d) => (d?.call && gone.has(d.call.doc_id) ? null : d));
+  };
+
   const all = useMemo(
     () => ({
-      schedule: scheduleItems(data.entries, data.runs, data.callbacks, data.sessions, data.calls, now),
-      completed: completedItems(data.calls, data.sessions, data.callbacks, data.entries),
-      followups: followUpItems(data.calls, data.callbacks, now),
+      schedule: scheduleItems(data.entries, data.runs, data.callbacks, data.sessions, calls, now),
+      completed: completedItems(calls, data.sessions, data.callbacks, data.entries),
+      followups: followUpItems(calls, data.callbacks, now),
     }),
-    [data, now],
+    [data, calls, now],
   );
 
   const q = query.trim().toLowerCase();
@@ -111,7 +126,7 @@ export function NurseConsole({
     setDrawer({
       name: i.patientName, patientId: i.patientId, phone: i.phone, procedure: i.procedure, tone: "info",
       scheduledFor: i.when,
-      call: data.calls.find((c) => (c.call_sid ?? c.doc_id) === i.sourceCallSid),
+      call: calls.find((c) => (c.call_sid ?? c.doc_id) === i.sourceCallSid),
       context: i.whenText ? <>Booked by text: “{i.whenText}”</> : undefined,
     });
   const openCompleted = (i: CompletedItem) =>
@@ -210,7 +225,8 @@ export function NurseConsole({
             ) : null}
             {view === "completed" ? (
               <CompletedView items={completed} now={now} onOpen={openCompleted}
-                             overdueCallIds={overdueCallIds} preset={preset} />
+                             overdueCallIds={overdueCallIds} preset={preset}
+                             actions={actions} latestCall={(id) => callById.get(id)} onRemoved={onCallsRemoved} />
             ) : null}
             {view === "settings" ? <SettingsView entries={entries} runs={data.runs} actions={actions} now={now} allowlist={allowlist} settings={settings} /> : null}
           </div>

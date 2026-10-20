@@ -15,6 +15,7 @@ import { useFollowUps } from "@/hooks/use-followups";
 import { useCallRuns } from "@/hooks/use-call-runs";
 import { setTimeFormat } from "@/lib/time";
 import { applyOverrideLocally } from "@/lib/follow-up-reasons";
+import { deleteInChunks } from "@/lib/nurse/delete-calls";
 
 /**
  * The nurse console. The classic dashboard at / is unchanged.
@@ -71,6 +72,15 @@ function Sample() {
         const updated = applyOverrideLocally(call, body, "you (sample)", new Date().toISOString());
         setData((d) => ({ ...d, calls: d.calls.map((c) => (c.doc_id === updated.doc_id ? updated : c)) }));
         return updated;
+      },
+      // Sample mode: the calls leave this tab's sample data; the API is never called.
+      deleteCalls: async (callIds, onChunk) => {
+        toast.info(`Sample data: nothing is sent. ${callIds.length === 1 ? "1 call" : `${callIds.length} calls`} removed from this tab only.`);
+        const ids = new Set(callIds);
+        setData((d) => ({ ...d, calls: d.calls.filter((c) => !ids.has(c.doc_id)) }));
+        const results = callIds.map((call_sid) => ({ call_sid, status: "deleted" as const }));
+        onChunk?.(results, callIds.length, callIds.length);
+        return results;
       },
       refresh: () => {},
     };
@@ -166,6 +176,13 @@ function Live() {
       const updated = await api.setFollowUp(sid, body);
       refreshCalls();
       return updated;
+    },
+    async deleteCalls(callIds, onChunk) {
+      try {
+        return await deleteInChunks(callIds, (part) => api.batchDelete(part), onChunk);
+      } finally {
+        refresh(); // callbacks, sessions and runs may have pointed at these calls
+      }
     },
     refresh,
   }), [refresh, refreshCalls, refreshEntries, refreshRun, refreshRuns]);

@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -35,6 +36,8 @@ from .models import (
     SignOff,
     TestCallRequest,
 )
+
+log = logging.getLogger(__name__)
 
 
 def api_of(request: Request) -> Api:
@@ -427,6 +430,17 @@ async def batch_delete(body: BatchDelete, request: Request):
             results.append(
                 {"call_sid": call_id, "status": "error", "error": "delete failed"}
             )  # no str(e) (P-13)
+    # Audit line: counts and the acting nurse only, never a patient name or number.
+    log.info(
+        "calls batch deleted",
+        extra={
+            "event": "calls.batch_deleted",
+            "requested": len(body.call_sids),
+            "count": sum(r["status"] == "deleted" for r in results),
+            "failed": sum(r["status"] == "error" for r in results),
+            "by": acting_user(request),
+        },
+    )
     return {"results": results}
 
 
