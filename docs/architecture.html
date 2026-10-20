@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Post-op Calling Agent (ADK) architecture</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one wide diagram band, then two reading sections (call flow, where-to-change) on a calm clinical palette */
+:root {
+  --bg: #f4f7f7;
+  --panel: #ffffff;
+  --ink: #142a2b;
+  --ink-soft: #4a6163;
+  --line: #c9d6d6;
+  --brand: #17605e;
+  --brand-tint: #e3efee;
+  --gcp: #eef3fb;
+  --gcp-line: #9db4dc;
+  --ext: #fbf4ea;
+  --ext-line: #d9b98a;
+  --model: #f3eefb;
+  --model-line: #b6a3dc;
+  --data: #eef6f1;
+  --data-line: #9ccab0;
+  --badge: #b5462f;
+  --badge-ink: #ffffff;
+  --display: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1a1b; --panel: #152325; --ink: #e3eeee; --ink-soft: #9fb5b6; --line: #2c4245;
+    --brand: #6cc6c0; --brand-tint: #1b3335;
+    --gcp: #16233a; --gcp-line: #4e6fa8; --ext: #2a2216; --ext-line: #8c6c3c;
+    --model: #241d36; --model-line: #7d68b3; --data: #142a20; --data-line: #4c8c67;
+    --badge: #e07a5f; --badge-ink: #1a0f0b; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1a1b; --panel: #152325; --ink: #e3eeee; --ink-soft: #9fb5b6; --line: #2c4245;
+  --brand: #6cc6c0; --brand-tint: #1b3335;
+  --gcp: #16233a; --gcp-line: #4e6fa8; --ext: #2a2216; --ext-line: #8c6c3c;
+  --model: #241d36; --model-line: #7d68b3; --data: #142a20; --data-line: #4c8c67;
+  --badge: #e07a5f; --badge-ink: #1a0f0b; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.55; }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 36px; }
+header h1 { font-family: var(--display); font-size: clamp(1.6rem, 3vw, 2.2rem); line-height: 1.15; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+header p { margin: 8px 0 0; color: var(--ink-soft); max-width: 70ch; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.chip { font-family: var(--mono); font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--brand-tint); color: var(--brand); border: 1px solid var(--line); }
+h2 { font-family: var(--display); font-size: 1.25rem; margin: 0 0 12px; }
+.diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.scroll { overflow-x: auto; }
+svg { display: block; width: 100%; min-width: 1080px; height: auto; font-family: var(--body); }
+svg .t { fill: var(--ink); font-size: 13px; }
+svg .t-b { fill: var(--ink); font-size: 14px; font-weight: 700; }
+svg .t-s { fill: var(--ink-soft); font-size: 11.5px; }
+svg .t-m { fill: var(--ink-soft); font-size: 11px; font-family: var(--mono); }
+svg .t-cap { fill: var(--ink-soft); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+svg .gcp { fill: var(--gcp); stroke: var(--gcp-line); }
+svg .ext { fill: var(--ext); stroke: var(--ext-line); }
+svg .model { fill: var(--model); stroke: var(--model-line); }
+svg .data { fill: var(--data); stroke: var(--data-line); }
+svg .svc { fill: var(--panel); stroke: var(--gcp-line); stroke-width: 1.3; }
+svg .person { fill: var(--brand-tint); stroke: var(--brand); stroke-width: 1.2; }
+svg .inner { fill: var(--brand-tint); stroke: var(--brand); stroke-width: 1; }
+svg .cfg { fill: var(--panel); stroke: var(--badge); stroke-width: 1.4; stroke-dasharray: 5 4; }
+svg .flow { stroke: var(--ink-soft); stroke-width: 1.4; fill: none; }
+svg .flow-v { stroke: var(--brand); stroke-width: 1.8; fill: none; }
+svg .flow-s { stroke: var(--badge); stroke-width: 1.4; fill: none; stroke-dasharray: 6 4; }
+svg .ah { fill: var(--ink-soft); }
+svg .ah-v { fill: var(--brand); }
+svg .ah-s { fill: var(--badge); }
+svg .badge { fill: var(--badge); }
+svg .badge-t { fill: var(--badge-ink); font-size: 12px; font-weight: 700; }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 10px 4px 2px; color: var(--ink-soft); font-size: 13px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.sw { width: 26px; height: 0; border-top: 2px solid var(--brand); display: inline-block; }
+.sw.s { border-top: 2px dashed var(--badge); }
+.sw.g { border-top: 2px solid var(--ink-soft); }
+.bd { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--badge); color: var(--badge-ink); font-size: 12px; font-weight: 700; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 28px; align-items: start; }
+@media (max-width: 900px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; min-width: 0; }
+ol.flow { margin: 0; padding-left: 20px; display: grid; gap: 9px; }
+ol.flow li { padding-left: 4px; }
+ol.flow b { font-weight: 600; }
+.sub { color: var(--ink-soft); font-size: 13.5px; margin: 14px 0 6px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.tablewrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; color: var(--ink-soft); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+td code, li code, p code { font-family: var(--mono); font-size: 12.5px; background: var(--brand-tint); color: var(--ink); padding: 1px 5px; border-radius: 4px; word-break: break-word; }
+.who { white-space: nowrap; }
+.yes { color: var(--badge); font-weight: 600; }
+.no { color: var(--brand); font-weight: 600; }
+.models { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.model-card { border: 1px solid var(--model-line); background: var(--model); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.model-card .n { font-family: var(--mono); font-size: 14px; font-weight: 500; }
+.model-card p { margin: 4px 0 0; color: var(--ink-soft); font-size: 13.5px; }
+footer { color: var(--ink-soft); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>Post-op Calling Agent (ADK): how it fits together</h1>
+    <p>Where each part runs, how a call and a text move through it, and which file or screen to use when you want to change the questions or how the agent reacts to answers.</p>
+    <div class="meta">
+      <span class="chip">One GCP project (from terraform.tfvars)</span>
+      <span class="chip">Cloud Run · us-central1</span>
+      <span class="chip">Google ADK</span>
+      <span class="chip">One shared Twilio number</span>
+    </div>
+  </header>
+
+  <div class="diagram">
+    <div class="scroll">
+      <svg viewBox="0 0 1200 800" role="img" aria-labelledby="dt dd">
+        <title id="dt">Architecture diagram</title>
+        <desc id="dd">Patients reach Twilio by phone and text. Twilio connects to the gateway service, which runs the ADK voice agent on Gemini Live. The API service runs the dashboard API, dialing, the text questionnaire and triage. The dashboard and the Gemini Enterprise nurse agent call the API. Data lives in Firestore and Cloud Storage. Lettered badges mark where to change things.</desc>
+        <defs>
+          <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+          <marker id="av" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-v"/></marker>
+          <marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-s"/></marker>
+        </defs>
+
+        <!-- Column captions -->
+        <text x="20" y="24" class="t-cap">People</text>
+        <text x="200" y="24" class="t-cap">Outside services</text>
+        <text x="420" y="24" class="t-cap">Google Cloud project</text>
+
+        <!-- People -->
+        <rect x="20" y="60" width="150" height="86" rx="12" class="person"/>
+        <text x="36" y="88" class="t-b">Patient</text>
+        <text x="36" y="108" class="t-s">answers the call or</text>
+        <text x="36" y="124" class="t-s">texts back</text>
+
+        <rect x="20" y="330" width="150" height="86" rx="12" class="person"/>
+        <text x="36" y="358" class="t-b">Nurse</text>
+        <text x="36" y="378" class="t-s">dashboard in a</text>
+        <text x="36" y="394" class="t-s">browser (IAP sign-in)</text>
+
+        <rect x="20" y="560" width="150" height="86" rx="12" class="person"/>
+        <text x="36" y="588" class="t-b">Nurse</text>
+        <text x="36" y="608" class="t-s">chatting in Gemini</text>
+        <text x="36" y="624" class="t-s">Enterprise</text>
+
+        <!-- Outside services -->
+        <rect x="200" y="50" width="180" height="210" rx="12" class="ext"/>
+        <text x="216" y="78" class="t-b">Twilio</text>
+        <text x="216" y="98" class="t-s">one shared number</text>
+        <text x="216" y="122" class="t">Phone calls</text>
+        <text x="216" y="138" class="t-s">audio streamed live</text>
+        <text x="216" y="162" class="t">Text messages</text>
+        <text x="216" y="178" class="t-s">replies go to whichever</text>
+        <text x="216" y="194" class="t-s">system has the number</text>
+        <text x="216" y="220" class="t">Answering-machine</text>
+        <text x="216" y="236" class="t">detection</text>
+
+        <rect x="200" y="290" width="180" height="86" rx="12" class="ext"/>
+        <text x="216" y="318" class="t-b">GE-CX system</text>
+        <text x="216" y="338" class="t-s">the earlier agent; shares</text>
+        <text x="216" y="354" class="t-s">the number via a switch</text>
+
+        <rect x="200" y="560" width="180" height="86" rx="12" class="ext"/>
+        <text x="216" y="588" class="t-b">Gemini Enterprise</text>
+        <text x="216" y="608" class="t-s">may live in another project;</text>
+        <text x="216" y="624" class="t-s">talks to the agent over A2A</text>
+
+        <!-- GCP project frame -->
+        <rect x="410" y="34" width="776" height="752" rx="16" class="gcp"/>
+
+        <!-- Gateway -->
+        <rect x="430" y="60" width="270" height="232" rx="12" class="svc"/>
+        <text x="446" y="86" class="t-b">voa-gateway</text>
+        <text x="446" y="104" class="t-m">Cloud Run · public</text>
+        <text x="446" y="126" class="t-s">Twilio webhooks, live call audio,</text>
+        <text x="446" y="142" class="t-s">browser test calls, recordings</text>
+        <rect x="446" y="156" width="238" height="120" rx="10" class="inner"/>
+        <text x="460" y="180" class="t-b">ADK voice agent</text>
+        <text x="460" y="200" class="t-s">instruction built from the campaign</text>
+        <text x="460" y="216" class="t-s">tools: verify_identity, record_answer,</text>
+        <text x="460" y="232" class="t-s">record_patient_question,</text>
+        <text x="460" y="248" class="t-s">submit_report, end_call</text>
+        <text x="460" y="266" class="t-s">guards: exit gate, auto-hangup</text>
+
+        <!-- API -->
+        <rect x="720" y="60" width="240" height="372" rx="12" class="svc"/>
+        <text x="736" y="86" class="t-b">voa-api</text>
+        <text x="736" y="104" class="t-m">Cloud Run · private</text>
+        <text x="736" y="132" class="t">Dashboard API and live updates</text>
+        <text x="736" y="156" class="t">Call lists, runs, dialing</text>
+        <text x="736" y="172" class="t-s">calling hours, auto-recall</text>
+        <text x="736" y="196" class="t">Text questionnaire</text>
+        <text x="736" y="212" class="t-s">step-by-step script, no AI deciding</text>
+        <text x="736" y="236" class="t">Triage</text>
+        <text x="736" y="252" class="t-s">same day / next business day /</text>
+        <text x="736" y="268" class="t-s">noted, every reason kept</text>
+        <text x="736" y="292" class="t">Sign-off, follow-up changes</text>
+        <text x="736" y="316" class="t">SMS number switch</text>
+        <text x="736" y="340" class="t">Task and timer handlers</text>
+        <text x="736" y="356" class="t-s">dial, call ended, missed-call</text>
+        <text x="736" y="372" class="t-s">text, every-minute dispatch</text>
+        <text x="736" y="404" class="t-s">same triage code is used for</text>
+        <text x="736" y="420" class="t-s">voice and text answers</text>
+
+        <!-- Models -->
+        <rect x="980" y="60" width="190" height="232" rx="12" class="model"/>
+        <text x="996" y="86" class="t-b">Gemini on Vertex AI</text>
+        <text x="996" y="114" class="t-m">gemini-3.8-live</text>
+        <text x="996" y="130" class="t-s">the voice conversation</text>
+        <text x="996" y="158" class="t-m">gemini-3.8-flash</text>
+        <text x="996" y="174" class="t-s">nurse agent; reading free-</text>
+        <text x="996" y="190" class="t-s">text times in texts</text>
+        <text x="996" y="218" class="t-m">gemini-2.5-flash-tts</text>
+        <text x="996" y="234" class="t-s">voicemail message</text>
+        <text x="996" y="262" class="t-s">voice: Algenib</text>
+
+        <!-- Campaign config -->
+        <rect x="980" y="312" width="190" height="120" rx="12" class="cfg"/>
+        <text x="996" y="338" class="t-b">Questions file</text>
+        <text x="996" y="356" class="t-m">post_op.yaml</text>
+        <text x="996" y="378" class="t-s">built into the gateway</text>
+        <text x="996" y="394" class="t-s">and API images; voice and</text>
+        <text x="996" y="410" class="t-s">text wording, one file</text>
+
+        <!-- UI -->
+        <rect x="430" y="330" width="270" height="102" rx="12" class="svc"/>
+        <text x="446" y="356" class="t-b">voa-ui</text>
+        <text x="446" y="374" class="t-m">Cloud Run · behind IAP</text>
+        <text x="446" y="396" class="t-s">Next.js dashboard; its server calls</text>
+        <text x="446" y="412" class="t-s">the API with a Google ID token</text>
+
+        <!-- Nurse agent -->
+        <rect x="430" y="540" width="270" height="126" rx="12" class="svc"/>
+        <text x="446" y="566" class="t-b">voa-nurse</text>
+        <text x="446" y="584" class="t-m">Cloud Run · private · A2A</text>
+        <text x="446" y="606" class="t-s">ADK agent with clickable cards</text>
+        <text x="446" y="622" class="t-s">(A2UI); changes need a button</text>
+        <text x="446" y="638" class="t-s">confirm; calls the API</text>
+
+        <!-- Data stores -->
+        <rect x="720" y="470" width="450" height="296" rx="12" class="data"/>
+        <text x="736" y="496" class="t-b">Data and plumbing</text>
+        <text x="736" y="522" class="t">Firestore</text>
+        <text x="736" y="538" class="t-s">calls, answers, transcripts, timelines,</text>
+        <text x="736" y="554" class="t-s">call list, runs, text conversations,</text>
+        <text x="736" y="570" class="t-s">settings (hours, time format, consent)</text>
+        <text x="736" y="598" class="t">Cloud Storage</text>
+        <text x="736" y="614" class="t-s">call recordings, voicemail audio</text>
+        <text x="736" y="642" class="t">Cloud Tasks and Scheduler</text>
+        <text x="736" y="658" class="t-s">dial queue, text queue, every-minute run</text>
+        <text x="960" y="522" class="t">Secret Manager</text>
+        <text x="960" y="538" class="t-s">Twilio credentials</text>
+        <text x="960" y="566" class="t">Logging and alerts</text>
+        <text x="960" y="582" class="t-s">every line tagged with</text>
+        <text x="960" y="598" class="t-s">the call id</text>
+        <text x="960" y="626" class="t">Terraform</text>
+        <text x="960" y="642" class="t-s">creates all of the above</text>
+        <text x="736" y="700" class="t-s">Everything in this project is created by Terraform (infra/envs/demo).</text>
+        <text x="736" y="718" class="t-s">Settings changed in the dashboard are stored in Firestore and apply at once.</text>
+
+        <!-- Flows: voice -->
+        <path d="M170 92 L196 92" class="flow-v" marker-end="url(#av)"/>
+        <path d="M380 120 L426 120" class="flow-v" marker-end="url(#av)"/>
+        <text x="384" y="112" class="t-s">audio</text>
+        <path d="M690 60 C 740 44, 1010 44, 1050 58" class="flow-v" marker-end="url(#av)"/>
+        <text x="900" y="40" class="t-s">conversation</text>
+        <!-- Gateway <-> API -->
+        <path d="M700 250 L716 250" class="flow" marker-end="url(#a)"/>
+        <!-- Text flow -->
+        <path d="M170 128 C 186 128, 186 186, 196 186" class="flow-s" marker-end="url(#as)"/>
+        <path d="M380 186 C 400 186, 404 230, 426 230" class="flow-s" marker-end="url(#as)"/>
+        <!-- Number switch to GE-CX -->
+        <path d="M290 260 L290 286" class="flow-s" marker-end="url(#as)"/>
+        <!-- Nurse dashboard -->
+        <path d="M170 372 L426 372" class="flow" marker-end="url(#a)"/>
+        <path d="M700 380 L716 380" class="flow" marker-end="url(#a)"/>
+        <!-- Gemini Enterprise -->
+        <path d="M170 602 L196 602" class="flow" marker-end="url(#a)"/>
+        <path d="M380 602 L426 602" class="flow" marker-end="url(#a)"/>
+        <text x="388" y="594" class="t-s">A2A</text>
+        <path d="M700 600 C 712 600, 712 420, 716 420" class="flow" marker-end="url(#a)"/>
+        <!-- API dials Twilio -->
+        <path d="M760 60 C 760 40, 330 34, 300 48" class="flow" marker-end="url(#a)"/>
+        <text x="470" y="34" class="t-s">place call, send text</text>
+        <!-- Services to data -->
+        <path d="M840 432 L840 466" class="flow" marker-end="url(#a)"/>
+        <path d="M700 280 C 712 300, 712 470, 716 500" class="flow" marker-end="url(#a)"/>
+        <!-- Campaign into services -->
+        <path d="M980 372 L964 372" class="flow-s" marker-end="url(#as)"/>
+
+        <!-- Where-to-change badges -->
+        <g><circle cx="1158" cy="326" r="11" class="badge"/><text x="1158" y="330" text-anchor="middle" class="badge-t">A</text></g>
+        <g><circle cx="684" cy="170" r="11" class="badge"/><text x="684" y="174" text-anchor="middle" class="badge-t">B</text></g>
+        <g><circle cx="944" cy="240" r="11" class="badge"/><text x="944" y="244" text-anchor="middle" class="badge-t">C</text></g>
+        <g><circle cx="156" cy="344" r="11" class="badge"/><text x="156" y="348" text-anchor="middle" class="badge-t">D</text></g>
+        <g><circle cx="1158" cy="74" r="11" class="badge"/><text x="1158" y="78" text-anchor="middle" class="badge-t">E</text></g>
+        <g><circle cx="1158" cy="626" r="11" class="badge"/><text x="1158" y="630" text-anchor="middle" class="badge-t">F</text></g>
+        <g><circle cx="684" cy="554" r="11" class="badge"/><text x="684" y="558" text-anchor="middle" class="badge-t">G</text></g>
+        <g><circle cx="944" cy="196" r="11" class="badge"/><text x="944" y="200" text-anchor="middle" class="badge-t">H</text></g>
+      </svg>
+    </div>
+    <div class="legend">
+      <span><i class="sw"></i> Phone call (live audio)</span>
+      <span><i class="sw s"></i> Text messages and the number switch</span>
+      <span><i class="sw g"></i> Requests between services</span>
+      <span><i class="bd">A</i> Where to change it (see the table below)</span>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <section class="card">
+      <h2>What happens on a call</h2>
+      <ol class="flow">
+        <li><b>A nurse starts a call or a run</b> in the dashboard, or the every-minute timer finds one that is due. The API checks the allowlist, the budget and calling hours, then queues a dial task.</li>
+        <li><b>The API asks Twilio to call</b> the patient. Twilio streams the call audio to the gateway.</li>
+        <li><b>The gateway runs the ADK voice agent</b> on Gemini Live. It speaks first, checks the date of birth with a tool (the model never sees it), then asks each question.</li>
+        <li><b>Every answer goes through a tool.</b> The tool turns the answer into a standard value, and triage (code, not the model) decides same day, next business day or noted.</li>
+        <li><b>The report is saved</b> to Firestore with the transcript, timeline and recording. The dashboard and the nurse agent show it straight away.</li>
+      </ol>
+      <p class="sub">If nobody answers</p>
+      <ol class="flow">
+        <li><b>Voicemail:</b> the gateway plays a fixed message (no patient details) and hangs up.</li>
+        <li><b>A minute later the API texts the patient</b> (consent, allowlist and this system holding the number are all required): 1 to be called now, 2 to pick a time, 3 to answer by text.</li>
+        <li><b>Answering by text</b> uses the same questions and the same triage as the call, so a text report looks the same as a call report in the dashboard.</li>
+      </ol>
+    </section>
+
+    <section class="card">
+      <h2>Where to change it</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th></th><th>To change</th><th>Where</th><th>Who</th><th>Redeploy</th></tr></thead>
+          <tbody>
+            <tr><td><span class="bd">A</span></td><td>Question wording, order, voice lines, text messages, red-flag wording, what the agent should do when a patient already answered</td><td><code>config/campaigns/post_op.yaml</code> (fields <code>ask</code>, <code>sms</code>, <code>note</code>, <code>scripts</code>, <code>sms_scripts</code>). Guide: <code>docs/EDITING-QUESTIONS.md</code></td><td class="who">Anyone</td><td class="yes">Yes</td></tr>
+            <tr><td><span class="bd">B</span></td><td>The agent's general rules: speaking style, call order, identity check, safety, when to hang up</td><td><code>packages/voa_agents/…/voice/instruction.py</code> (the instruction template) and <code>tools.py</code></td><td class="who">Developer</td><td class="yes">Yes</td></tr>
+            <tr><td><span class="bd">C</span></td><td>How answers are judged: what makes a patient same day, next business day or noted; how patient questions are prioritised; swelling and pain rules</td><td><code>packages/voa_core/…/survey.py</code> (<code>triage</code>) and <code>patient_questions.py</code></td><td class="who">Developer + clinician</td><td class="yes">Yes</td></tr>
+            <tr><td><span class="bd">D</span></td><td>Calling hours and auto-recall, time format, which system has the text number, allowlist and consent, a call's follow-up and reasons</td><td>Dashboard → Settings, the Allowlist dialog, and each call's details</td><td class="who">Nurse / admin</td><td class="no">No</td></tr>
+            <tr><td><span class="bd">E</span></td><td>Gemini models and the agent's voice</td><td><code>config/app.yaml</code> (<code>models.*</code>, <code>voice.voice_name</code>)</td><td class="who">Developer</td><td class="yes">Yes</td></tr>
+            <tr><td><span class="bd">F</span></td><td>Services, queues, schedules, who can sign in, the Twilio number, sending texts on or off</td><td><code>infra/envs/demo</code> (Terraform) and its private <code>terraform.tfvars</code></td><td class="who">Developer</td><td class="yes">Yes</td></tr>
+            <tr><td><span class="bd">G</span></td><td>The Gemini Enterprise nurse agent: what it can do, its cards, its instructions</td><td><code>services/nurse/…/agent.py</code>, <code>tools.py</code>, <code>cards.py</code></td><td class="who">Developer</td><td class="yes">Yes</td></tr>
+            <tr><td><span class="bd">H</span></td><td>The first text after a missed call, the 1/2/3 menu, the date-of-birth check, STOP/HELP replies</td><td><code>packages/voa_core/…/copy.py</code> (kept in code: identity and carrier-compliance wording)</td><td class="who">Developer + compliance</td><td class="yes">Yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="sub">How a redeploy works</p>
+      <p style="margin:0">Commit the change, then run <code>scripts/deploy.sh demo gateway api ui nurse</code>. It builds the images, updates Terraform and rolls out new versions in about five minutes; calls in progress finish on the old version.</p>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>Models in use</h2>
+    <div class="models">
+      <div class="model-card"><div class="n">gemini-3.8-live</div><p>The phone conversation itself: listens and speaks in real time. Vertex AI, us-central1. Voice: Algenib.</p></div>
+      <div class="model-card"><div class="n">gemini-3.8-flash</div><p>The Gemini Enterprise nurse agent, and reading free-text times in texts ("Tuesday after lunch"). It never decides triage.</p></div>
+      <div class="model-card"><div class="n">gemini-2.5-flash-tts</div><p>Records the voicemail message once; it is cached and reused until the wording or voice changes.</p></div>
+    </div>
+  </section>
+
+  <footer>Source of truth: the repository's <code>docs/</code> folder (PLAN, HANDOFF, RUNBOOK, EDITING-QUESTIONS). State as of 20 Oct 2026. Real project names and numbers are kept out of the repo.</footer>
+</div>
+</body>
+</html>

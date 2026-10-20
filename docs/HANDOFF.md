@@ -62,11 +62,12 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 
 ## Where to start reading
 
-1. `docs/PLAN.md`: why the system is shaped this way.
-2. `docs/spikes/voice.md`: the measured voice behaviour.
-3. `services/gateway/src/voa_gateway/session.py`: one call, end to end.
-4. `services/api/src/voa_api/dialer.py` then `routes_tasks.py`: how dialing works.
-5. `docs/RUNBOOK.md` and `docs/DEPLOY.md`.
+1. `docs/architecture.html` (open it in a browser): where each part runs, how a call and a text flow, and where to change questions, wording and triage.
+2. `docs/PLAN.md`: why the system is shaped this way.
+3. `docs/spikes/voice.md`: the measured voice behaviour.
+4. `services/gateway/src/voa_gateway/session.py`: one call, end to end.
+5. `services/api/src/voa_api/dialer.py` then `routes_tasks.py`: how dialing works.
+6. `docs/RUNBOOK.md` and `docs/DEPLOY.md`.
 
 ## Open follow-ups
 
@@ -196,4 +197,4 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - Turn on Select to tick rows, or use Select all on the rows currently shown, then Delete.
   - In-progress calls and cancelled queue entries are skipped. Deletes go in chunks of 100 through `POST /api/calls/batch-delete`, which removes the call, its report, transcript, timeline and recording.
   - Each request logs `calls.batch_deleted` with who did it and the counts, never ids.
-  - The architecture overview with a "where to change it" guide is published as an artifact. It isn't in the repo.
+  - The architecture overview with a "where to change it" guide is in `docs/architecture.html`.
