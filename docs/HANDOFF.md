@@ -168,3 +168,9 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - Calls now carry `sms_follow_up: {status: sent | not_sent | deferred, reason, at}`.
   - The console shows "Text not sent" (with the reason) on Call status rows, and a "Follow-up text" line in the call details.
   - Consent is recorded in the classic dashboard's Allowlist dialog.
+- **Follow-ups use what the patient already said (tester feedback, 20 Oct).**
+  - **By text:** `survey.known_pain_site`, `swelling_known`, `followup_value` and `followup_already_answered`.
+    - Pain already placed ("around my incision") → "You mentioned pain at your incision. Is there pain anywhere else?" The stored value joins both: "incision; also: …".
+    - Swelling: if the reply already says which side and whether it's changing, the follow-up is skipped. Otherwise it asks only the missing part.
+    - "Left/right foot" now counts as one-sided swelling (same day).
+  - **By voice:** an instruction rule plus notes on the two follow-ups in `config/campaigns/post_op.yaml`.

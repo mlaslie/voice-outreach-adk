@@ -261,7 +261,7 @@ export function findingsFor(call: CallDoc): Finding[] {
 
 /** Negated phrases ("not getting worse", "no redness") must not trip the alert words. */
 const NEGATED = /\b(?:not|no|isn'?t|aren'?t|hasn'?t|haven'?t|never|without|nor)\s+(?:any\s+|getting\s+|more\s+|really\s+|very\s+)*(?:worse|worsening|pain(?:ful)?|sore|tender|red(?:ness)?|warm(?:th)?|hot)\b/gi;
-const SWELLING_ALERT = /\b(one leg|one side|one calf|left|right|worse|worsening|pain|painful|sore|tender|hurts?|red|redness|warm|warmth|hot)\b/i;
+const SWELLING_ALERT = /\b(one leg|one foot|one ankle|one side|one calf|left|right|worse|worsening|pain|painful|sore|tender|hurts?|red|redness|warm|warmth|hot)\b/i;
 
 /** One-sided, worsening, painful, red or warm swelling: possible clot. */
 export function swellingIsConcerning(description: string): boolean {

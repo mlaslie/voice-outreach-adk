@@ -392,3 +392,16 @@ def survey_file_failed() -> str:
         "Thank you for your answers. We had a problem recording them - "
         "please call the number on your paperwork so your care team has them."
     )
+
+
+# Follow-ups reworded from what the patient already said (survey.known_pain_site,
+# survey.swelling_known): never ask "where?" right after they told us where.
+def pain_elsewhere(site: str) -> str:
+    return (
+        f"You mentioned pain at your {site}. Is there pain anywhere else? "
+        "Reply NO, or tell us where and what it feels like."
+    )
+
+
+SWELLING_TREND_ONLY = "Is the swelling getting worse? Reply YES or NO."
+SWELLING_SIDE_ONLY = "Is it in one leg or foot, or both?"

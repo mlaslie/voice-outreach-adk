@@ -931,3 +931,51 @@ def test_a_huge_digit_string_does_not_raise_in_any_state(now):
     _decide(_survey_session(plan=survey.build_plan(_ctx(is_diabetic=True)), index=6), body)
     _decide(_survey_session(index=6), body)
     _decide(_survey_session(index=7, pending=["patient_questions"]), body)
+
+
+# --- follow-ups use what the patient already said (tester feedback, 19 Oct 2026)
+
+
+def test_pain_already_placed_asks_anywhere_else_not_where():
+    _, prompts = _walk(["ok", "yes, around my incision", "3"])
+    assert prompts[-1].startswith(
+        "You mentioned pain at your incision. Is there pain anywhere else?"
+    )
+
+
+@pytest.mark.parametrize(
+    ("reply", "stored"),
+    [("no", "incision"), ("my lower back too, dull", "incision; also: my lower back too, dull")],
+)
+def test_the_anywhere_else_reply_is_joined_with_the_earlier_site(reply, stored):
+    s, _ = _run_survey(
+        ["ok", "yes, around my incision", "3", reply, "same", "no", "no", "no", "yes", "no"]
+    )
+    assert s["survey_answers"]["pain_location"] == stored
+    ok, why = _filing_would_accept(s["survey_answers"])
+    assert ok, why
+
+
+def test_incision_mentioned_without_pain_does_not_count_as_a_pain_site():
+    _, prompts = _walk(["my incision looks fine", "yes", "4"])
+    assert "describe the pain" in prompts[-1].lower()
+
+
+def test_one_foot_swollen_asks_only_whether_it_is_getting_worse():
+    s, prompts = _walk(["ok", "no", "no", "no", "yes, my left foot"])
+    assert prompts[-1] == messages.SWELLING_TREND_ONLY
+    s, _ = _run_survey(["ok", "no", "no", "no", "yes, my left foot", "no", "yes", "no"])
+    a = s["survey_answers"]
+    assert a["swelling_description"] == "yes, my left foot; not getting worse"
+    assert s["survey_follow_up"] == survey.FOLLOW_UP_URGENT  # one side: same day
+
+
+def test_swelling_fully_described_skips_the_follow_up():
+    s, prompts = _walk(["ok", "no", "no", "no", "yes both ankles, about the same"])
+    assert "sleeping" in prompts[-1].lower()
+    assert s["survey_answers"]["swelling_description"] == "yes both ankles, about the same"
+
+
+def test_swelling_trend_given_asks_only_which_side():
+    _, prompts = _walk(["ok", "no", "no", "no", "yes and it's getting worse"])
+    assert prompts[-1] == messages.SWELLING_SIDE_ONLY

@@ -147,9 +147,34 @@ def _next_prompt(
     if pending:
         if pending[0] == survey_mod.F_PATIENT_QUESTIONS and _questions_so_far(answers or {}):
             return messages.ANOTHER_QUESTION, False
-        return messages.FOLLOWUP_TEXT[pending[0]], False
+        return _followup_text(pending[0], answers or {}), False
     field = plan[index]
     return messages.question(index + 1, len(plan), messages.QUESTION_TEXT[field]), True
+
+
+def _followup_text(field: str, answers: dict) -> str:
+    """The follow-up, reworded when the patient already answered part of it."""
+    if field == survey_mod.F_PAIN_LOCATION and (site := survey_mod.known_pain_site(answers)):
+        return messages.pain_elsewhere(site)
+    if field == survey_mod.F_SWELLING_DESC:
+        side, trend = survey_mod.swelling_known(answers)
+        if side and not trend:
+            return messages.SWELLING_TREND_ONLY
+        if trend and not side:
+            return messages.SWELLING_SIDE_ONLY
+    return messages.FOLLOWUP_TEXT[field]
+
+
+def _drop_answered(pending: list[str], answers: dict) -> list[str]:
+    """Record follow-ups the patient already answered, and do not ask them."""
+    left = []
+    for f in pending:
+        known = survey_mod.followup_already_answered(f, answers)
+        if known:
+            answers[f] = known
+        else:
+            left.append(f)
+    return left
 
 
 def _advance(
@@ -566,6 +591,9 @@ def _handle_survey(session: dict, body: str) -> Decision:
             )
         value = "unknown" if field in survey_mod.UNKNOWNABLE else ""
 
+    if pending and value not in (None, ""):
+        # A reworded follow-up ("anywhere else?") is joined with what was said before.
+        value = survey_mod.followup_value(field, answers, value)
     answers[field] = value
     _keep_raw(answers, field, body)
     if field == survey_mod.Q_SUGAR and (body or "").strip():
@@ -575,7 +603,7 @@ def _handle_survey(session: dict, body: str) -> Decision:
     if pending:
         pending = pending[1:]
     else:
-        pending = list(survey_mod.followups_for(field, value))
+        pending = _drop_answered(list(survey_mod.followups_for(field, value)), answers)
         index += 1
     return _advance(session, answers, plan, pending, index)
 

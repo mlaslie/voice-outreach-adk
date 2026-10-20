@@ -43,6 +43,7 @@ questions:
     ask: "Can you describe the pain for me, like where it is and what it feels like?"
     type: text
     when: {pain_present: "yes"}
+    note: "If they already said where it hurts, do not ask where again: say \"You mentioned your <place>. Is there pain anywhere else?\" and record both."
   - id: pain_trend
     ask: "Is it getting better, staying the same, or getting worse?"
     type: choice
@@ -65,6 +66,7 @@ questions:
     ask: "Is it in one leg or both, and is it getting worse?"
     type: text
     when: {legs_swollen: "yes"}
+    note: "Ask only the part they have not already told you (which side, or whether it is getting worse); if they told you both, record what they said without asking."
   - id: sleeping_well
     ask: "Are you sleeping well?"
     type: yes_no_unknown

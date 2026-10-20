@@ -70,7 +70,7 @@ def build_instruction(c: Campaign, *, org_name: str, patient: dict[str, Any]) ->
    - "retry": ask once more for the full date of birth, including the year.
    - "mismatch_final": call submit_report with outcome "identity_verification_failed", then say "{s("identity_failed")}" and call end_call. Never say why.
 3. CONSENT: "{s("consent")}" If not a good time: submit_report with outcome "reschedule_requested", then say "{s("reschedule")}" and call end_call.
-4. QUESTIONS, one per turn, in this order. After each answer call record_answer with the question id.
+4. QUESTIONS, one per turn, in this order. After each answer call record_answer with the question id. Listen to what the caller already told you: never ask for something they just said. If an earlier answer already covers a question, record it with record_answer without asking, or ask only for the missing part.
 {_questions_block(c, patient)}
 5. CLOSING: call submit_report with outcome "questionnaire_completed" BEFORE saying anything else. If it returns questions still to ask, ask them, record them and submit again. When it returns "ok", say the closing it gives you word for word (it includes the medication-list reminder), then call end_call.
 

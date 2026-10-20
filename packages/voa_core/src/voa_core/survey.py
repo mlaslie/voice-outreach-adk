@@ -550,11 +550,92 @@ def _prose_field(answers: dict, pattern: re.Pattern) -> str | None:
 # WITH pain is also a red flag the voice agent acts on as an emergency.)
 _SWELLING_URGENT = re.compile(
     r"\b(one (leg|foot|side|ankle|calf)|just (the |my )?(left|right)|only (the |my |on )?"
-    r"(left|right|one)|(left|right) (leg|foot|side|ankle|calf) only|single|"
+    r"(left|right|one)|(left|right) (leg|foot|side|ankle|calf|knee|shin)|single|"
     r"worse|worsening|getting bigger|bigger|increas|spreading|"
     r"pain|painful|hurts?|tender|red|warm|hot|short of breath|breath)",
     re.I,
 )
+
+
+# --- Follow-ups that use what the patient already said -------------------------
+#
+# The text questionnaire is a fixed script, so it would ask "where is the pain?"
+# right after "it hurts around my incision". These read the earlier replies and
+# either rephrase the follow-up ("anywhere else?") or skip it when it is answered.
+
+_PAIN_SITE = re.compile(
+    r"\b(incision|wound|scar|stitches|knee|hip|back|lower back|shoulder|abdomen|stomach|belly|"
+    r"side|groin|leg|calf|thigh|foot|feet|ankle|arm|elbow|wrist|hand|neck|head|throat|chest)\b",
+    re.I,
+)
+_SWELL_SIDE = re.compile(
+    r"\b(both|one|single|left|right|either)\b",
+    re.I,
+)
+_SWELL_TREND = re.compile(
+    r"\b(worse|worsening|bigger|increas\w*|spreading|better|improv\w*|smaller|going down|"
+    r"same|not changing|unchanged|stable)\b",
+    re.I,
+)
+_PAIN_WORD = re.compile(
+    r"\b(pain\w*|hurt\w*|sore\w*|ache\w*|aching|tender\w*|throb\w*|sting\w*)", re.I
+)
+#: Replies read for an already-named pain site, in order. The overall-feeling
+#: reply counts only when it talks about pain ("my incision looks fine" does not).
+_PAIN_SOURCES = (Q_PAIN, F_PAIN_SEVERITY, Q_OVERALL)
+
+
+def _raw(answers: dict, field: str) -> str:
+    return str(raw_answers(answers).get(field) or "")
+
+
+def known_pain_site(answers: dict) -> str | None:
+    """Where the patient already said it hurts ("incision"), from their own words."""
+    for field in _PAIN_SOURCES:
+        text = _raw(answers, field) or (str(answers.get(field) or "") if field == Q_OVERALL else "")
+        if field == Q_OVERALL and not _PAIN_WORD.search(text):
+            continue
+        negated = _negated_words(text)
+        for m in _PAIN_SITE.finditer(text):
+            if m.group(1).lower() not in negated:
+                return m.group(1).lower()
+    return None
+
+
+def swelling_known(answers: dict) -> tuple[bool, bool]:
+    """(side said, trend said) in the patient's reply to the swelling question."""
+    text = _raw(answers, Q_SWELLING)
+    return bool(_SWELL_SIDE.search(text)), bool(_SWELL_TREND.search(text))
+
+
+def followup_already_answered(field: str, answers: dict) -> str | None:
+    """The value to record without asking, when the earlier reply fully answers it."""
+    if field == F_SWELLING_DESC:
+        side, trend = swelling_known(answers)
+        if side and trend:
+            return _raw(answers, Q_SWELLING).strip()[:MAX_FREE_TEXT]
+    return None
+
+
+def followup_value(field: str, answers: dict, reply_value):
+    """Join a rephrased follow-up's reply with what the patient said before it."""
+    if field == F_PAIN_LOCATION and (site := known_pain_site(answers)):
+        reply = str(reply_value or "").strip()
+        if not reply or parse_yes_no(reply) == "no":
+            return site
+        return f"{site}; also: {reply}"[:MAX_FREE_TEXT]
+    if field == F_SWELLING_DESC:
+        before = _raw(answers, Q_SWELLING).strip()
+        side, trend = swelling_known(answers)
+        reply = str(reply_value or "").strip()
+        if before and side and not trend:
+            # Asked only "is it getting worse? YES/NO".
+            yn = parse_yes_no(reply)
+            worse = {"yes": "getting worse", "no": "not getting worse"}.get(yn or "", reply)
+            return f"{before}; {worse}"[:MAX_FREE_TEXT]
+        if before and (side or trend):
+            return f"{before}; {reply}"[:MAX_FREE_TEXT]
+    return reply_value
 
 
 def swelling_is_urgent(description: str) -> bool:
