@@ -223,3 +223,28 @@ def test_knowledge_tools_are_blocking():
     from google.genai import types
 
     assert all(t.behavior == types.Behavior.BLOCKING for t in vk.build_knowledge_tools())
+
+
+async def test_prepare_warms_the_matcher_in_the_background():
+    import asyncio
+
+    from voa_agents.voice import knowledge as vk
+    from voa_core import knowledge as kb
+    from voa_core.store import MemoryStore
+
+    class Warmable:
+        warmed = 0
+
+        async def warm(self):
+            Warmable.warmed += 1
+
+        async def __call__(self, question, candidates):
+            return kb.Match(item_id=None, confidence=0.0)
+
+    store = MemoryStore()
+    await store.set("settings", "knowledge", {"enabled": True})
+    kb.forget(store)
+    state, runtime = await vk.prepare(store, cfg=None, matcher=Warmable())
+    assert state is not None and runtime is not None
+    await asyncio.sleep(0)
+    assert Warmable.warmed == 1

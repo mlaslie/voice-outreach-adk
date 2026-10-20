@@ -101,6 +101,12 @@ class ItemPatch(BaseModel):
 @router.get("/items")
 async def list_items(request: Request):
     api: Api = request.app.state.api
+    if api.cfg.env not in ("dev", "test"):
+        # Opening the editor warms the matcher, so the first "Try it" isn't a cold
+        # sign-in that overruns the 3 s budget.
+        from voa_agents.voice.knowledge import warm_up
+
+        warm_up(_matcher(request, api))
     rows = await api.store.query(kb.ITEMS, order_by="created_at", descending=True)
     return {"items": [kb.public_item({**d, "item_id": d.get("item_id") or i}) for i, d in rows]}
 

@@ -16,6 +16,7 @@ the instruction is unchanged: the agent behaves exactly as before.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -64,6 +65,20 @@ def _default_matcher(cfg) -> knowledge.Matcher:
     return m
 
 
+_WARMING: set = set()
+
+
+def warm_up(matcher: Any) -> None:
+    """Start the matcher's sign-in in the background (the greeting and identity
+    check take far longer than it needs), keeping a reference to the task."""
+    warm = getattr(matcher, "warm", None)
+    if warm is None:
+        return
+    task = asyncio.get_running_loop().create_task(warm())
+    _WARMING.add(task)
+    task.add_done_callback(_WARMING.discard)
+
+
 async def prepare(store, cfg, *, matcher: knowledge.Matcher | None = None):
     """At session start: ``(state flag, runtime)`` when the knowledge base is on for
     voice, else ``(None, None)``. Never raises: a call is never failed over this."""
@@ -72,7 +87,9 @@ async def prepare(store, cfg, *, matcher: knowledge.Matcher | None = None):
         if not knowledge.applies(settings, "voice"):
             return None, None
         items = await knowledge.load_approved(store)
-        runtime = KnowledgeRuntime(items, settings, matcher or _default_matcher(cfg))
+        m = matcher or _default_matcher(cfg)
+        warm_up(m)
+        runtime = KnowledgeRuntime(items, settings, m)
         return {"ask_satisfied": bool(settings["ask_satisfied"])}, runtime
     except Exception:
         log.exception("knowledge setup failed", extra={"event": "knowledge.setup_failed"})

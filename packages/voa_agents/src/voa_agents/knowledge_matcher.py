@@ -74,6 +74,21 @@ class GeminiMatcher:
             self._client = genai.Client(**self._kwargs)
         return self._client
 
+    async def warm(self) -> None:
+        """Sign in and open the connection ahead of the first question.
+
+        Measured on the demo: a cold client's first match took over the 3 s budget
+        (credential fetch plus TLS), so the first question on a new instance always
+        deferred. Called once per instance in the background; errors are ignored
+        (the real call then pays the cost and, at worst, defers)."""
+        if getattr(self, "_warmed", False):
+            return
+        self._warmed = True
+        try:
+            await self._get_client().aio.models.get(model=self._model)
+        except Exception:  # noqa: BLE001 - best effort
+            self._warmed = False
+
     async def __call__(self, question: str, candidates: Sequence[Candidate]) -> Match:
         from google.genai import types
 
