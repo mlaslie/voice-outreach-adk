@@ -205,3 +205,7 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - The follow-up reason is now the second line of each patient row: body size, bold (Markdown `**…**`), capitalised. It used to be a small italic caption.
   - A2UI v0.9 can't change the font: Gemini Enterprise uses its own. The Text component only offers `h1`–`h5`, `body` and `caption`, plus simple Markdown, and the surface theme only offers `primaryColor`.
   - "Change tier" was removed from the list cards (Needs you now, Cleared). It is now only on the call's detail card, so a nurse changes a tier after reading the call.
+- **Detail card alignment (20 Oct).** Marker rows (reasons, symptom review, patient questions) use `cards.marked`.
+  - The marker is body size and the row is top-aligned, so it sits beside the first line. Centred, heading-size markers had floated between lines.
+  - Unsure answers use ❓; the pale ❔ was nearly invisible on Gemini Enterprise's grey card.
+  - Reasons are capitalised.

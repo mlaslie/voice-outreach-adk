@@ -358,3 +358,15 @@ async def test_real_client_posts_reasons_to_the_api():
             {"follow_up": "none", "reason": "Spoke with patient."},
         ),
     ]
+
+
+def test_marker_rows_line_up_with_their_first_line():
+    from voa_nurse import cards
+
+    card = cards.Card("t")
+    rid = cards.marked(card, "🟠", card.text("Fever reported"), card.text("RN callback", "caption"))
+    row = next(c for c in card.comps if c["id"] == rid)
+    marker = next(c for c in card.comps if c["id"] == row["children"][0])
+    assert row["align"] == "start" and marker["variant"] == "body"
+    assert cards.sentence("fever reported") == "Fever reported"
+    assert cards.LEVEL_MARK["unknown"] == "❓"

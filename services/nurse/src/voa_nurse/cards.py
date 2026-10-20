@@ -83,9 +83,21 @@ LEVEL_MARK = {
     "alert": "\U0001f534",
     "watch": "\U0001f7e1",
     "normal": "✅",
-    "unknown": "❔",
+    "unknown": "❓",  # the pale ❔ all but vanished on Gemini Enterprise's grey card
     "unasked": "⚪",
 }
+
+
+def marked(card: Card, emoji: str, first: str, *more: str | None) -> str:
+    """A marker beside a block of lines, lined up with the FIRST line: same text size
+    as the line, top-aligned (centred markers sat between the lines of a two-line
+    block, and heading-size markers sat lower than body text)."""
+    return card.row(card.text(emoji, "body"), card.col(first, *more), align="start")
+
+
+def sentence(s: str) -> str:
+    s = (s or "").strip()
+    return s[:1].upper() + s[1:]
 
 
 def mark(call: dict) -> tuple[str, str]:
@@ -447,7 +459,7 @@ def call_detail_card(c: dict) -> Card:
             parts = [card.text(label)]
             if f.get("detail"):
                 parts.append(card.text(f["detail"], "caption"))
-            card.put(card.row(card.text(LEVEL_MARK[f["level"]], "h4"), card.col(*parts)))
+            card.put(marked(card, LEVEL_MARK[f["level"]], *parts))
 
     if questions or uncaptured:
         patient_questions_block(card, questions)
@@ -512,11 +524,7 @@ def reason_mark(tier: str | None) -> tuple[str, str]:
 def _reason_rows(card: Card, reasons: list[dict]) -> None:
     for r in reasons:
         emoji, words = reason_mark(r["tier"])
-        card.put(
-            card.row(
-                card.text(emoji, "h4"), card.col(card.text(r["text"]), card.text(words, "caption"))
-            )
-        )
+        card.put(marked(card, emoji, card.text(sentence(r["text"])), card.text(words, "caption")))
 
 
 def follow_up_reasons_block(card: Card, c: dict, reasons: list[dict]) -> bool:
@@ -552,12 +560,11 @@ def patient_questions_block(card: Card, questions: list[dict]) -> None:
         return
     for q in questions:
         card.put(
-            card.row(
-                card.text(QUESTION_MARK[q["priority"]], "h4"),
-                card.col(
-                    card.text(f"“{q['text']}”"),
-                    card.text(f"{q['category_label']} · {q['priority_label']}", "caption"),
-                ),
+            marked(
+                card,
+                QUESTION_MARK[q["priority"]],
+                card.text(f"“{q['text']}”"),
+                card.text(f"{q['category_label']} · {q['priority_label']}", "caption"),
             )
         )
 
