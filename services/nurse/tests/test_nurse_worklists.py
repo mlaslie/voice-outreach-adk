@@ -54,7 +54,9 @@ async def test_needs_now_has_reasons_and_due_times(t):
         "Priya Raman",
     ]
     assert data["patients"][0]["due"] == "now"
-    assert "Chest tightness" in card.as_text() and "[Change tier]" in card.as_text()
+    text = card.as_text()
+    assert "**Chest tightness" in text  # the reason is the bold line
+    assert "[Change tier]" not in text  # changing the tier is on the call's detail card
 
 
 async def test_next_business_day(t):

@@ -201,3 +201,7 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 - **"A deleted call still shows in Gemini Enterprise" (20 Oct).**
   - The call wasn't deleted. Call status was on Today, so Select all only covered today's calls. The 17 Oct calls stayed, and the nurse agent's "Needs you now" lists open follow-ups of any age. Selection mode now says so, with a "Show everything" link.
   - **A real bug found on the way:** the gateway's end-of-call save recreated an empty call record (only `recording_uri`) when the call had been deleted while it ended (the smoke test's cleanup). `finish` now skips its writes and the upload when the call is gone.
+- **Nurse agent list cards (20 Oct).**
+  - The follow-up reason is now the second line of each patient row: body size, bold (Markdown `**…**`), capitalised. It used to be a small italic caption.
+  - A2UI v0.9 can't change the font: Gemini Enterprise uses its own. The Text component only offers `h1`–`h5`, `body` and `caption`, plus simple Markdown, and the surface theme only offers `primaryColor`.
+  - "Change tier" was removed from the list cards (Needs you now, Cleared). It is now only on the call's detail card, so a nurse changes a tier after reading the call.

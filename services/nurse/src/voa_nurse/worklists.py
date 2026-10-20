@@ -144,8 +144,27 @@ def clear_rationale(c: dict) -> str:
     return f"{text}.{via}".replace("..", ".")
 
 
-def _row(card: Card, lead: str, title: str, lines: list[str], *buttons: str | None) -> str:
-    info = card.col(card.text(title, "h5"), *(card.text(ln, "caption") for ln in lines if ln))
+def _reason_text(reason: str) -> str:
+    """The follow-up reason as the line a nurse should read first: body size, bold,
+    capitalised (cards cannot change the font; size and weight are what they offer)."""
+    r = (reason or "").strip()
+    return f"**{r[:1].upper()}{r[1:]}**" if r else ""
+
+
+def _row(
+    card: Card,
+    lead: str,
+    title: str,
+    lines: list[str],
+    *buttons: str | None,
+    reason: str | None = None,
+) -> str:
+    """One patient row: title, then the reason (bold, body size) when given, then the
+    small detail lines."""
+    first = [card.text(_reason_text(reason), "body")] if reason else []
+    info = card.col(
+        card.text(title, "h5"), *first, *(card.text(ln, "caption") for ln in lines if ln)
+    )
     kept = [b for b in buttons if b]
     return card.row(
         card.row(card.text(lead, "h3"), info),
@@ -852,8 +871,9 @@ async def view_called():
             card,
             cards.mark(c)[0],
             c.get("patient_name") or "",
-            [triage.reason_summary(c), triage.questions_summary(c), _meta(c)],
+            [triage.questions_summary(c), _meta(c)],
             view_btn(c),
+            reason=triage.reason_summary(c),
         ),
     )
     section(
@@ -863,15 +883,21 @@ async def view_called():
             card,
             cards.mark(c)[0],
             c.get("patient_name") or "",
-            [triage.reason_summary(c), triage.questions_summary(c), _meta(c)],
+            [triage.questions_summary(c), _meta(c)],
             view_btn(c),
+            reason=triage.reason_summary(c),
         ),
     )
     section(
         "Cleared, no follow-up",
         b["cleared"],
         lambda c: _row(
-            card, MARK["clear"][0], c.get("patient_name") or "", [clear_rationale(c)], view_btn(c)
+            card,
+            MARK["clear"][0],
+            c.get("patient_name") or "",
+            [],
+            view_btn(c),
+            reason=clear_rationale(c),
         ),
     )
     section(
@@ -964,12 +990,12 @@ async def view_needs(group: str = "now"):
                 cards.mark(c)[0],
                 f"{name}: {triage.follow_up_label(c['follow_up'])}",
                 [
-                    reason,
                     triage.questions_summary(c),
                     f"{_meta(c)} · called {when(c.get('initiated_at'))} · {due}{nurse}",
                 ],
+                # Changing the tier lives on the call's detail card, after reading it.
                 card.button("View", event("view_call", call_sid=c["doc_id"])),
-                card.button("Change tier", event("wl_tier_form", call_sid=c["doc_id"])),
+                reason=reason,
             ),
         )
     if len(items) > 10:
@@ -1016,9 +1042,9 @@ async def view_cleared():
                 card,
                 MARK["clear"][0],
                 c.get("patient_name") or "",
-                [clear_rationale(c), _meta(c)],
+                [_meta(c)],
                 card.button("View", event("view_call", call_sid=c["doc_id"])),
-                card.button("Change tier", event("wl_tier_form", call_sid=c["doc_id"])),
+                reason=clear_rationale(c),
             ),
         )
     return card, {
