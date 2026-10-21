@@ -461,6 +461,8 @@ Phases 3/4 and 5 can run in parallel once phase 2's domain models settle.
    - **(c)** a small router that forwards by the phone's last outbound system.
 
    **Recommendation: (b).** Each system owns its number.
+
+   **Outcome (21 Oct):** for a while both systems shared the number through a take/give switch on its SMS webhook. On 21 Oct the switch was removed and this system owns the number outright (HANDOFF, "21 Oct: ADK owns the number").
 10. **Twilio credentials live in two projects.** Use a separate Twilio **API key** (SK…) for the new project rather than copying the primary auth token, so either side can be revoked alone. Webhook signature checks still need the account's auth token; it goes in the new project's Secret Manager.
 
 ---

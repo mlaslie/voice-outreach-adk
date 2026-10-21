@@ -7,7 +7,6 @@ describe("describeAction", () => {
     ["DELETE /api/allowlist/{phone}", "Removed an authorized number"],
     ["POST /api/allowlist", "Authorized a number"],
     ["PUT /api/call-settings/recall", "Changed calling hours and auto-recall"],
-    ["POST /api/sms/control", "Switched the shared SMS number"],
     ["DELETE /api/sms/callbacks/{callback_id}", "Cancelled a booked callback"],
     ["POST /api/calls/batch-delete", "Deleted calls"],
     ["POST /api/admin/knowledge/documents", "Added a guideline"],

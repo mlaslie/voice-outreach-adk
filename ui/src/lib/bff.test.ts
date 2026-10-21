@@ -49,8 +49,6 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["POST", "sms/settings"],
     ["POST", "sms/test/start"],
     ["POST", "sms/test/reply"],
-    ["GET", "sms/control"],
-    ["POST", "sms/control"],
     ["GET", "audit"],
     ["GET", "branding"],
     ["PUT", "branding"],
@@ -99,13 +97,8 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["POST", "sms/test"],
     ["POST", "sms/test/send"],
     ["POST", "twilio/voice"],
-    ["PUT", "sms/control"], // the switch: GET and POST only
-    ["PATCH", "sms/control"],
-    ["DELETE", "sms/control"],
-    ["GET", "sms/control/take"],
-    ["POST", "sms/control/give"],
-    ["POST", "sms/controls"],
-    ["GET", "SMS/control"],
+    ["GET", "sms/control"], // the number switch was removed (21 Oct)
+    ["POST", "sms/control"],
     ["POST", "twilio/sms"], // the webhook itself is never reachable through the BFF
     ["GET", "admin"],
     ["DELETE", "audit"], // the audit log is read-only
@@ -170,7 +163,6 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["DELETE", "allowlist/%2B12025550123"],
     ["POST", "sms/consent"],
     ["POST", "sms/settings"],
-    ["POST", "sms/control"],
     ["POST", "sms/test/start"],
     ["POST", "sms/test/reply"],
     ["POST", "test-call"], // Admin → Testing ("Test in browser")
@@ -238,7 +230,6 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["GET", "sms/messages"],
     ["GET", "sms/consent"],
     ["GET", "sms/settings"],
-    ["GET", "sms/control"],
     // Both consoles wear the branding (the layout reads it; images go through the BFF).
     ["GET", "branding"],
     ["GET", "branding/assets/logo"], // and logo_wide, favicon: one route

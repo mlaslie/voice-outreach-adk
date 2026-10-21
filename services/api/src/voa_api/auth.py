@@ -118,8 +118,6 @@ ROUTE_POLICY: dict[str, frozenset[str]] = {
     "POST /api/sms/consent": ADMIN,
     "GET /api/sms/settings": READ,
     "POST /api/sms/settings": ADMIN_OR_AGENT,
-    "GET /api/sms/control": READ,
-    "POST /api/sms/control": ADMIN,
     "POST /api/sms/test/start": ADMIN,
     "POST /api/sms/test/reply": ADMIN,
     # staff-console branding (admin plan step 4)

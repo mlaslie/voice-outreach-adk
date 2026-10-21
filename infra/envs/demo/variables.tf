@@ -183,30 +183,6 @@ variable "sms_survey_enabled" {
   default     = false
 }
 
-variable "sms_switch_enabled" {
-  description = "The SMS number is shared with another system (docs/sms-number-switch.md): only the system the number's incoming-SMS webhook points at sends real texts, and the dashboard can take or give control."
-  type        = bool
-  default     = false
-}
-
-variable "sms_peer_webhook_url" {
-  description = "The other system's incoming-SMS webhook URL, used to give it control of the shared number."
-  type        = string
-  default     = ""
-}
-
-variable "sms_peer_webhook_aliases" {
-  description = "Other URLs of the other system's SMS webhook (comma-separated), read as that system being active; never written."
-  type        = string
-  default     = ""
-}
-
-variable "sms_self_webhook_aliases" {
-  description = "Other URLs of this system's SMS webhook (comma-separated), e.g. the gateway's status.url form; read as this system being active."
-  type        = string
-  default     = ""
-}
-
 variable "sms_from_number" {
   description = "SMS sender number (E.164; identifying: tfvars only). Usually a dedicated number (see PLAN 11.9)."
   type        = string

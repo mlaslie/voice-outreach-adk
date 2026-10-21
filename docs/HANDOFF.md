@@ -32,7 +32,6 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 |---|---|---|
 | Twilio secrets | Real calls and webhook signature checks. Until then the system fails closed. | `scripts/set-secrets.sh <project>` |
 | The 2 registered test numbers | They must be on the allowlist before anything can be dialled | Dashboard → Allowlist, or `config/seed/allowlist.yaml` |
-| SMS number and webhook | A number has one inbound SMS webhook | PLAN.md §11.9; then `sms_from_number` and the webhook to `/twilio/sms` |
 | Clinical sign-off | Triage rules; the blood-sugar thresholds (<70 low, >180 high) were added during the port and are not from the source | `packages/voa_core/src/voa_core/survey.py` |
 | Clinical sign-off on the 19 Oct questionnaire criteria | Patient-question priorities, swelling and sleep rules were agreed with the product owner, not yet a clinician | `voa_core/patient_questions.py` (categories and patterns), `voa_core/survey.py` (`triage`, `_SWELLING_URGENT`) |
 | Nurse time format | Defaulted to 24-hour, the usual convention for hospital clinical documentation. Not yet confirmed against the client's nursing documentation policy | Ask their nurse informatics / clinical documentation team: "Does nursing documentation use 24-hour (military) time or 12-hour AM/PM?" Then set `site.nurse_time_format`, or flip it in dashboard Settings → Time display |
@@ -136,33 +135,16 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 
 **SMS.**
 - The by-text questionnaire is on: Terraform `sms_survey_enabled` → `VOA__SMS__SURVEY_ENABLED`.
-- Sending stays in dry-run, because the Twilio number's inbound SMS webhook still points at the old GE-CX `sms-followup-svc`. A number has one inbound webhook, and the owner chose not to move it yet.
+- Sending was still in dry-run at this point. It went live later on 19 Oct; since 21 Oct this system owns the number outright (see "21 Oct: ADK owns the number").
 - "Test by text" in the dashboard runs the whole text flow against the dry-run provider. Allowlisted numbers only, a fictional patient, refused unless dry-run.
-- To go live:
-  1. Pick the receiving number: move 5695's SMS webhook to `<gateway_url>/twilio/sms` (the old system stops getting replies), or use a second number added to the A2P campaign.
-  2. Confirm the new copy with the A2P campaign.
-  3. Set `sms_from_number`, then `sms_dry_run = false`.
-  4. Deploy the API. Sends stay limited to the dial allowlist.
 
-## 19 Oct: shared SMS number switch (ADK side)
+## 19 Oct: SMS sending on, and texting fixes
 
-**The design** (contract: `docs/sms-number-switch.md`).
-- The Twilio number's incoming-SMS webhook is the switch. Nothing else stores state.
-- `GET/POST /api/sms/control` reads the number or flips it (`take` / `give`). Only `SmsUrl` and `SmsMethod` are written. Every flip goes in `sms_control_log`.
-- `send_sms` refuses real texts while the other system has the number. It fails closed if the number can't be read, and the status is cached for 30 s. Dry-run sends are not gated.
+The shared-number switch that was built here was removed on 21 Oct (see "21 Oct: ADK owns the number").
 
-**The dashboard** has a top-right indicator and a Settings → "SMS number" card (take control / give control to GE-CX).
-
-**Config.**
-- Terraform: `sms_switch_enabled` and `sms_peer_webhook_url`, set as `VOA__SMS__SWITCH_ENABLED` / `VOA__SMS__PEER_WEBHOOK_URL`.
-- The number is `sms.from_number`, falling back to the voice number.
-
-**The GE-CX side** is built by the GE-CX session from the same contract (its own repo; this session doesn't edit it).
-- Until GE-CX has its send rule, don't trigger GE-CX texts (including missed-call invites) while ADK is active.
-- This system still sends in dry-run: after taking control it receives replies but doesn't answer them by text, until `sms_dry_run = false`.
 - **SMS sending turned on (19 Oct, owner's go-ahead).**
   - `sms_dry_run = false`, and `VOA__TELEPHONY__SMS_PROVIDER = "twilio"`. With the old default (`fake` from app.yaml), turning dry-run off would have sent nothing, silently.
-  - Real texts are still limited to allowlisted numbers with SMS consent, and only while this system has the shared number.
+  - Real texts are still limited to allowlisted numbers with SMS consent.
   - The "Test by text" simulator refuses to run while dry-run is off.
 - **"No text after a voicemail" (19 Oct).**
   - The follow-up texts were refused for lack of SMS consent: the calls went to a number with no consent recorded. The sending path worked as designed, but nothing on screen said why.
@@ -239,7 +221,7 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 
 **API roles.**
 - `auth.ROUTE_POLICY` lists every `/api/*` route with who may call it: the nurse UI, the admin UI, or the nurse agent.
-- Configuration (patients, runs, calling hours, display, authorized numbers, consent, SMS number, text limit, SMS simulator) is admin-only.
+- Configuration (patients, runs, calling hours, display, authorized numbers, consent, text limit, SMS simulator) is admin-only.
 - Clinical work (follow-up changes, sign-off, the call queue, place call, recordings) is nurse-only. Reads are open to all three.
 - The nurse agent keeps the few configuration actions it already had: bulk-add patients, delete a patient, authorized numbers, the text limit. Whether they move is decided in step 2.
 - A route missing from the table is refused. `tests/test_route_policy.py` fails if a route has no policy, or a policy has no route.
@@ -438,3 +420,28 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 - An emergency call counts under not completed, labelled "emergency (sent to 911)".
 - The service now also reads `call_status`.
 - **Bit us on the first live read:** two "wrong person" calls on demo carry `call_status: left_vmail`, so the first version counted them as voicemails. The agent's outcome now wins, and the line status is used only when a call has no outcome (no answer, busy, failed). Tested with that exact shape. Why a wrong-person call ends with `left_vmail` is a separate question for the call lifecycle (`lifecycle.classify_completed`); it is not changed here.
+
+## 21 Oct: ADK owns the number (switch removed; not deployed)
+
+**Why:** the user chose to go all in on this (ADK) system. The Twilio number is no longer shared with GE-CX, so the take/give switch had nothing left to do.
+
+**Twilio now** (checked read-only on 21 Oct): `SmsUrl` → `<gateway_url>/twilio/sms` (POST), no `VoiceUrl` (outbound calls set their own TwiML; ADK has no inbound voice), no messaging service on the number.
+
+**Removed:** `voa_api/sms_control.py`, `GET/POST /api/sms/control` and their route policies, the send gate in `send_sms` (every other check is unchanged, same order), `NumberControl` / `TwilioNumberControl` / `FakeNumberControl` in `voa_providers/sms.py`, the six `sms.*` switch settings, the four Terraform variables and `VOA__SMS__*` env lines (also removed from the real `terraform.tfvars`), the UI indicator, hook and Messaging card, and `docs/sms-number-switch.md`. The Twilio 8021 error test moved to `tests/test_sms.py`. Old `sms_control_log` rows stay in Firestore; nothing reads them.
+
+**Pending on the GE-CX side** (its own repo; not edited from here): remove its switch and its SMS sending. GE-CX was asked. Until that lands, don't trigger GE-CX texts: a reply would come here.
+
+**Watch out:** ADK no longer detects a change to the number's `SmsUrl`. If anyone repoints it (for example the GE-CX switch, before it is removed), patients' replies silently go elsewhere and ADK keeps sending. Check it with RUNBOOK → "Check the number's webhooks" (`scripts/check_twilio_number.py demo`).
+
+**Deploying it:** use the normal deploy (images and env change in one `terraform apply`). Config is strict, so a new image started with the old `VOA__SMS__SWITCH_ENABLED` / `PEER_*` / `SELF_*` env vars would fail its revision (trap 8); the old images run fine without them.
+- **GE-CX side, confirmed by the GE-CX session on 21 Oct:**
+  - Its number switch is removed and deployed: `/api/sms-number` returns 404, and there is no pill or card. It no longer writes SmsUrl or VoiceUrl.
+  - Its texting is off: the `sms-followup-svc-tick` scheduler is paused, and the service runs `DRY_RUN=true` and `ENABLE_SMS_SURVEY=false`.
+  - **Still pending:** GE-CX's outbound calls show the 5695 caller ID until the user gives GE-CX its own Twilio number, so patients called by GE-CX who text back reach ADK.
+  - Optional, not done: a GE-CX-only Twilio API key without permission to change incoming numbers.
+- **New docs for outside engineers:** `docs/ARCHITECTURE.md`, and `docs/INTEGRATION-GUIDE.md` (other telephony providers, feeding the queue, results back to an EHR). The guide records the known gaps:
+  - the `ehr_outbox` has no reader;
+  - `voa-ingest` can't read results;
+  - Workload Identity Federation is not in Terraform;
+  - `language` is not stored;
+  - the CSV import has no use-case column.

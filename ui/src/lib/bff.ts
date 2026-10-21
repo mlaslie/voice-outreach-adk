@@ -109,9 +109,6 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["POST", /^sms\/consent$/, "admin"],
   ["GET", /^sms\/settings$/, "both"],
   ["POST", /^sms\/settings$/, "admin"],
-  // Shared SMS number switch (docs/sms-number-switch.md)
-  ["GET", /^sms\/control$/, "both"],
-  ["POST", /^sms\/control$/, "admin"],
   // Dry-run simulator (the backend refuses unless SMS is in dry-run mode)
   ["POST", /^sms\/test\/start$/, "admin"],
   ["POST", /^sms\/test\/reply$/, "admin"],

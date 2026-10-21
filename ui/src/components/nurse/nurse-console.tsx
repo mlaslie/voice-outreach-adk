@@ -34,7 +34,6 @@ import { Backdrop, MobileNav, NavButton, SidebarLink, SidebarShell } from "@/com
 import { ScheduleView } from "./schedule-view";
 import { CompletedPreset, CompletedView, KIND } from "./completed-view";
 import { TIER } from "./follow-up-list";
-import { SmsIndicator } from "@/components/sms-indicator";
 import { DrawerSubject, PatientDrawer } from "./patient-drawer";
 import { NewCallDialog } from "./new-call-dialog";
 
@@ -174,7 +173,7 @@ export function NurseConsole({
             </div>
           ) : null}
 
-          <Header now={now} query={query} onQuery={setQuery} smsMode={mode} adminConsoleUrl={adminConsoleUrl} />
+          <Header now={now} query={query} onQuery={setQuery} />
 
           {emergencies.length ? (
             <button
@@ -318,9 +317,9 @@ function Sidebar({
 }
 
 function Header({
-  now, query, onQuery, smsMode, adminConsoleUrl,
+  now, query, onQuery,
 }: {
-  now: Date; query: string; onQuery: (q: string) => void; smsMode: "demo" | "live"; adminConsoleUrl: string | null;
+  now: Date; query: string; onQuery: (q: string) => void;
 }) {
   const h = now.getHours();
   const greeting = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
@@ -335,10 +334,7 @@ function Header({
         </p>
         <h1 className="font-display text-[28px] font-semibold leading-tight tracking-tight text-ink">{greeting}</h1>
       </div>
-      {/* Which system gets incoming texts; stays top-right on a phone, the search wraps below.
-          Display only for nurses: the switch is in the admin console, linked when configured. */}
       <div className="flex-1" aria-hidden />
-      <SmsIndicator mode={smsMode} href={adminConsoleUrl} />
       <label className="relative w-full sm:w-80">
         <Search className="pointer-events-none absolute left-4 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-ink-muted" />
         <input

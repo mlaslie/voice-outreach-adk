@@ -117,7 +117,7 @@ footer { color: var(--ink-soft); font-size: 13px; }
       <span class="chip">One GCP project (from terraform.tfvars)</span>
       <span class="chip">Cloud Run · us-central1</span>
       <span class="chip">Google ADK</span>
-      <span class="chip">One shared Twilio number</span>
+      <span class="chip">One Twilio number</span>
     </div>
   </header>
 
@@ -156,19 +156,14 @@ footer { color: var(--ink-soft); font-size: 13px; }
         <!-- Outside services -->
         <rect x="200" y="50" width="180" height="210" rx="12" class="ext"/>
         <text x="216" y="78" class="t-b">Twilio</text>
-        <text x="216" y="98" class="t-s">one shared number</text>
+        <text x="216" y="98" class="t-s">one number, this system only</text>
         <text x="216" y="122" class="t">Phone calls</text>
         <text x="216" y="138" class="t-s">audio streamed live</text>
         <text x="216" y="162" class="t">Text messages</text>
-        <text x="216" y="178" class="t-s">replies go to whichever</text>
-        <text x="216" y="194" class="t-s">system has the number</text>
+        <text x="216" y="178" class="t-s">replies go to the gateway</text>
+        <text x="216" y="194" class="t-s">(/twilio/sms)</text>
         <text x="216" y="220" class="t">Answering-machine</text>
         <text x="216" y="236" class="t">detection</text>
-
-        <rect x="200" y="290" width="180" height="86" rx="12" class="ext"/>
-        <text x="216" y="318" class="t-b">GE-CX system</text>
-        <text x="216" y="338" class="t-s">the earlier agent; shares</text>
-        <text x="216" y="354" class="t-s">the number via a switch</text>
 
         <rect x="200" y="560" width="180" height="86" rx="12" class="ext"/>
         <text x="216" y="588" class="t-b">Gemini Enterprise</text>
@@ -205,7 +200,7 @@ footer { color: var(--ink-soft); font-size: 13px; }
         <text x="736" y="252" class="t-s">same day / next business day /</text>
         <text x="736" y="268" class="t-s">noted, every reason kept</text>
         <text x="736" y="292" class="t">Sign-off, follow-up changes</text>
-        <text x="736" y="316" class="t">SMS number switch</text>
+        <text x="736" y="316" class="t">Consent, allowlist, text limits</text>
         <text x="736" y="340" class="t">Task and timer handlers</text>
         <text x="736" y="356" class="t-s">dial, call ended, missed-call</text>
         <text x="736" y="372" class="t-s">text, every-minute dispatch</text>
@@ -279,8 +274,6 @@ footer { color: var(--ink-soft); font-size: 13px; }
         <!-- Text flow -->
         <path d="M170 128 C 186 128, 186 186, 196 186" class="flow-s" marker-end="url(#as)"/>
         <path d="M380 186 C 400 186, 404 230, 426 230" class="flow-s" marker-end="url(#as)"/>
-        <!-- Number switch to GE-CX -->
-        <path d="M290 260 L290 286" class="flow-s" marker-end="url(#as)"/>
         <!-- Nurse dashboard -->
         <path d="M170 372 L426 372" class="flow" marker-end="url(#a)"/>
         <path d="M700 380 L716 380" class="flow" marker-end="url(#a)"/>
@@ -311,7 +304,7 @@ footer { color: var(--ink-soft); font-size: 13px; }
     </div>
     <div class="legend">
       <span><i class="sw"></i> Phone call (live audio)</span>
-      <span><i class="sw s"></i> Text messages and the number switch</span>
+      <span><i class="sw s"></i> Text messages</span>
       <span><i class="sw g"></i> Requests between services</span>
       <span><i class="bd">A</i> Where to change it (see the table below)</span>
     </div>
@@ -330,7 +323,7 @@ footer { color: var(--ink-soft); font-size: 13px; }
       <p class="sub">If nobody answers</p>
       <ol class="flow">
         <li><b>Voicemail:</b> the gateway plays a fixed message (no patient details) and hangs up.</li>
-        <li><b>A minute later the API texts the patient</b> (consent, allowlist and this system holding the number are all required): 1 to be called now, 2 to pick a time, 3 to answer by text.</li>
+        <li><b>A minute later the API texts the patient</b> (consent and the allowlist are both required): 1 to be called now, 2 to pick a time, 3 to answer by text.</li>
         <li><b>Answering by text</b> uses the same questions and the same triage as the call, so a text report looks the same as a call report in the dashboard.</li>
       </ol>
     </section>
@@ -344,7 +337,7 @@ footer { color: var(--ink-soft); font-size: 13px; }
             <tr><td><span class="bd">A</span></td><td>Question wording, order, voice lines, text messages, red-flag wording, what the agent should do when a patient already answered</td><td><code>config/campaigns/post_op.yaml</code> (fields <code>ask</code>, <code>sms</code>, <code>note</code>, <code>scripts</code>, <code>sms_scripts</code>). Guide: <code>docs/EDITING-QUESTIONS.md</code></td><td class="who">Anyone</td><td class="yes">Yes</td></tr>
             <tr><td><span class="bd">B</span></td><td>The agent's general rules: speaking style, call order, identity check, safety, when to hang up</td><td><code>packages/voa_agents/…/voice/instruction.py</code> (the instruction template) and <code>tools.py</code></td><td class="who">Developer</td><td class="yes">Yes</td></tr>
             <tr><td><span class="bd">C</span></td><td>How answers are judged: what makes a patient same day, next business day or noted; how patient questions are prioritised; swelling and pain rules</td><td><code>packages/voa_core/…/survey.py</code> (<code>triage</code>) and <code>patient_questions.py</code></td><td class="who">Developer + clinician</td><td class="yes">Yes</td></tr>
-            <tr><td><span class="bd">D</span></td><td>Calling hours and auto-recall, time format, which system has the text number, allowlist and consent, a call's follow-up and reasons</td><td>Dashboard → Settings, the Allowlist dialog, and each call's details</td><td class="who">Nurse / admin</td><td class="no">No</td></tr>
+            <tr><td><span class="bd">D</span></td><td>Calling hours and auto-recall, time format, allowlist and consent, a call's follow-up and reasons</td><td>Dashboard → Settings, the Allowlist dialog, and each call's details</td><td class="who">Nurse / admin</td><td class="no">No</td></tr>
             <tr><td><span class="bd">E</span></td><td>Gemini models and the agent's voice</td><td><code>config/app.yaml</code> (<code>models.*</code>, <code>voice.voice_name</code>)</td><td class="who">Developer</td><td class="yes">Yes</td></tr>
             <tr><td><span class="bd">F</span></td><td>Services, queues, schedules, who can sign in, the Twilio number, sending texts on or off</td><td><code>infra/envs/demo</code> (Terraform) and its private <code>terraform.tfvars</code></td><td class="who">Developer</td><td class="yes">Yes</td></tr>
             <tr><td><span class="bd">G</span></td><td>The Gemini Enterprise nurse agent: what it can do, its cards, its instructions</td><td><code>services/nurse/…/agent.py</code>, <code>tools.py</code>, <code>cards.py</code></td><td class="who">Developer</td><td class="yes">Yes</td></tr>

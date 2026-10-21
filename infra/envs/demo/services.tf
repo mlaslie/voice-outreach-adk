@@ -27,10 +27,6 @@ locals {
     VOA__DIALING__ALLOWLIST          = var.static_allowlist
     VOA__SMS__DRY_RUN                = tostring(var.sms_dry_run)
     VOA__SMS__SURVEY_ENABLED         = tostring(var.sms_survey_enabled)
-    VOA__SMS__SWITCH_ENABLED         = tostring(var.sms_switch_enabled)
-    VOA__SMS__PEER_WEBHOOK_URL       = var.sms_peer_webhook_url
-    VOA__SMS__PEER_WEBHOOK_ALIASES   = var.sms_peer_webhook_aliases
-    VOA__SMS__SELF_WEBHOOK_ALIASES   = var.sms_self_webhook_aliases
     VOA__SMS__FROM_NUMBER            = var.sms_from_number
     VOA__SMS__VOICE_NUMBER           = var.twilio_from_number
     VOA__SERVICES__RECORDINGS_BUCKET = module.recordings.name
@@ -38,7 +34,7 @@ locals {
     VOA__SERVICES__BRANDING_BUCKET   = module.branding.name
     VOA__SERVICES__INGEST_SA         = module.sa.emails["${local.p}-ingest"]
     VOA__TELEPHONY__VOICE_PROVIDER   = "twilio"
-    # Real texts still need sms_dry_run = false (and, with a shared number, control).
+    # Real texts still need sms_dry_run = false.
     VOA__TELEPHONY__SMS_PROVIDER           = "twilio"
     VOA__PROVIDERS__TWILIO__AUTH_TOKEN     = "secret://twilio-auth-token"
     VOA__PROVIDERS__TWILIO__ACCOUNT_SID    = "secret://twilio-account-sid"

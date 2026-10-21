@@ -24,9 +24,7 @@ import { AllowlistResponse, CallDoc, CallListEntry, CallRun, CallSettingsRespons
 import { FollowUpSession, ScheduledCallback, isOpen, upcoming } from "@/lib/followups";
 import { BrandTile, Pill } from "@/components/nurse/parts";
 import { Backdrop, MobileNav, NavButton, NavIcon, SidebarLink, SidebarShell } from "@/components/console-shell";
-import { SmsIndicator } from "@/components/sms-indicator";
 import { RecallSettingsPanel } from "@/components/nurse/recall-settings";
-import { SmsNumberCard } from "@/components/nurse/sms-number-card";
 import { RunsPanel } from "./runs-panel";
 import { PatientsPanel } from "./patients-panel";
 import { AllowlistPanel, ConsentMap } from "./allowlist-panel";
@@ -51,7 +49,7 @@ const SECTIONS: { key: Section; label: string; short: string; blurb: string; ico
   { key: "numbers", label: "Authorized numbers", short: "Numbers", icon: ShieldCheck,
     blurb: "The numbers the agent may dial, and which of them agreed to texts." },
   { key: "messaging", label: "Messaging", short: "Texts", icon: MessageSquareText,
-    blurb: "The shared SMS number, the missed-call text limit, text conversations and booked callbacks." },
+    blurb: "The missed-call text limit, text conversations and booked callbacks." },
   { key: "knowledge", label: "Knowledge base", short: "Q&A", icon: BookOpenCheck,
     blurb: "Guidelines and example answers the agent may answer patients from, off, in shadow or live. Medication and symptom questions always go to a nurse." },
   { key: "display", label: "Display", short: "Display", icon: Clock,
@@ -181,8 +179,6 @@ export function AdminConsole({
               <p className="text-[13px] font-medium text-ink-muted">Admin console</p>
               <h1 className="font-display text-[28px] font-semibold leading-tight tracking-tight text-ink">{current.label}</h1>
             </div>
-            <div className="flex-1" aria-hidden />
-            <SmsIndicator mode={mode} onClick={() => setSection("messaging")} />
           </header>
 
           <div>
@@ -213,7 +209,6 @@ export function AdminConsole({
               ) : null}
               {section === "messaging" ? (
                 <>
-                  <SmsNumberCard mode={mode} />
                   <TextLimitPanel live={actions.live} />
                   <TextConversationsPanel
                     sessions={data.sessions}

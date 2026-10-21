@@ -76,6 +76,22 @@ While the verdict is pending, the agent cannot take any exit except the emergenc
 | Stop SMS sends | `gcloud tasks queues pause voa-sms --location <region>`, or set `VOA__SMS__DRY_RUN=true` and redeploy the API |
 | Cancel a manual run | Dashboard → Cancel run (sets `cancel_requested`; queued dial tasks then skip) |
 
+## Check the number's webhooks
+
+This system owns the Twilio number outright (since 21 Oct) and no longer watches its settings, so a repointed webhook goes unnoticed: patients' replies land elsewhere while texts keep going out. Check it after anyone touches the number in the Twilio Console, and whenever replies seem to stop arriving.
+
+```
+uv run python scripts/check_twilio_number.py demo
+```
+
+Read-only. It uses the Twilio secrets in Secret Manager and prints only the URLs and the number's last 4 digits. Expected:
+
+- `SmsUrl` is `<gateway_url>/twilio/sms`, method POST.
+- `VoiceUrl` is empty: there is no inbound voice (outbound calls carry their own TwiML).
+- No SMS application on the number (it would override `SmsUrl`).
+
+If it fails, fix the number in the Twilio Console (Phone Numbers → the number → Messaging: "A message comes in" → Webhook, `<gateway_url>/twilio/sms`, HTTP POST), then rerun the check.
+
 ## Known behaviours and traps
 
 | Symptom | Cause | Status |

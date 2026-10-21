@@ -16,6 +16,10 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `models.text_location` | `VOA__MODELS__TEXT_LOCATION` | str | `'global'` |  |
 | `models.tts` | `VOA__MODELS__TTS` | str | `'gemini-2.5-flash-tts'` |  |
 | `models.tts_location` | `VOA__MODELS__TTS_LOCATION` | str | `'us-central1'` |  |
+| `models.knowledge_classify` | `VOA__MODELS__KNOWLEDGE_CLASSIFY` | str | `'gemini-2.5-flash-lite'` |  |
+| `models.knowledge_draft` | `VOA__MODELS__KNOWLEDGE_DRAFT` | str | `'gemini-2.5-flash'` |  |
+| `models.knowledge_draft_thinking_budget` | `VOA__MODELS__KNOWLEDGE_DRAFT_THINKING_BUDGET` | int | None | `0` |  |
+| `models.knowledge_location` | `VOA__MODELS__KNOWLEDGE_LOCATION` | str | `'global'` |  |
 | `voice.voice_name` | `VOA__VOICE__VOICE_NAME` | str | `'Algenib'` |  |
 | `voice.language_code` | `VOA__VOICE__LANGUAGE_CODE` | str | `'en-US'` |  |
 | `voice.custom_vocabulary` | `VOA__VOICE__CUSTOM_VOCABULARY` | list | `[]` |  |
@@ -45,9 +49,12 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `services.api_url` | `VOA__SERVICES__API_URL` | str | `''` |  |
 | `services.tasks_invoker_sa` | `VOA__SERVICES__TASKS_INVOKER_SA` | str | `''` |  |
 | `services.ui_sa` | `VOA__SERVICES__UI_SA` | str | `''` |  |
+| `services.admin_ui_sa` | `VOA__SERVICES__ADMIN_UI_SA` | str | `''` |  |
 | `services.nurse_agent_sa` | `VOA__SERVICES__NURSE_AGENT_SA` | str | `''` |  |
+| `services.ingest_sa` | `VOA__SERVICES__INGEST_SA` | str | `''` |  |
 | `services.recordings_bucket` | `VOA__SERVICES__RECORDINGS_BUCKET` | str | `''` |  |
 | `services.prompts_bucket` | `VOA__SERVICES__PROMPTS_BUCKET` | str | `''` |  |
+| `services.branding_bucket` | `VOA__SERVICES__BRANDING_BUCKET` | str | `''` |  |
 | `services.store` | `VOA__SERVICES__STORE` | Literal | `'firestore'` |  |
 | `services.queue_dial` | `VOA__SERVICES__QUEUE_DIAL` | str | `'voa-dial'` |  |
 | `services.queue_events` | `VOA__SERVICES__QUEUE_EVENTS` | str | `'voa-events'` |  |
@@ -76,12 +83,6 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `sms.survey_enabled` | `VOA__SMS__SURVEY_ENABLED` | bool | `False` |  |
 | `sms.reply_to_compliance_keywords` | `VOA__SMS__REPLY_TO_COMPLIANCE_KEYWORDS` | bool | `False` |  |
 | `sms.llm_fallback` | `VOA__SMS__LLM_FALLBACK` | bool | `True` |  |
-| `sms.switch_enabled` | `VOA__SMS__SWITCH_ENABLED` | bool | `False` |  |
-| `sms.self_name` | `VOA__SMS__SELF_NAME` | str | `'ADK'` |  |
-| `sms.peer_name` | `VOA__SMS__PEER_NAME` | str | `'GE-CX'` |  |
-| `sms.peer_webhook_url` | `VOA__SMS__PEER_WEBHOOK_URL` | str | `''` |  |
-| `sms.peer_webhook_aliases` | `VOA__SMS__PEER_WEBHOOK_ALIASES` | str | `''` |  |
-| `sms.self_webhook_aliases` | `VOA__SMS__SELF_WEBHOOK_ALIASES` | str | `''` |  |
 | `debug.enabled` | `VOA__DEBUG__ENABLED` | bool | `False` |  |
 | `debug.log_tool_args` | `VOA__DEBUG__LOG_TOOL_ARGS` | bool | `False` |  |
 | `debug.save_audio` | `VOA__DEBUG__SAVE_AUDIO` | bool | `False` |  |

@@ -83,7 +83,6 @@ def client(monkeypatch):
         (NURSE_UI, "POST", "/api/allowlist", False),
         (AGENT, "POST", "/api/allowlist", True),  # the agent keeps this until step 2
         (ADMIN_UI, "POST", "/api/calls/sign-off", False),  # clinical work: nurses only
-        (NURSE_UI, "POST", "/api/sms/control", False),
         ("someone@example.org", "GET", "/api/calls", False),
         # knowledge base: the admin console only
         (ADMIN_UI, "GET", "/api/admin/knowledge/items", True),

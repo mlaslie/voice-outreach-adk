@@ -17,13 +17,19 @@ A patient who isn't reached gets an SMS follow-up with three options: call me no
 Twilio ── signed webhooks + media WS ──► voa-gateway (Cloud Run, public, every route authenticated)
                                            CallSession: AMD hold → Gemini Live (ADK run_live) → drain/hangup
                                            writes calls / reports / transcripts / events; queues Cloud Tasks
-Nurse ── IAP ──► voa-ui (Next.js BFF) ── ID token ──► voa-api (Cloud Run, private)
+Nurse/Admin ── IAP ──► voa-ui / voa-admin (Next.js BFF) ── ID token ──► voa-api (Cloud Run, private)
+EHR feed ── voa-ingest identity ──► voa-api /api/v1/call-batches
                                            REST + SSE, dialing via Cloud Tasks, runs, recall, allowlist,
                                            budgets, SMS follow-up, Scheduler cron
 State: Firestore (nam5, PITR) · recordings: GCS · models: Gemini Live, Gemini-TTS, Gemini text
 ```
 
-More detail:
+Start here:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): the services, the data, one call end to end, and the security model
+- [`docs/INTEGRATION-GUIDE.md`](docs/INTEGRATION-GUIDE.md): plugging in another telephony provider (Cisco or another PBX/CCaaS), feeding the call queue from an EHR, and sending results back to an EHR
+
+History:
 
 - [`docs/PLAN.md`](docs/PLAN.md): plan, decisions and risks
 - [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md): build phases

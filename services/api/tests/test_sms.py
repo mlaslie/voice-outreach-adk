@@ -281,6 +281,29 @@ def test_twilio_error_classification_and_dry_run_never_logs_the_body(caplog):
     assert not any("fever" in str(v) for v in vars(rec).values())
 
 
+def test_a_missing_key_permission_reads_clearly_on_the_call():
+    from voa_providers.sms import SmsSendError
+
+    err = classify_twilio_error(403, 8021)
+    assert err.permanent and "Messaging permissions" in str(err)
+    assert isinstance(err, SmsSendError)
+
+    class Refusing:
+        name = "twilio"
+        sent: list = []
+
+        async def send(self, to, body):
+            raise classify_twilio_error(403, 8021)
+
+    client, api, _ = make()
+    api.sms = Refusing()
+    run(sms.grant_consent(api, PHONE, statement_version="v1", granted_by="test", source="test"))
+    with pytest.raises(sms.SendBlocked) as e:
+        run(sms.send_sms(api, PHONE, "hello"))
+    assert e.value.reason.startswith("Twilio refused the message: the Twilio API key")
+    assert "(code 8021)" in e.value.reason
+
+
 # --------------------------------------------------------------------------- replies
 
 

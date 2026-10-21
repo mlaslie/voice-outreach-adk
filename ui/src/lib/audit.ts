@@ -20,7 +20,6 @@ const ACTIONS: Record<string, string> = {
   "DELETE /api/allowlist/{phone}": "Removed an authorized number",
   "POST /api/sms/consent": "Recorded text consent",
   "POST /api/sms/settings": "Changed the missed-call text limit",
-  "POST /api/sms/control": "Switched the shared SMS number",
   "DELETE /api/sms/callbacks/{callback_id}": "Cancelled a booked callback",
   "POST /api/sms/test/start": "Started a text test",
   "POST /api/sms/test/reply": "Replied in a text test",
