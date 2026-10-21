@@ -421,3 +421,19 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - **Live persona eval:** see `docs/evals/voice-personas-20261021.md`. dob_retry 6/7 and patient_questions 11/13 on the new engine, all other personas 3/3. An A/B of patient_questions gave 6/6 on both new and old code, so the misses are model variation.
   - **Added fix:** an entry whose use case no longer exists is now *blocked*, with the reason, instead of a 500 that Cloud Tasks retried with the row stuck in "calling" (`routes_tasks.task_dial`, tested).
   - **Deploy order:** deploy gateway and API together, so both know the same specs.
+
+## 21 Oct: Analytics moved to the admin console, with call outcome totals
+
+**Why:** the user asked for Analytics in the admin console, and for totals per period of no answer, voicemail plus text, completed by text, completed by voice, and not completed.
+
+**Moving it:**
+- The view is now `ui/src/components/admin/analytics-panel.tsx`, the first admin section; the nurse console no longer has the tab.
+- `/api/analytics/summary` answers only in the admin build.
+- `voa-analytics` accepts only `VOA__SERVICES__ADMIN_UI_SA`, and Terraform makes the admin service account its only invoker. `ANALYTICS_URL` moved from voa-ui to voa-admin.
+
+**Call outcomes block** (`outcomes` in the summary; `metrics._outcomes`):
+- Each call lands in exactly one bucket, so the buckets sum to `total`: completed by voice, completed by text, voicemail left, rang with no answer (`call_status` rna), busy, could not dial (failed or canceled), and not completed (the rest, broken down by outcome, or `hung_up`).
+- Voicemail, no-answer and busy each carry `text_sent` (the missed-call text went out).
+- A missed call that the patient later completed by text counts as **completed by text**, not as voicemail, because the text report is filed onto the original call.
+- An emergency call counts under not completed, labelled "emergency (sent to 911)".
+- The service now also reads `call_status`.

@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
+  BarChart3,
   BookOpenCheck,
   CalendarClock,
   Clock,
@@ -36,10 +37,13 @@ import { DiagnosticsPanel } from "./diagnostics-panel";
 import { AuditPanel } from "./audit-panel";
 import { BrandingPanel } from "./branding-panel";
 import { KnowledgePanel } from "./knowledge-panel";
+import { AnalyticsPanel } from "./analytics-panel";
 
-export type Section = "schedules" | "patients" | "numbers" | "messaging" | "knowledge" | "display" | "branding" | "testing" | "diagnostics" | "audit";
+export type Section = "analytics" | "schedules" | "patients" | "numbers" | "messaging" | "knowledge" | "display" | "branding" | "testing" | "diagnostics" | "audit";
 
 const SECTIONS: { key: Section; label: string; short: string; blurb: string; icon: NavIcon }[] = [
+  { key: "analytics", label: "Analytics", short: "Stats", icon: BarChart3,
+    blurb: "Call outcomes, reach, what patients report and follow-up workload for a chosen period. De-identified, refreshed every 15 minutes." },
   { key: "schedules", label: "Schedules", short: "Runs", icon: CalendarClock,
     blurb: "Call runs, and the clinic's calling hours and auto-recall." },
   { key: "patients", label: "Patients", short: "Patients", icon: Users,
@@ -222,6 +226,9 @@ export function AdminConsole({
                   />
                   <BookedCallbacksPanel callbacks={data.callbacks} actions={actions} now={now} timeZone={tz} />
                 </>
+              ) : null}
+              {section === "analytics" ? (
+                <AnalyticsPanel mode={mode} entries={data.entries} calls={data.calls} onOpenCall={diagnose} />
               ) : null}
               {section === "knowledge" ? <KnowledgePanel live={actions.live} timeZone={tz} calls={callsError ? undefined : data.calls} /> : null}
               {section === "testing" ? (

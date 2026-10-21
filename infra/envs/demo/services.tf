@@ -223,7 +223,6 @@ module "ui" {
     API_BASE_URL      = local.api_url
     NODE_ENV          = "production"
     ADMIN_CONSOLE_URL = var.admin_image == "" ? "" : local.admin_url
-    ANALYTICS_URL     = var.analytics_image == "" ? "" : "https://${local.p}-analytics-${local.url_suffix}"
   }
 }
 
@@ -265,6 +264,7 @@ module "admin" {
     API_BASE_URL      = local.api_url
     NODE_ENV          = "production"
     NURSE_CONSOLE_URL = var.ui_image == "" ? "" : local.ui_url
+    ANALYTICS_URL     = var.analytics_image == "" ? "" : "https://${local.p}-analytics-${local.url_suffix}"
   }
 }
 

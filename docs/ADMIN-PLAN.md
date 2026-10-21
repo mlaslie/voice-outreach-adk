@@ -3,7 +3,7 @@
 **Status:** steps 1 and 2 built and deployed (20 Oct 2026); steps 3–6 proposed.
 
 **Companion plans:**
-- `docs/ANALYTICS-PLAN.md`: its Analytics tab lands in the nurse UI.
+- `docs/ANALYTICS-PLAN.md`: its Analytics section is in the admin UI (moved from the nurse UI on 21 Oct 2026, at the user's request).
 - `docs/KNOWLEDGE-PLAN.md`: a knowledge base managed in the admin UI, and an off-by-default switch that lets the agent answer some patient questions from approved content.
 
 **Goals:**
@@ -56,7 +56,7 @@ Gemini Enterprise   →  voa-nurse (A2A agent)      ─┘
     - Testing: browser call, test by text.
     - Call diagnostics.
     - Audit log.
-  - **Nurse UI:** the call queue, Call status, the patient drawer (answers, reasons, sign-off, follow-up changes, texts, transcript, recording), Analytics, and a read-only note of the calling hours.
+  - **Nurse UI:** the call queue, Call status, the patient drawer (answers, reasons, sign-off, follow-up changes, texts, transcript, recording) and a read-only note of the calling hours.
 
 ## 3. Scheduling API for an EHR feed
 
@@ -140,7 +140,7 @@ Gemini Enterprise   →  voa-nurse (A2A agent)      ─┘
 | voa-nurse-ui | IAP, group "nurses" | people |
 | voa-admin-ui | IAP, group "admins" | people |
 | voa-nurse (agent) | private, A2A | Gemini Enterprise |
-| voa-analytics (+ export job) | private | nurse UI |
+| voa-analytics (+ export job) | private | admin UI |
 | voa-ehr-sync (job, later) | none | Scheduler, calls the API as `voa-ingest` |
 
 Each one is a Terraform module instance with its own identity and its own minimal permissions. Production is a second `infra/envs/prod` using the same modules (see the analytics plan, section 6).
@@ -153,7 +153,7 @@ Each one is a Terraform module instance with its own identity and its own minima
 | 2 | Admin: authorized numbers and consent; messaging monitor and callbacks; testing tools; call diagnostics; audit log. Check every classic feature against section 1, then delete `/classic`. | M |
 | 3 | Ingest API v1 (idempotent batches, per-item results, OpenAPI), the `voa-ingest` identity, optional Pub/Sub, and the sample-EHR job for demos. | M |
 | 4 | Branding editor with live preview, contrast check and reset; Gemini Enterprise card colour. | S–M |
-| 5 | Analytics (separate plan), in the nurse UI. | M |
+| 5 | Analytics (separate plan), in the admin UI. | M |
 | 6 | Knowledge base and grounded answers (separate plan), after step 1. | M ×3 |
 
 Steps 3 and 4 depend only on step 1 and can run in parallel after it.

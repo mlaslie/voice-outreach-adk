@@ -29,3 +29,14 @@ describe("analytics helpers", () => {
     expect(JSON.stringify(s)).not.toMatch(/patient_name|\+1\d{10}/);
   });
 });
+
+describe("call outcomes", () => {
+  it("rows add up to the total, and texts are noted", async () => {
+    const { outcomeRows, notCompletedText, sampleSummary } = await import("./analytics");
+    const o = sampleSummary(30, "all").outcomes!;
+    const rows = outcomeRows(o);
+    expect(rows.reduce((a, r) => a + r.count, 0)).toBe(o.total);
+    expect(rows.find((r) => r.key === "voicemail")!.sub).toBe("34 texted");
+    expect(notCompletedText({ hung_up: 2, identity_verification_failed: 5 })).toBe("identity not verified 5 · hung up 2");
+  });
+});

@@ -101,6 +101,53 @@ def _overdue(tier: str, day: date, today: date) -> bool:
 
 # --------------------------------------------------------------------------- sections
 
+_NO_ANSWER = frozenset({"rna"})
+_BUSY = frozenset({"busy"})
+_DIAL_FAILED = frozenset({"failed", "canceled"})
+
+
+def _outcomes(calls: list[Row]) -> dict[str, Any]:
+    """Every call in exactly one bucket, so the buckets add up to ``total``.
+
+    Decided by how the call ended up: a missed call later completed by text counts
+    as ``completed_text`` (its report is filed onto the original call), not as a
+    voicemail. ``text_sent`` counts the missed-call texts that went out."""
+    out: dict[str, Any] = {
+        "total": len(calls),
+        "completed_voice": 0,
+        "completed_text": 0,
+        "voicemail": {"total": 0, "text_sent": 0},
+        "no_answer": {"total": 0, "text_sent": 0},
+        "busy": {"total": 0, "text_sent": 0},
+        "dial_failed": 0,
+        "not_completed": {"total": 0, "by_outcome": {}},
+    }
+    for r in calls:
+        outcome, status = r.get("outcome"), r.get("call_status")
+        sent = r.get("sms_follow_up_status") == "sent"
+        if outcome == COMPLETED:
+            out["completed_text" if r.get("channel") == "sms" else "completed_voice"] += 1
+        elif outcome == "voicemail_left" or status == "left_vmail":
+            bucket = "voicemail"
+        elif status in _NO_ANSWER:
+            bucket = "no_answer"
+        elif status in _BUSY:
+            bucket = "busy"
+        elif status in _DIAL_FAILED and not r.get("answered"):
+            out["dial_failed"] += 1
+            continue
+        else:
+            nc = out["not_completed"]
+            nc["total"] += 1
+            key = outcome or ("hung_up" if r.get("answered") else "no_report")
+            nc["by_outcome"][key] = nc["by_outcome"].get(key, 0) + 1
+            continue
+        if outcome == COMPLETED:
+            continue
+        out[bucket]["total"] += 1
+        out[bucket]["text_sent"] += int(sent)
+    return out
+
 
 def _outreach(calls: list[Row]) -> dict[str, Any]:
     by_patient: dict[str, list[Row]] = defaultdict(list)
@@ -277,6 +324,7 @@ def compute(
     ]
     return {
         "range": {"start_day": lo, "end_day": hi, "channel": channel, "calls": len(picked)},
+        "outcomes": _outcomes(picked),
         "outreach": _outreach(picked),
         "clinical": _clinical(picked, rs, qs, days),
         "workload": _workload(picked, today),

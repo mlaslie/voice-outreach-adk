@@ -2,7 +2,7 @@
 
 Cloud Run IAM verifies the caller's Google ID token (the service is
 ``--no-allow-unauthenticated``). Here we only check WHICH identity called: the
-nurse console's service account (``VOA__SERVICES__UI_SA``) or one listed in
+admin console's service account (``VOA__SERVICES__ADMIN_UI_SA``) or one listed in
 ``ANALYTICS_EXTRA_CALLERS`` (comma-separated). Skipped in ``dev``/``test``.
 
 Endpoints:
@@ -48,6 +48,7 @@ CALL_COLUMNS: tuple[str, ...] = (
     "day",
     "initiated_at",
     "outcome",
+    "call_status",
     "answered",
     "answered_by",
     "dob_result",
@@ -157,7 +158,7 @@ def caller_email(request: Request) -> str | None:
 
 def allowed_callers(cfg: AppConfig, environ: Mapping[str, str]) -> frozenset[str]:
     extra = [e.strip() for e in (environ.get("ANALYTICS_EXTRA_CALLERS") or "").split(",")]
-    return frozenset(e for e in [cfg.services.ui_sa, *extra] if e)
+    return frozenset(e for e in [cfg.services.admin_ui_sa, *extra] if e)
 
 
 # --------------------------------------------------------------------------- app

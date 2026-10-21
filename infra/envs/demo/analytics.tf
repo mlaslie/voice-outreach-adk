@@ -1,6 +1,6 @@
 # Analytics (docs/ANALYTICS-PLAN.md, phase 1).
 #   export job:  Firestore calls -> de-identified rows -> BigQuery (full refresh)
-#   service:     private; the nurse UI's BFF reads the summary from it
+#   service:     private; the admin console's BFF reads the summary from it
 # One identity for both. It can read Firestore and its own dataset, nothing else.
 
 locals {
@@ -118,14 +118,15 @@ module "analytics" {
   image           = var.analytics_image
   service_account = module.sa.emails["${local.p}-analytics"]
   public          = false
-  invokers        = [module.sa.members["${local.p}-ui"]]
-  min_instances   = var.analytics_min_instances
-  max_instances   = 2
-  concurrency     = 40
-  timeout_s       = 60
-  memory          = "512Mi"
-  env             = local.analytics_env
-  depends_on      = [google_secret_manager_secret_iam_member.analytics_key]
+  # The admin console's BFF is the only caller (Analytics is an admin section).
+  invokers      = [module.sa.members["${local.p}-admin"]]
+  min_instances = var.analytics_min_instances
+  max_instances = 2
+  concurrency   = 40
+  timeout_s     = 60
+  memory        = "512Mi"
+  env           = local.analytics_env
+  depends_on    = [google_secret_manager_secret_iam_member.analytics_key]
 }
 
 output "analytics_url" {

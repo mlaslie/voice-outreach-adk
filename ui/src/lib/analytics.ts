@@ -27,8 +27,60 @@ export interface Unreached {
   last_at: string | null;
 }
 
+export interface CallOutcomes {
+  total: number;
+  completed_voice: number;
+  completed_text: number;
+  voicemail: { total: number; text_sent: number };
+  no_answer: { total: number; text_sent: number };
+  busy: { total: number; text_sent: number };
+  dial_failed: number;
+  not_completed: { total: number; by_outcome: Record<string, number> };
+}
+
+export interface OutcomeRow {
+  key: string;
+  label: string;
+  count: number;
+  sub?: string;
+  color: string;
+}
+
+/** The outcome buckets in display order (each call is in exactly one). */
+export function outcomeRows(o: CallOutcomes): OutcomeRow[] {
+  const texted = (n: number) => (n ? `${n} texted` : "");
+  return [
+    { key: "completed_voice", label: "Completed by voice", count: o.completed_voice, color: "bg-brand" },
+    { key: "completed_text", label: "Completed by text", count: o.completed_text, color: "bg-brand-bright" },
+    { key: "voicemail", label: "Voicemail left", count: o.voicemail.total, sub: texted(o.voicemail.text_sent), color: "bg-brand-blue" },
+    { key: "no_answer", label: "Rang, no answer", count: o.no_answer.total, sub: texted(o.no_answer.text_sent), color: "bg-brand-yellow" },
+    { key: "not_completed", label: "Not completed", count: o.not_completed.total, color: "bg-brand-coral" },
+    { key: "busy", label: "Busy", count: o.busy.total, sub: texted(o.busy.text_sent), color: "bg-ink/30" },
+    { key: "dial_failed", label: "Could not dial", count: o.dial_failed, color: "bg-ink/20" },
+  ];
+}
+
+const NOT_COMPLETED_LABEL: Record<string, string> = {
+  identity_verification_failed: "identity not verified",
+  unable_to_reach_wrong_person: "wrong person",
+  consent_declined: "declined",
+  reschedule_requested: "asked to call back",
+  emergency_ended: "emergency (sent to 911)",
+  hung_up: "hung up",
+  no_report: "no report",
+};
+
+export function notCompletedText(by: Record<string, number>): string {
+  return Object.entries(by)
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${NOT_COMPLETED_LABEL[k] ?? k.replace(/_/g, " ")} ${n}`)
+    .join(" · ");
+}
+
 export interface AnalyticsSummary {
   refreshed_at?: string | null;
+  /** Absent from an older analytics service. */
+  outcomes?: CallOutcomes;
   range: { start_day: string; end_day: string; channel: Channel; calls: number };
   outreach: {
     patients_attempted: number;
@@ -120,6 +172,13 @@ export function sampleSummary(days: number, channel: Channel, today = new Date()
   return {
     refreshed_at: today.toISOString(),
     range: { start_day: dayList[0], end_day: dayList.at(-1)!, channel, calls: 212 },
+    outcomes: {
+      total: 212, completed_voice: 88, completed_text: 11,
+      voicemail: { total: 41, text_sent: 34 }, no_answer: { total: 38, text_sent: 9 },
+      busy: { total: 6, text_sent: 2 }, dial_failed: 3,
+      not_completed: { total: 25, by_outcome: { hung_up: 9, reschedule_requested: 8,
+        identity_verification_failed: 5, unable_to_reach_wrong_person: 2, emergency_ended: 1 } },
+    },
     outreach: {
       patients_attempted: 96,
       patients_reached: 81,

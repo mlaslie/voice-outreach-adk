@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from voa_analytics import app as app_mod
 from voa_core.config import load_config
 
-UI_SA = "ui@example.iam.gserviceaccount.com"
+UI_SA = "admin@example.iam.gserviceaccount.com"  # the admin console: Analytics lives there
 EXTRA = "looker@example.iam.gserviceaccount.com"
 # Thursday 15 Oct 2026, 10:00 in New York
 NOW = datetime(2026, 10, 15, 14, 0, tzinfo=UTC)
@@ -34,7 +34,7 @@ def client(env="test", source=None, clock=None, mono=None):
         environ={
             "VOA_ENV": env,
             "VOA__GCP__PROJECT_ID": "test-project",
-            "VOA__SERVICES__UI_SA": UI_SA,
+            "VOA__SERVICES__ADMIN_UI_SA": UI_SA,
         }
     )
     src = source or FakeSource()
@@ -67,7 +67,7 @@ def test_summary_returns_metrics():
     r = c.get("/analytics/summary", params={"days": 4})
     assert r.status_code == 200
     body = r.json()
-    assert set(body) == {"refreshed_at", "range", "outreach", "clinical", "workload"}
+    assert set(body) == {"refreshed_at", "range", "outcomes", "outreach", "clinical", "workload"}
     assert body["refreshed_at"] == "2026-10-15T13:45:00+00:00"
     # 4 days ending today (clinic-local): 12..15 Oct
     assert src.fetches == [(date(2026, 10, 12), date(2026, 10, 15))]

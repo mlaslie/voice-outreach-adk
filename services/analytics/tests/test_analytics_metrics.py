@@ -172,3 +172,63 @@ def test_bad_arguments():
         summary("fax")
     with pytest.raises(ValueError):
         metrics.compute([], [], [], start_day=END, end_day=START)
+
+
+def test_outcome_totals_put_every_call_in_one_bucket():
+    from analytics_fixtures import call
+    from voa_analytics import metrics
+
+    d = "2026-10-13"
+    rows = [
+        call("v1", d, outcome="questionnaire_completed", call_status="success", answered=True),
+        call("v2", d, outcome="questionnaire_completed", call_status="success", answered=True),
+        # Missed, texted, then completed by text: counts as text, not voicemail.
+        call(
+            "t1",
+            d,
+            channel="sms",
+            outcome="questionnaire_completed",
+            call_status="left_vmail",
+            sms_follow_up_status="sent",
+        ),
+        call(
+            "m1", d, outcome="voicemail_left", call_status="left_vmail", sms_follow_up_status="sent"
+        ),
+        call(
+            "m2",
+            d,
+            outcome="voicemail_left",
+            call_status="left_vmail",
+            sms_follow_up_status="not_sent",
+        ),
+        call("r1", d, call_status="rna", sms_follow_up_status="sent"),
+        call("r2", d, call_status="rna"),
+        call("b1", d, call_status="busy"),
+        call("f1", d, call_status="failed"),
+        call("n1", d, outcome="identity_verification_failed", call_status="success", answered=True),
+        call("n2", d, outcome="reschedule_requested", call_status="success", answered=True),
+        call("n3", d, call_status="interrupted", answered=True),
+    ]
+    o = metrics.compute(
+        rows, [], [], start_day=metrics.date(2026, 10, 12), end_day=metrics.date(2026, 10, 14)
+    )["outcomes"]
+    assert o["total"] == 12
+    assert (o["completed_voice"], o["completed_text"]) == (2, 1)
+    assert o["voicemail"] == {"total": 2, "text_sent": 1}
+    assert o["no_answer"] == {"total": 2, "text_sent": 1}
+    assert o["busy"] == {"total": 1, "text_sent": 0}
+    assert o["dial_failed"] == 1
+    assert o["not_completed"] == {
+        "total": 3,
+        "by_outcome": {"identity_verification_failed": 1, "reschedule_requested": 1, "hung_up": 1},
+    }
+    parts = (
+        o["completed_voice"]
+        + o["completed_text"]
+        + o["voicemail"]["total"]
+        + o["no_answer"]["total"]
+        + o["busy"]["total"]
+        + o["dial_failed"]
+        + o["not_completed"]["total"]
+    )
+    assert parts == o["total"]

@@ -27,6 +27,7 @@ def call(call_id, day, **kw):
         "day": day,
         "initiated_at": f"{day}T14:00:00+00:00",
         "outcome": None,
+        "call_status": None,
         "answered": False,
         "answered_by": None,
         "dob_result": None,

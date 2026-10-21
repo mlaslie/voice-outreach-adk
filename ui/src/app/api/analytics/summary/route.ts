@@ -4,12 +4,13 @@ import { actingUser, needsIdToken } from "@/lib/bff";
 import { isAdmin } from "@/lib/mode";
 
 /**
- * The nurse Analytics tab's one read:
+ * The admin console's Analytics section, its one read:
  *
  *   browser ──▶ /api/analytics/summary?days&channel ──ID token──▶ ${ANALYTICS_URL}/analytics/summary
  *
- * Nurse build only. The analytics service is private and accepts only this
- * service's identity (docs/ANALYTICS-PLAN.md). Only `days` and `channel` are
+ * Admin build only (Analytics is an admin console section). The analytics
+ * service is private and accepts only this service's identity
+ * (docs/ANALYTICS-PLAN.md). Only `days` and `channel` are
  * passed on, validated here.
  */
 
@@ -24,7 +25,7 @@ function fail(status: number, detail: string) {
 }
 
 export async function GET(req: NextRequest): Promise<Response> {
-  if (isAdmin) return fail(404, "Not found.");
+  if (!isAdmin) return fail(404, "Not found.");
   const base = (process.env.ANALYTICS_URL ?? "").replace(/\/+$/, "");
   if (!base) return fail(503, "Analytics is not set up for this deployment.");
 

@@ -7,6 +7,8 @@ import { fmtDateTime } from "@/lib/time";
 import { CallDoc, CallListEntry } from "@/lib/types";
 import {
   AnalyticsSummary,
+  notCompletedText,
+  outcomeRows,
   Channel,
   PAIN_BUCKETS,
   SYMPTOMS,
@@ -19,11 +21,11 @@ import {
   sampleSummary,
   share,
 } from "@/lib/analytics";
-import { Panel, Pill } from "./parts";
+import { Panel, Pill } from "@/components/nurse/parts";
 
 /**
- * Analytics (docs/ANALYTICS-PLAN.md, phase 1): outreach, clinical picture,
- * nurse workload. The numbers come de-identified from the analytics service;
+ * Analytics (docs/ANALYTICS-PLAN.md, phase 1), in the admin console: call
+ * outcomes, outreach, clinical picture, nurse workload. The numbers come de-identified from the analytics service;
  * names are resolved here from the call list and the calls this console holds.
  */
 
@@ -41,7 +43,7 @@ const TIER_COLOR: Record<TierKey, string> = {
   none: "bg-ink/15",
 };
 
-export function AnalyticsView({
+export function AnalyticsPanel({
   mode,
   entries,
   calls,
@@ -110,6 +112,7 @@ export function AnalyticsView({
 
       {data ? (
         <>
+          <Outcomes data={data} />
           <Outreach data={data} entryName={entryName} />
           <Clinical data={data} callName={callName} onOpenCall={onOpenCall} />
           <Workload data={data} />
@@ -177,6 +180,36 @@ function Bar({ label, value, whole, color = "bg-brand", right }: {
       </span>
       <span className="w-16 text-right font-semibold tabular-nums text-ink">{right ?? value}</span>
     </div>
+  );
+}
+
+function Outcomes({ data }: { data: AnalyticsSummary }) {
+  const o = data.outcomes;
+  if (!o) return null;
+  const rows = outcomeRows(o);
+  return (
+    <Section title="Call outcomes" blurb="How every call in this period ended. Each call is counted once, so the rows add up to the total.">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {rows.slice(0, 5).map((r) => (
+          <Stat key={r.key} label={r.label} value={String(r.count)}
+                sub={[pct(o.total ? r.count / o.total : null), r.sub].filter(Boolean).join(" · ")} />
+        ))}
+      </div>
+      <div className="mt-5 space-y-2">
+        {rows.map((r) => (
+          <Bar key={r.key} label={r.label} value={r.count} whole={o.total} color={r.color}
+               right={`${r.count} · ${pct(o.total ? r.count / o.total : null)}`} />
+        ))}
+        <div className="flex justify-between border-t border-black/[0.06] pt-2 text-[13px] font-semibold text-ink">
+          <span>Total calls</span><span className="tabular-nums">{o.total}</span>
+        </div>
+      </div>
+      {o.not_completed.total ? (
+        <p className="mt-3 text-[12px] text-ink-muted">
+          Not completed: {notCompletedText(o.not_completed.by_outcome)}
+        </p>
+      ) : null}
+    </Section>
   );
 }
 
@@ -296,6 +329,7 @@ function Clinical({ data, callName, onOpenCall }: {
                   <button type="button" onClick={() => onOpenCall(id)}
                           className="text-[13px] font-semibold text-brand-red-dark underline-offset-2 hover:underline">
                     {callName.get(id) ?? "Open the call"}
+                    <span className="ml-1 font-normal text-ink-muted">(Call diagnostics)</span>
                   </button>
                 </li>
               ))}
