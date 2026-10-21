@@ -437,3 +437,4 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 - A missed call that the patient later completed by text counts as **completed by text**, not as voicemail, because the text report is filed onto the original call.
 - An emergency call counts under not completed, labelled "emergency (sent to 911)".
 - The service now also reads `call_status`.
+- **Bit us on the first live read:** two "wrong person" calls on demo carry `call_status: left_vmail`, so the first version counted them as voicemails. The agent's outcome now wins, and the line status is used only when a call has no outcome (no answer, busy, failed). Tested with that exact shape. Why a wrong-person call ends with `left_vmail` is a separate question for the call lifecycle (`lifecycle.classify_completed`); it is not changed here.

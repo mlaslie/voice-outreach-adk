@@ -127,8 +127,15 @@ def _outcomes(calls: list[Row]) -> dict[str, Any]:
         sent = r.get("sms_follow_up_status") == "sent"
         if outcome == COMPLETED:
             out["completed_text" if r.get("channel") == "sms" else "completed_voice"] += 1
-        elif outcome == "voicemail_left" or status == "left_vmail":
+        elif outcome == "voicemail_left" or (not outcome and status == "left_vmail"):
             bucket = "voicemail"
+        elif outcome:
+            # The agent's outcome wins over the line status: seen on demo, a
+            # wrong-person call carried call_status left_vmail.
+            nc = out["not_completed"]
+            nc["total"] += 1
+            nc["by_outcome"][outcome] = nc["by_outcome"].get(outcome, 0) + 1
+            continue
         elif status in _NO_ANSWER:
             bucket = "no_answer"
         elif status in _BUSY:
@@ -139,7 +146,7 @@ def _outcomes(calls: list[Row]) -> dict[str, Any]:
         else:
             nc = out["not_completed"]
             nc["total"] += 1
-            key = outcome or ("hung_up" if r.get("answered") else "no_report")
+            key = "hung_up" if r.get("answered") else "no_report"
             nc["by_outcome"][key] = nc["by_outcome"].get(key, 0) + 1
             continue
         if outcome == COMPLETED:

@@ -208,19 +208,33 @@ def test_outcome_totals_put_every_call_in_one_bucket():
         call("n1", d, outcome="identity_verification_failed", call_status="success", answered=True),
         call("n2", d, outcome="reschedule_requested", call_status="success", answered=True),
         call("n3", d, call_status="interrupted", answered=True),
+        # Seen on demo: the outcome says wrong person, the line status says voicemail.
+        call(
+            "n4",
+            d,
+            outcome="unable_to_reach_wrong_person",
+            call_status="left_vmail",
+            answered=True,
+            sms_follow_up_status="sent",
+        ),
     ]
     o = metrics.compute(
         rows, [], [], start_day=metrics.date(2026, 10, 12), end_day=metrics.date(2026, 10, 14)
     )["outcomes"]
-    assert o["total"] == 12
+    assert o["total"] == 13
     assert (o["completed_voice"], o["completed_text"]) == (2, 1)
     assert o["voicemail"] == {"total": 2, "text_sent": 1}
     assert o["no_answer"] == {"total": 2, "text_sent": 1}
     assert o["busy"] == {"total": 1, "text_sent": 0}
     assert o["dial_failed"] == 1
     assert o["not_completed"] == {
-        "total": 3,
-        "by_outcome": {"identity_verification_failed": 1, "reschedule_requested": 1, "hung_up": 1},
+        "total": 4,
+        "by_outcome": {
+            "identity_verification_failed": 1,
+            "reschedule_requested": 1,
+            "hung_up": 1,
+            "unable_to_reach_wrong_person": 1,
+        },
     }
     parts = (
         o["completed_voice"]
