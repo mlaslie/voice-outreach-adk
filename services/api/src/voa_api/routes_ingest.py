@@ -24,7 +24,7 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -62,6 +62,7 @@ FEED_FIELDS = (
     "operation_name",
     "operation_date",
     "is_diabetic",
+    "care_setting",
 )
 
 
@@ -75,6 +76,7 @@ class IngestCall(BaseModel):
     procedure: str | None = None
     procedure_date: str | None = None
     is_diabetic: bool = False
+    care_setting: Literal["inpatient", "outpatient"] | None = None
     language: str | None = Field(default=None, max_length=16)
 
 
@@ -116,6 +118,7 @@ def _entry_input(c: IngestCall) -> CallListEntryInput:
         operation_name=c.procedure,
         operation_date=c.procedure_date,
         is_diabetic=c.is_diabetic,
+        care_setting=c.care_setting,
     )
 
 

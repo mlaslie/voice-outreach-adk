@@ -1,0 +1,22 @@
+[project]
+name = "voa-knowledge"
+version = "0.0.1"
+description = "The knowledge agent: answers a patient's question from the clinic's approved material, or defers"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "voa-core",
+    "google-adk>=2.12,<3",
+    "google-genai>=2.31,<3",
+    "google-auth>=2.40,<3",
+    "httpx>=0.28,<1",
+]
+
+[tool.uv.sources]
+voa-core = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/voa_knowledge"]

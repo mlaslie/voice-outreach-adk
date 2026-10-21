@@ -317,6 +317,17 @@ def patient_questions(call: dict) -> list[dict]:
         if isinstance(version, int) and not isinstance(version, bool):
             item["item_version"] = version
             item["satisfied"] = q.get("satisfied") if q.get("satisfied") in (True, False) else None
+        # Knowledge agent v2: answered from approved material (with its sources).
+        if isinstance(q.get("sources"), list) and q.get("outcome") in ("answered", "deferred"):
+            item["sources"] = len(q["sources"])
+            item["satisfied"] = q.get("satisfied") if q.get("satisfied") in (True, False) else None
+        # Shadow mode: what the agent would have said (never said to the patient).
+        shadow = q.get("shadow")
+        if isinstance(shadow, dict) and shadow.get("outcome") in ("answered", "deferred"):
+            item["shadow"] = {
+                "outcome": shadow["outcome"],
+                "answer": shadow.get("answer") if isinstance(shadow.get("answer"), str) else None,
+            }
         out.append(item)
     return sorted(out, key=lambda q: q["priority"] != Q_IMMEDIATE)  # stable: asked order kept
 

@@ -32,6 +32,12 @@ const ACTIONS: Record<string, string> = {
   "POST /api/admin/knowledge/items/{item_id}/retire": "Retired a knowledge base entry",
   "DELETE /api/admin/knowledge/items/{item_id}": "Deleted a knowledge base entry",
   "PUT /api/admin/knowledge/settings": "Changed knowledge base settings",
+  "POST /api/admin/knowledge/documents": "Added a guideline",
+  "PATCH /api/admin/knowledge/documents/{doc_id}": "Edited a guideline",
+  "POST /api/admin/knowledge/documents/{doc_id}/approve": "Approved a guideline",
+  "POST /api/admin/knowledge/documents/{doc_id}/retire": "Retired a guideline",
+  "DELETE /api/admin/knowledge/documents/{doc_id}": "Deleted a guideline",
+  "POST /api/calls/{call_id}/questions/{index}/shadow-review": "Rated the agent's draft answer",
 };
 
 /** "PUT /api/call-settings/display" -> "Changed time display"; unknown actions unchanged. */
@@ -47,6 +53,8 @@ const TARGET_LABELS: Record<string, string> = {
   callback_id: "Callback",
   call_id: "Call",
   item_id: "Knowledge entry",
+  doc_id: "Guideline",
+  index: "Question",
 };
 
 /** {phone: "+1•••4567"} -> "Number +1•••4567"; several joined with " · "; "" when none. */

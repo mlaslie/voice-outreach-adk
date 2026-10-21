@@ -1,15 +1,17 @@
-"""The voice agent's knowledge-base tools (docs/KNOWLEDGE-PLAN.md, step 1).
+"""The voice agent's knowledge tools (docs/KNOWLEDGE-PLAN.md v2, live mode).
 
-Present only when an admin has switched the knowledge base on for voice
-(``settings/knowledge``: ``enabled`` and ``channels.voice``). The gateway decides
-that once at session start (:func:`prepare`), puts a small flag in session state
-(``state["knowledge"]``) and registers the approved items and the matcher for the
-session here. With the flag absent, :class:`KnowledgeToolset` exposes no tools and
-the instruction is unchanged: the agent behaves exactly as before.
+Present only when an admin has set the knowledge agent to **live** for voice
+(``settings/knowledge``: ``mode == "live"`` and ``channels.voice``). The gateway
+decides that once at session start (:func:`prepare`), puts a small flag in session
+state (``state["knowledge"]``) and registers the session's runtime here. Off and
+shadow leave the flag absent: :class:`KnowledgeToolset` then exposes no tools and
+the instruction is unchanged, so the agent behaves exactly as before.
 
 * ``answer_from_knowledge(question)`` records the question (like
-  ``record_patient_question``) with its outcome, and returns the clinic's exact
-  answer or "deferred".
+  ``record_patient_question``) and asks the knowledge agent
+  (``voa_knowledge.KnowledgeAgent``) with the patient context from session state:
+  procedure, days since surgery, care setting, diabetic. Never the name, DOB,
+  phone or MRN. It returns the answer to read out, or "deferred".
 * ``record_answer_feedback(helped)`` records the patient's reply to "Did that
   answer your question?". "no" turns the question into a nurse follow-up.
 """
@@ -19,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from google.adk.tools import FunctionTool, ToolContext
@@ -35,13 +38,17 @@ SOURCE = "the clinic's answer"
 
 @dataclass
 class KnowledgeRuntime:
-    items: list[dict[str, Any]]
+    snapshot: knowledge.KnowledgeSnapshot
     settings: dict[str, Any]
-    matcher: knowledge.Matcher | None
+    agent: Any  # voa_knowledge.KnowledgeAgent (or a test fake with .answer)
+
+    @property
+    def items(self) -> list[dict[str, Any]]:
+        return self.snapshot.examples
 
 
 _REGISTRY: dict[str, KnowledgeRuntime] = {}
-_MATCHERS: dict[int, knowledge.Matcher] = {}
+_AGENTS: dict[int, Any] = {}
 
 
 def register(session_id: str, runtime: KnowledgeRuntime) -> None:
@@ -56,22 +63,23 @@ def runtime_for(session_id: str) -> KnowledgeRuntime | None:
     return _REGISTRY.get(session_id)
 
 
-def _default_matcher(cfg) -> knowledge.Matcher:
-    m = _MATCHERS.get(id(cfg))
-    if m is None:
-        from voa_agents.knowledge_matcher import GeminiMatcher
+def default_agent(cfg) -> Any:
+    """One knowledge agent per process and config (its clients are reused)."""
+    a = _AGENTS.get(id(cfg))
+    if a is None:
+        from voa_knowledge import KnowledgeAgent
 
-        m = _MATCHERS[id(cfg)] = GeminiMatcher(cfg)
-    return m
+        a = _AGENTS[id(cfg)] = KnowledgeAgent.from_config(cfg)
+    return a
 
 
 _WARMING: set = set()
 
 
-def warm_up(matcher: Any) -> None:
-    """Start the matcher's sign-in in the background (the greeting and identity
+def warm_up(agent: Any) -> None:
+    """Start the agent's sign-in in the background (the greeting and identity
     check take far longer than it needs), keeping a reference to the task."""
-    warm = getattr(matcher, "warm", None)
+    warm = getattr(agent, "warm", None)
     if warm is None:
         return
     task = asyncio.get_running_loop().create_task(warm())
@@ -79,17 +87,18 @@ def warm_up(matcher: Any) -> None:
     task.add_done_callback(_WARMING.discard)
 
 
-async def prepare(store, cfg, *, matcher: knowledge.Matcher | None = None):
-    """At session start: ``(state flag, runtime)`` when the knowledge base is on for
-    voice, else ``(None, None)``. Never raises: a call is never failed over this."""
+async def prepare(store, cfg, *, agent: Any = None):
+    """At session start: ``(state flag, runtime)`` when the knowledge agent is live
+    for voice, else ``(None, None)`` (off and shadow). Never raises: a call is
+    never failed over this."""
     try:
         settings = await knowledge.load_settings(store)
         if not knowledge.applies(settings, "voice"):
             return None, None
-        items = await knowledge.load_approved(store)
-        m = matcher or _default_matcher(cfg)
-        warm_up(m)
-        runtime = KnowledgeRuntime(items, settings, m)
+        snapshot = await knowledge.load_snapshot(store)
+        a = agent or default_agent(cfg)
+        warm_up(a)
+        runtime = KnowledgeRuntime(snapshot, settings, a)
         return {"ask_satisfied": bool(settings["ask_satisfied"])}, runtime
     except Exception:
         log.exception("knowledge setup failed", extra={"event": "knowledge.setup_failed"})
@@ -106,8 +115,13 @@ def _audit(tool_context: ToolContext, name: str, **fields: Any) -> None:
     audit(tool_context, name, **fields)
 
 
+def call_context(patient: dict[str, Any] | None) -> dict[str, Any]:
+    """The knowledge agent's patient context, from ``state["patient"]``."""
+    return knowledge.patient_context(patient, today=datetime.now(UTC).date())
+
+
 async def answer_from_knowledge(question: str, tool_context: ToolContext) -> dict:
-    """Look up the caller's question in the clinic's approved answers, and record it.
+    """Look up the caller's question in the clinic's approved material, and record it.
 
     Args:
         question: A short summary of the caller's question, in their words,
@@ -133,20 +147,34 @@ async def answer_from_knowledge(question: str, tool_context: ToolContext) -> dic
         }
     entry: dict[str, Any] = pq.record(question)
     rt = runtime_for(_session_id(tool_context))
-    if rt is None:
-        result = knowledge.KnowledgeResult(pq.OUTCOME_DEFERRED, entry["category"], "not_set_up")
+    result = None
+    if rt is not None:
+        try:
+            result = await rt.agent.answer(
+                entry["text"],
+                call_context(tool_context.state.get("patient")),
+                settings=rt.settings,
+                snapshot=rt.snapshot,
+            )
+        except Exception:  # the agent defers on its own; this is a last resort
+            log.exception("knowledge agent failed", extra={"event": "knowledge.tool_error"})
+    if result is None:
+        entry["outcome"] = pq.OUTCOME_DEFERRED
+        reason = "not_set_up" if rt is None else "error"
     else:
-        result = await knowledge.answer(
-            entry["text"], items=rt.items, settings=rt.settings, matcher=rt.matcher
-        )
-    entry["outcome"] = result.outcome
-    if result.answered:
-        entry.update(
-            item_id=result.item_id,
-            item_version=result.item_version,
-            answer=result.answer,
-            satisfied=None,
-        )
+        reason = result.reason
+        entry["outcome"] = result.outcome
+        # The more urgent of the keyword and LLM classifications (an unclear
+        # question is immediate); the category is the one that counted.
+        entry["category"] = result.category
+        entry["priority"] = pq.more_urgent(entry["priority"], result.priority)
+        if result.answered:
+            entry.update(
+                answer=result.answer,
+                sources=[dict(s) for s in result.sources],
+                support_score=result.support_score,
+                satisfied=None,
+            )
     qs.append(entry)
     answers[survey.F_PATIENT_QUESTIONS] = qs
     answers.setdefault(survey.Q_HAS_QUESTIONS, "yes")
@@ -156,19 +184,19 @@ async def answer_from_knowledge(question: str, tool_context: ToolContext) -> dic
         tool_context,
         "answer_from_knowledge",
         status="recorded",
-        outcome=result.outcome,
-        reason=result.reason,
+        outcome=entry["outcome"],
+        reason=reason,
         category=entry["category"],
         priority=entry["priority"],
-        item_id=result.item_id,
-        item_version=result.item_version,
-        confidence=result.confidence,
+        sources=len(entry.get("sources") or []),
+        support_score=entry.get("support_score"),
+        latency_ms=getattr(result, "latency_ms", None),
         count=len(qs),
     )
-    if result.answered:
-        return {"outcome": pq.OUTCOME_ANSWERED, "answer": result.answer, "source": SOURCE}
+    if entry["outcome"] == pq.OUTCOME_ANSWERED:
+        return {"outcome": pq.OUTCOME_ANSWERED, "answer": entry["answer"], "source": SOURCE}
     out: dict[str, Any] = {"outcome": pq.OUTCOME_DEFERRED}
-    if result.reason == knowledge.R_RED_FLAG:
+    if reason == "red_flag":
         out["safety"] = "This may be an emergency sign: follow the Safety rule now."
     return out
 

@@ -1,6 +1,6 @@
 import {
   AuditEntry, BatchDeleteResult, CallDoc, CallEventsResponse, CallListEntry, CallListEntryInput, CallRun, CallRunInput, DisplaySettings,
-  FollowUpOverrideRequest, PlaceCallRequest, RecallSettings, RescheduleTarget,
+  FollowUpOverrideRequest, PlaceCallRequest, RecallSettings, RescheduleTarget, ShadowReview, ShadowVerdict,
 } from "../types";
 import type { SmsMessage } from "../followups";
 import type { ImportResult } from "../call-list-csv";
@@ -32,6 +32,11 @@ export interface NurseActions {
   placeCall(body: PlaceCallRequest): Promise<string | null>;
   /** A nurse changes the follow-up tier, with a reason. Returns the updated call. */
   setFollowUp(callSid: string, body: FollowUpOverrideRequest): Promise<CallDoc>;
+  /**
+   * Rate the knowledge agent's shadow draft for one question (`index` in the
+   * call's patient_questions). Returns the review as recorded.
+   */
+  reviewShadow(call: CallDoc, index: number, body: { verdict: ShadowVerdict; note?: string }): Promise<ShadowReview>;
   /**
    * Permanently delete calls (record, answers, transcript, recording) by
    * call doc id, in chunks of 100. Never throws for a failed chunk: those ids

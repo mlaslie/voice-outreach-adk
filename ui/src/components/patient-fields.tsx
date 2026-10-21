@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ClinicDateTimeInput, INPUT_LOOK } from "@/components/nurse/clinic-time-input";
-import { CallListEntryInput, PlaceCallRequest } from "@/lib/types";
+import { CallListEntryInput, CareSetting, PlaceCallRequest } from "@/lib/types";
 
 const DOB_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
@@ -18,6 +18,8 @@ export interface PatientFormState {
   operation_name: string;
   operation_date: string;
   is_diabetic: boolean;
+  /** Inpatient or outpatient care, or "" when not given. */
+  care_setting: "" | CareSetting;
   /** Planned call time as the browser's datetime-local string, or "". */
   scheduled_for: string;
 }
@@ -30,6 +32,7 @@ export const INITIAL_PATIENT_FORM: PatientFormState = {
   operation_name: "",
   operation_date: "",
   is_diabetic: false,
+  care_setting: "",
   scheduled_for: "",
 };
 
@@ -94,12 +97,20 @@ export function patientFormToRequest(form: PatientFormState): PlaceCallRequest {
   };
   if (form.operation_name.trim()) body.operation_name = form.operation_name.trim();
   if (form.operation_date.trim()) body.operation_date = form.operation_date.trim();
+  if (form.care_setting) body.care_setting = form.care_setting;
   return body;
 }
 
-/** The call-list shape: a patient plus an optional planned call time. */
+/**
+ * The call-list shape: a patient plus an optional planned call time. The
+ * care setting is always sent (null when blank) so an edit can clear it.
+ */
 export function entryFormToRequest(form: PatientFormState): CallListEntryInput {
-  return { ...patientFormToRequest(form), scheduled_for: localInputToIso(form.scheduled_for) };
+  return {
+    ...patientFormToRequest(form),
+    care_setting: form.care_setting || null,
+    scheduled_for: localInputToIso(form.scheduled_for),
+  };
 }
 
 interface PatientFieldsProps {
@@ -213,6 +224,20 @@ export function PatientFields({
         {errors.operation_date && (
           <p className="text-xs text-brand-red-dark">{errors.operation_date}</p>
         )}
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={id("care_setting")}>Care setting</Label>
+        <select
+          id={id("care_setting")}
+          value={form.care_setting}
+          onChange={(e) => onChange("care_setting", e.target.value)}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <option value="">Not given</option>
+          <option value="inpatient">Inpatient</option>
+          <option value="outpatient">Outpatient</option>
+        </select>
+        <p className="text-xs text-ink-soft">Picks which clinic guidelines apply when the agent answers questions.</p>
       </div>
       <div className="flex items-center gap-2">
         <Checkbox

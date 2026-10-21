@@ -39,8 +39,14 @@ class StoreCallSink:
         recordings_bucket: str | None,
         project_id: str,
         call_id_pattern: re.Pattern[str],
+        tasks=None,
+        events_queue: str = "",
     ):
         self.store = store
+        # Shadow mode (docs/KNOWLEDGE-PLAN.md): the task that drafts what the
+        # knowledge agent would have said, queued after a report is filed.
+        self.tasks = tasks
+        self.events_queue = events_queue
         self.bucket = recordings_bucket
         self.project_id = project_id
         self.call_id_pattern = call_id_pattern
@@ -118,6 +124,18 @@ class StoreCallSink:
             lambda cur: lifecycle.merge_call_doc(cur, patch, now=now, from_report=True),
         )
         log.info("report saved", extra={"event": "report.saved", "outcome": clean.get("outcome")})
+        if self.tasks is not None:
+            from voa_core import knowledge
+
+            await knowledge.enqueue_shadow(
+                self.store,
+                self.tasks,
+                self.events_queue,
+                call_id=call_id,
+                survey=clean.get("survey_responses"),
+                channel="voice",
+                report_id=report_id,
+            )
 
     async def finish(self, call_id, *, transcript, timeline, recording_wav) -> None:
         self._patients.pop(call_id, None)

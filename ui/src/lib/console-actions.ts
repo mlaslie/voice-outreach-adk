@@ -6,6 +6,7 @@ import { deleteInChunks } from "./nurse/delete-calls";
 import { BULK_LIMIT, importInChunks } from "./call-list-csv";
 import { AdminActions, AdminReads, NurseActions } from "./nurse/actions";
 import { CallSettingsResponse } from "./types";
+import { reviewFromResponse } from "./patient-questions";
 
 /**
  * The live implementations of the console actions, shared by the nurse page
@@ -48,6 +49,11 @@ export function liveNurseActions(r: NurseRefreshers): NurseActions {
       const updated = await api.setFollowUp(sid, body);
       r.refreshCalls();
       return updated;
+    },
+    async reviewShadow(call, index, body) {
+      const res = await api.reviewShadowDraft(call.call_sid ?? call.doc_id, index, body);
+      r.refreshCalls();
+      return reviewFromResponse(res, index, { verdict: body.verdict, note: body.note ?? null, by: null, at: new Date().toISOString() });
     },
     async deleteCalls(callIds, onChunk) {
       try {

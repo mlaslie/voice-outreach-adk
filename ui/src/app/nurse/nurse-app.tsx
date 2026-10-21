@@ -17,6 +17,7 @@ import { useFollowUps } from "@/hooks/use-followups";
 import { useCallRuns } from "@/hooks/use-call-runs";
 import { setTimeFormat } from "@/lib/time";
 import { applyOverrideLocally } from "@/lib/follow-up-reasons";
+import { withShadowReview } from "@/lib/patient-questions";
 
 /**
  * The nurse console (client side; page.tsx passes the runtime links in).
@@ -67,6 +68,13 @@ function Sample({ adminConsoleUrl }: { adminConsoleUrl: string | null }) {
         const updated = applyOverrideLocally(call, body, "you (sample)", new Date().toISOString());
         setData((d) => ({ ...d, calls: d.calls.map((c) => (c.doc_id === updated.doc_id ? updated : c)) }));
         return updated;
+      },
+      // Sample mode: the rating is kept in this tab's sample data only.
+      reviewShadow: async (call, index, body) => {
+        toast.info("Sample data: nothing is sent. The rating is kept in this tab only.");
+        const review = { verdict: body.verdict, note: body.note ?? null, by: "you (sample)", at: new Date().toISOString() };
+        setData((d) => ({ ...d, calls: d.calls.map((c) => (c.doc_id === call.doc_id ? withShadowReview(c, index, review) : c)) }));
+        return review;
       },
       // Sample mode: the calls leave this tab's sample data; the API is never called.
       deleteCalls: async (callIds, onChunk) => {

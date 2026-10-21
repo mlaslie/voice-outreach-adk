@@ -79,6 +79,8 @@ ROUTE_POLICY: dict[str, frozenset[str]] = {
     "POST /api/calls/{call_id}/sign-off": NURSE,
     "POST /api/calls/batch-delete": NURSE,
     "POST /api/calls/{call_id}/recording-link": NURSE,
+    # shadow mode: a nurse rates the knowledge agent's draft answer (audited)
+    "POST /api/calls/{call_id}/questions/{index}/shadow-review": NURSE,
     "POST /api/place-call": NURSE,
     "POST /api/test-call": ADMIN,  # Admin → Testing ("Test in browser")
     "GET /api/calls/{call_id}/events": ADMIN,  # Admin → Call diagnostics
@@ -126,13 +128,19 @@ ROUTE_POLICY: dict[str, frozenset[str]] = {
     "DELETE /api/branding": ADMIN,
     "GET /api/branding/assets/{kind}": READ,
     "PUT /api/branding/assets/{kind}": ADMIN,
-    # knowledge base (docs/KNOWLEDGE-API.md): the clinic's approved Q&A and its settings
+    # knowledge agent (docs/KNOWLEDGE-API.md): examples, guidelines, settings, "Try it"
     "GET /api/admin/knowledge/items": ADMIN,
     "POST /api/admin/knowledge/items": ADMIN,
     "PATCH /api/admin/knowledge/items/{item_id}": ADMIN,
     "POST /api/admin/knowledge/items/{item_id}/approve": ADMIN,
     "POST /api/admin/knowledge/items/{item_id}/retire": ADMIN,
     "DELETE /api/admin/knowledge/items/{item_id}": ADMIN,
+    "GET /api/admin/knowledge/documents": ADMIN,
+    "POST /api/admin/knowledge/documents": ADMIN,
+    "PATCH /api/admin/knowledge/documents/{doc_id}": ADMIN,
+    "POST /api/admin/knowledge/documents/{doc_id}/approve": ADMIN,
+    "POST /api/admin/knowledge/documents/{doc_id}/retire": ADMIN,
+    "DELETE /api/admin/knowledge/documents/{doc_id}": ADMIN,
     "GET /api/admin/knowledge/settings": ADMIN,
     "PUT /api/admin/knowledge/settings": ADMIN,
     "POST /api/admin/knowledge/try": ADMIN,  # read-only: not audited (audit.READ_ONLY)

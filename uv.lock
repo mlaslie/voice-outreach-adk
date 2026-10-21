@@ -9,6 +9,7 @@ members = [
     "voa-api",
     "voa-core",
     "voa-gateway",
+    "voa-knowledge",
     "voa-nurse",
     "voa-providers",
     "voa-voice-spike",
@@ -1551,6 +1552,7 @@ dependencies = [
     { name = "google-adk" },
     { name = "google-genai" },
     { name = "voa-core" },
+    { name = "voa-knowledge" },
 ]
 
 [package.metadata]
@@ -1558,6 +1560,7 @@ requires-dist = [
     { name = "google-adk", specifier = ">=2.12,<3" },
     { name = "google-genai", specifier = ">=2.31,<3" },
     { name = "voa-core", editable = "packages/voa_core" },
+    { name = "voa-knowledge", editable = "packages/voa_knowledge" },
 ]
 
 [[package]]
@@ -1589,6 +1592,7 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "voa-agents" },
     { name = "voa-core" },
+    { name = "voa-knowledge" },
     { name = "voa-providers" },
 ]
 
@@ -1599,6 +1603,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38,<1" },
     { name = "voa-agents", editable = "packages/voa_agents" },
     { name = "voa-core", editable = "packages/voa_core" },
+    { name = "voa-knowledge", editable = "packages/voa_knowledge" },
     { name = "voa-providers", editable = "packages/voa_providers" },
 ]
 
@@ -1637,6 +1642,7 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "voa-agents" },
     { name = "voa-core" },
+    { name = "voa-knowledge" },
     { name = "voa-providers" },
 ]
 
@@ -1647,7 +1653,29 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38,<1" },
     { name = "voa-agents", editable = "packages/voa_agents" },
     { name = "voa-core", editable = "packages/voa_core" },
+    { name = "voa-knowledge", editable = "packages/voa_knowledge" },
     { name = "voa-providers", editable = "packages/voa_providers" },
+]
+
+[[package]]
+name = "voa-knowledge"
+version = "0.0.1"
+source = { editable = "packages/voa_knowledge" }
+dependencies = [
+    { name = "google-adk" },
+    { name = "google-auth" },
+    { name = "google-genai" },
+    { name = "httpx" },
+    { name = "voa-core" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "google-adk", specifier = ">=2.12,<3" },
+    { name = "google-auth", specifier = ">=2.40,<3" },
+    { name = "google-genai", specifier = ">=2.31,<3" },
+    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "voa-core", editable = "packages/voa_core" },
 ]
 
 [[package]]
@@ -1728,6 +1756,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "voa-agents" },
     { name = "voa-core" },
+    { name = "voa-knowledge" },
     { name = "voa-providers" },
 ]
 
@@ -1744,6 +1773,7 @@ dev = [
 requires-dist = [
     { name = "voa-agents", editable = "packages/voa_agents" },
     { name = "voa-core", editable = "packages/voa_core" },
+    { name = "voa-knowledge", editable = "packages/voa_knowledge" },
     { name = "voa-providers", editable = "packages/voa_providers" },
 ]
 

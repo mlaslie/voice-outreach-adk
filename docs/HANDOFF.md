@@ -360,3 +360,35 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - The first nurse-console load is slower, and so is the first knowledge-base match on a new instance (warmed at call start; see above).
   - For another demo, set the five `*_min_instances` back to 1 and apply.
 - **Still to restore:** the 24-hour text limit is still off (Admin → Messaging).
+
+## 20 Oct: knowledge base v2 (hybrid; replaces the step-1 matcher)
+
+**Design:** `docs/KNOWLEDGE-PLAN.md`. Contract: `docs/KNOWLEDGE-API.md`. Code: `packages/voa_knowledge`, a dedicated agent with its own prompts and evaluation set.
+
+**Request:** the user asked for three things:
+- an LLM classifier, with locked topics acknowledged as today;
+- answers grounded in example Q&A *plus* free-text guidelines that can be limited to a procedure or care setting;
+- a separate sub-agent, so changing it can't destabilise the call.
+
+**How the answer path is guarded:**
+- The keyword rules run first and can only veto. The LLM classifier only decides among the allowed topics.
+- Guidelines are filtered to the patient's procedure and care setting. The whole approved set goes into the prompt; there is no RAG at clinic scale.
+- The drafter must cite its sources or say "not covered".
+- Vertex check-grounding must reach `min_support` (0.85).
+- The output veto blocks any medication, dose or symptom wording in the answer.
+- There is a 4 s budget. Every failure defers.
+
+**Modes:**
+- **off:** the default.
+- **shadow:** after the report, a Cloud Task drafts an answer per question. Nurses rate the drafts in the drawer; patients hear nothing different.
+- **live:** voice only.
+- Off and shadow leave the voice instruction and tools byte-for-byte unchanged (golden tests).
+
+**New field:** `care_setting` (inpatient/outpatient) on call-list entries, CSV import and the ingest API.
+
+**IAM:** check-grounding needs `discoveryengine.groundingConfigs.check`. That permission is in `roles/discoveryengine.viewer`, not `.user`.
+
+**Known weakness: the output veto over-matches.**
+- It reuses the triage keyword stems: "number" matches *numb*, "discharge" is a symptom word, and "can I take" reads as medication.
+- Clinic wording that uses these words will defer, even when correct. Guideline text about a "dressing" or "incision" can never be answered.
+- This is safe, but it will cost coverage. Shadow-mode data will show how much, and a narrower output vocabulary is the fix if it matters.

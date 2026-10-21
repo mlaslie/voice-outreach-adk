@@ -1,6 +1,7 @@
-"""Knowledge base step 1: the category gate, the matcher rules, item lifecycle, PHI."""
+"""Knowledge v2 core: settings and their migration, item and guideline lifecycle,
+PHI, applicability, patient context, the shadow enqueue and the question record."""
 
-import asyncio
+from datetime import date
 
 import pytest
 from voa_core import knowledge as kb
@@ -29,150 +30,14 @@ PARKING = item("i-park", "Where do I park?", "The north garage.", "appointment")
 MEDS = item("i-meds", "How much Tylenol can I take?", "Ask a nurse.", "medication")
 SYMPTOM = item("i-wound", "Is my wound infected?", "Ask a nurse.", "symptom")
 ITEMS = [SHOWER, PARKING, MEDS, SYMPTOM]
-
-
-def always(item_id, confidence=1.0):
-    calls = []
-
-    async def matcher(question, candidates):
-        calls.append((question, [c.item_id for c in candidates]))
-        return kb.Match(item_id, confidence)
-
-    matcher.calls = calls
-    return matcher
-
-
-async def ask(question, *, items=ITEMS, settings=None, matcher=None, **kw):
-    return await kb.answer(
-        question,
-        items=items,
-        settings=settings if settings is not None else {},
-        matcher=matcher or always("i-shower"),
-        **kw,
-    )
-
-
-# --------------------------------------------------------------------------- the gate
-
-
-async def test_an_allowed_question_gets_the_clinics_exact_answer():
-    r = await ask("When can I shower?")
-    assert r.outcome == "answered" and r.reason == "matched"
-    assert r.answer == "Two days after surgery." and r.item_id == "i-shower"
-    assert r.item_version == 3 and r.confidence == 1.0 and r.category == "activity"
-
-
-@pytest.mark.parametrize(
-    "question",
-    ["How much Tylenol can I take?", "Can I take ibuprofen before I drive?", "Is my wound red?"],
-)
-async def test_medication_and_symptom_always_defer_even_if_settings_allow_them(question):
-    # Someone wrote the locked categories into settings/knowledge directly.
-    settings = {"allowed_categories": ["medication", "symptom", "other", "activity"]}
-    target = "i-meds" if "wound" not in question else "i-wound"
-    m = always(target)
-    r = await ask(question, settings=settings, matcher=m)
-    assert r.outcome == "deferred" and r.reason == "locked_category"
-    assert m.calls == []  # no model call
-
-
-async def test_other_defers_and_never_calls_the_matcher():
-    m = always("i-shower")
-    r = await ask(
-        "What about the thing we talked about?",
-        settings={"allowed_categories": ["other"]},
-        matcher=m,
-    )
-    assert (r.outcome, r.category, r.reason) == ("deferred", "other", "unclassified")
-    assert m.calls == []
-
-
-async def test_a_category_the_clinic_switched_off_defers():
-    r = await ask("When can I shower?", settings={"allowed_categories": ["appointment"]})
-    assert r.outcome == "deferred" and r.reason == "category_not_allowed"
-
-
-async def test_a_red_flag_defers_before_anything_else():
-    m = always("i-shower")
-    r = await ask("I have chest pain, can I shower?", matcher=m)
-    assert r.outcome == "deferred" and r.reason == "red_flag" and m.calls == []
-
-
-async def test_no_candidates_defers_without_a_model_call():
-    m = always("i-shower")
-    r = await ask("Where can I get a walker?", matcher=m)  # supplies: no item
-    assert r.reason == "no_approved_items" and m.calls == []
-
-
-# --------------------------------------------------------------------------- the matcher
-
-
-async def test_only_approved_items_in_the_category_are_candidates_and_answers_never_sent():
-    draft = item("i-draft", "Can I shower now?", "Draft text", "activity", status=kb.DRAFT)
-    retired = item("i-old", "Shower?", "Old text", "activity", status=kb.RETIRED)
-    seen = {}
-
-    async def matcher(question, candidates):
-        seen["ids"] = [c.item_id for c in candidates]
-        seen["text"] = repr(candidates)
-        return kb.Match("i-shower", 0.95)
-
-    r = await ask("When can I shower?", items=[*ITEMS, draft, retired], matcher=matcher)
-    assert r.outcome == "answered"
-    assert seen["ids"] == ["i-shower"]
-    assert "Two days" not in seen["text"]  # the matcher never sees an answer
-
-
-async def test_a_retired_or_draft_item_is_never_returned_even_if_the_matcher_names_it():
-    retired = item("i-old", "Shower?", "Old text", "activity", status=kb.RETIRED)
-    draft = item("i-draft", "Shower now?", "Draft", "activity", status=kb.DRAFT)
-    for target in ("i-old", "i-draft", "i-park", "made-up"):
-        r = await ask(
-            "When can I shower?", items=[SHOWER, PARKING, retired, draft], matcher=always(target)
-        )
-        assert r.outcome == "deferred" and r.reason == "no_match", target
-
-
-async def test_threshold():
-    r = await ask("When can I shower?", matcher=always("i-shower", 0.79))
-    assert r.outcome == "deferred" and r.reason == "low_confidence" and r.confidence == 0.79
-    r = await ask("When can I shower?", matcher=always("i-shower", 0.8))
-    assert r.outcome == "answered"
-    r = await ask(
-        "When can I shower?", settings={"min_match": 0.95}, matcher=always("i-shower", 0.9)
-    )
-    assert r.reason == "low_confidence"
-    r = await ask("When can I shower?", matcher=always(None, 0.99))
-    assert r.reason == "no_match"
-
-
-async def test_timeout_and_errors_defer():
-    async def slow(question, candidates):
-        await asyncio.sleep(1)
-        return kb.Match("i-shower", 1.0)
-
-    async def broken(question, candidates):
-        raise RuntimeError("model unavailable")
-
-    async def nonsense(question, candidates):
-        return kb.Match("i-shower", "very")  # type: ignore[arg-type]
-
-    r = await ask("When can I shower?", matcher=slow, timeout_s=0.05)
-    assert r.outcome == "deferred" and r.reason == "timeout"
-    assert (await ask("When can I shower?", matcher=broken)).reason == "error"
-    assert (await ask("When can I shower?", matcher=nonsense)).reason == "error"
-    assert (await ask("   ")).reason == "empty_question"
-
-
-def test_result_dict_shape():
-    r = kb.KnowledgeResult("deferred", "activity", "no_match", confidence=0.4)
-    assert r.to_dict() == {
-        "outcome": "deferred",
-        "category": "activity",
-        "category_label": "Activity",
-        "reason": "no_match",
-        "confidence": 0.4,
-    }
+GUIDE = {
+    "title": "Lifting after outpatient knee arthroscopy",
+    "body": "Lift nothing heavier than ten pounds for two weeks.",
+    "procedures": ["knee arthroscopy"],
+    "care_settings": ["outpatient"],
+    "status": "approved",
+    "version": 1,
+}
 
 
 # --------------------------------------------------------------------------- settings
@@ -181,8 +46,8 @@ def test_result_dict_shape():
 def test_settings_defaults_and_locked_categories_are_dropped():
     s = kb.normalize_settings(None)
     assert s == {
-        "enabled": False,
-        "channels": {"voice": True, "sms": True},
+        "mode": "off",
+        "channels": {"voice": True, "sms": False},
         "allowed_categories": [
             "appointment",
             "activity",
@@ -191,28 +56,49 @@ def test_settings_defaults_and_locked_categories_are_dropped():
             "supplies",
             "recovery",
         ],
-        "min_match": 0.8,
+        "min_support": 0.85,
         "ask_satisfied": True,
     }
     s = kb.normalize_settings(
-        {"allowed_categories": ["medication", "symptom", "other", "diet"], "min_match": 0.1}
+        {"allowed_categories": ["medication", "symptom", "other", "diet"], "min_support": 0.1}
     )
-    assert s["allowed_categories"] == ["diet"] and s["min_match"] == 0.5
+    assert s["allowed_categories"] == ["diet"] and s["min_support"] == 0.5
+    assert kb.normalize_settings({"min_support": 3})["min_support"] == 1.0
     assert not kb.applies(kb.normalize_settings(None), "voice")
-    on = kb.normalize_settings({"enabled": True, "channels": {"voice": False}})
-    assert not kb.applies(on, "voice") and kb.applies(on, "sms")
+
+
+def test_v1_settings_migrate_on_read():
+    on = kb.normalize_settings({"enabled": True, "min_match": 0.9, "channels": {"sms": True}})
+    assert on["mode"] == "live" and "enabled" not in on and "min_match" not in on
+    assert kb.normalize_settings({"enabled": False})["mode"] == "off"
+    # an explicit v2 mode wins over a leftover flag
+    assert kb.normalize_settings({"enabled": True, "mode": "shadow"})["mode"] == "shadow"
+    assert kb.normalize_settings({"mode": "loud"})["mode"] == "off"
+
+
+def test_mode_per_channel():
+    live = {"mode": "live", "channels": {"voice": True, "sms": False}}
+    assert kb.applies(live, "voice") and not kb.applies(live, "sms")
+    assert kb.mode_for(live, "sms") == "off"
+    shadow = {"mode": "shadow"}
+    assert kb.shadows(shadow, "voice") and not kb.applies(shadow, "voice")
+    assert not kb.shadows(shadow, "sms")  # sms is off by default
 
 
 async def test_settings_are_cached_and_forgotten():
     store = MemoryStore()
-    assert (await kb.load_settings(store))["enabled"] is False
+    assert (await kb.load_settings(store))["mode"] == "off"
     await store.set("settings", "knowledge", {"enabled": True})
-    assert (await kb.load_settings(store))["enabled"] is False  # cached
+    assert (await kb.load_settings(store))["mode"] == "off"  # cached
     kb.forget(store)
-    assert (await kb.load_settings(store))["enabled"] is True
+    assert (await kb.load_settings(store))["mode"] == "live"
     await store.set("knowledge_items", "a", {**SHOWER, "item_id": "a"})
     await store.set("knowledge_items", "b", {**PARKING, "item_id": "b", "status": "draft"})
-    assert [i["item_id"] for i in await kb.load_approved(store, fresh=True)] == ["a"]
+    await store.set("knowledge_documents", "d", {**GUIDE, "doc_id": "d"})
+    await store.set("knowledge_documents", "e", {**GUIDE, "status": "retired"})
+    snap = await kb.load_snapshot(store, fresh=True)
+    assert [i["item_id"] for i in snap.examples] == ["a"]
+    assert [d["doc_id"] for d in snap.guidelines] == ["d"]
 
 
 # --------------------------------------------------------------------------- lifecycle
@@ -364,19 +250,188 @@ def test_unsatisfied_or_deferred_questions_are_triaged_as_today():
     ]
 
 
-def test_check_topic_refuses_items_that_could_never_be_used():
+def test_example_wordings_that_read_as_medication_or_symptom_are_refused():
     from pathlib import Path
 
     import yaml
 
-    kb.check_topic("When can I shower?", "activity")
-    with pytest.raises(ValueError, match="reads as activity"):
-        kb.check_topic("When can I shower?", "diet")
-    with pytest.raises(ValueError, match="never answers"):
-        kb.check_topic("Can I take ibuprofen?", "activity")
-    with pytest.raises(ValueError, match="can't tell what topic"):
-        kb.check_topic("Where do I park?", "appointment")
+    for fields in (
+        {"question": "Can I take ibuprofen?"},
+        {"question": "When can I shower?", "alt_questions": ["Is my wound okay to wet?"]},
+    ):
+        with pytest.raises(ValueError, match="never answers"):
+            kb.clean_fields(fields)
+    # The category no longer has to match how the question is classified.
+    assert kb.clean_fields({"question": "Where do I park?", "category": "appointment"})
+    assert kb.clean_fields({"question": "When can I shower?", "category": "diet"})
     root = Path(__file__).resolve().parents[3]
     data = yaml.safe_load((root / "config/knowledge/sample_items.yaml").read_text())
-    for it in data.get("items", data) if isinstance(data, dict) else data:
-        kb.check_topic(it["question"], it["category"])
+    for it in data["items"]:
+        kb.clean_fields(it)
+
+
+# --------------------------------------------------------------------------- guidelines
+
+
+def test_guideline_fields_and_limits():
+    f = kb.clean_document_fields(
+        {
+            "title": "  Lifting  after knee surgery ",
+            "body": "Line one.\n\n  Line   two.",
+            "procedures": ["Knee arthroscopy", "knee ARTHROSCOPY", " "],
+            "care_settings": ["outpatient", "inpatient"],
+        }
+    )
+    assert f == {
+        "title": "Lifting after knee surgery",
+        "body": "Line one.\n\nLine two.",
+        "procedures": ["Knee arthroscopy"],
+        "care_settings": ["inpatient", "outpatient"],
+    }
+    for bad, msg in (
+        ({"title": "x" * 121}, "at most 120"),
+        ({"title": " "}, "required"),
+        ({"body": "x" * 20_001}, "at most 20,000"),
+        ({"procedures": ["p"] * 21}, "At most 20"),
+        ({"procedures": ["p" * 121]}, "at most 120"),
+        ({"care_settings": ["home"]}, "Care settings"),
+    ):
+        with pytest.raises(ValueError, match=msg):
+            kb.clean_document_fields(bad)
+    for phi in ("Call 202-555-0143", "MRN 1234567", "jordan@example.org", "Born 03/15/1950"):
+        with pytest.raises(kb.PhiError):
+            kb.clean_document_fields({"body": phi})
+        with pytest.raises(kb.PhiError):
+            kb.clean_document_fields({"procedures": [phi]})
+
+
+@pytest.mark.parametrize(
+    ("procedures", "settings", "procedure", "setting", "applies"),
+    [
+        ([], [], None, None, True),  # applies to everyone
+        (["knee arthroscopy"], [], "Left Knee Arthroscopy", None, True),
+        (["Total knee replacement"], [], "knee replacement", None, True),  # substring either way
+        (["knee arthroscopy"], [], "hip replacement", None, False),
+        (["knee arthroscopy"], [], None, None, False),  # unknown procedure
+        ([], ["outpatient"], "anything", "outpatient", True),
+        ([], ["outpatient"], "anything", "inpatient", False),
+        ([], ["outpatient"], "anything", None, False),  # unknown setting
+        (["hip", "knee"], ["inpatient"], "KNEE scope", "inpatient", True),
+    ],
+)
+def test_guideline_applicability(procedures, settings, procedure, setting, applies):
+    doc = {"procedures": procedures, "care_settings": settings}
+    assert kb.document_applies(doc, procedure=procedure, care_setting=setting) is applies
+
+
+def test_guideline_lifecycle_and_shape():
+    f = kb.clean_document_fields({"title": "Driving", "body": "Wait six weeks."})
+    doc = kb.new_document("d1", f, by="a@example.org", at=AT)
+    pub = kb.public_document(doc)
+    assert set(pub) == set(kb.DOCUMENT_KEYS) and pub["chars"] == 15 and pub["version"] == 1
+    ok = kb.approve_item(doc, by="dr@example.org", at=LATER)
+    assert kb.edit_document(ok, {"title": "Driving"}, by="x", at=LATER) is None
+    v2 = kb.edit_document(ok, {"care_settings": ["inpatient"]}, by="x", at=LATER)
+    assert v2["version"] == 2 and v2["status"] == "draft" and v2["approved_by"] is None
+
+
+# --------------------------------------------------------------------------- patient context
+
+
+def test_patient_context_never_holds_identifiers():
+    patient = {
+        "first_name": "Jordan",
+        "last_name": "Rivera",
+        "patient_name": "Jordan Rivera",
+        "patient_id": "A1234567",
+        "dob": "1950-03-15",
+        "phone": "+12025550143",
+        "operation_name": "  Total knee  replacement ",
+        "operation_date": "2026-10-16",
+        "is_diabetic": True,
+        "care_setting": "outpatient",
+    }
+    ctx = kb.patient_context(patient, today=date(2026, 10, 20))
+    assert ctx == {
+        "procedure": "Total knee replacement",
+        "days_since_surgery": 4,
+        "care_setting": "outpatient",
+        "is_diabetic": True,
+    }
+    assert (
+        kb.patient_context(
+            {"operation_date": "soon", "care_setting": "home"}, today=date(2026, 1, 1)
+        )
+        == {}
+    )
+    assert kb.patient_context({"operation_date": "2027-01-01"}, today=date(2026, 1, 1)) == {}
+
+
+# --------------------------------------------------------------------------- shadow enqueue
+
+
+async def test_shadow_is_enqueued_only_in_shadow_mode_with_questions():
+    from voa_core.tasks import MemoryTaskQueue
+
+    store, tasks = MemoryStore(), MemoryTaskQueue()
+    survey_ = {"patient_questions": [pq.record("When can I shower?")]}
+    go = lambda **kw: kb.enqueue_shadow(  # noqa: E731
+        store, tasks, "voa-events", call_id="CA1", survey=survey_, channel="voice", **kw
+    )
+    assert not await go()  # off
+    await store.set("settings", "knowledge", {"mode": "live"})
+    kb.forget(store)
+    assert not await go()  # live: answered during the call instead
+    await store.set("settings", "knowledge", {"mode": "shadow"})
+    kb.forget(store)
+    assert await go(report_id="r1")
+    assert not await go(report_id="r1")  # the named task de-duplicates
+    assert tasks.tasks == [
+        {
+            "queue": "voa-events",
+            "path": "/tasks/knowledge-shadow",
+            "payload": {"call_id": "CA1"},
+            "name": "kshadow-CA1-r1",
+            "delay_s": 0,
+        }
+    ]
+    assert not await kb.enqueue_shadow(
+        store, tasks, "q", call_id="CA1", survey=survey_, channel="sms"
+    )  # sms is off by default
+    assert not await kb.enqueue_shadow(
+        store, tasks, "q", call_id="CA1", survey={"patient_questions": []}, channel="voice"
+    )
+
+
+def test_valid_entry_accepts_v2_answers_shadow_and_review():
+    base = pq.record("Can I lift my grandkid?")
+    src = [{"kind": "guideline", "id": "d1", "title": "Lifting", "version": 2}]
+    live = {
+        **base,
+        "outcome": "answered",
+        "answer": "Not yet.",
+        "sources": src,
+        "support_score": 0.91,
+        "satisfied": None,
+    }
+    assert pq.valid_entry(live)
+    shadow = {
+        "outcome": "deferred",
+        "reason": "not_covered",
+        "answer": None,
+        "sources": [],
+        "support_score": None,
+        "at": AT,
+    }
+    review = {"verdict": "good", "note": None, "by": "rn@example.org", "at": AT}
+    assert pq.valid_entry({**base, "shadow": shadow, "shadow_review": review})
+    for bad in (
+        {"sources": [{"kind": "web", "id": "x"}]},
+        {"sources": "d1"},
+        {"support_score": 1.5},
+        {"support_score": True},
+        {"shadow": {"outcome": "maybe", "reason": "x"}},
+        {"shadow_review": {"verdict": "great"}},
+        {"shadow_review": {"verdict": "good", "note": "x" * 301}},
+    ):
+        assert not pq.valid_entry({**live, **bad}), bad

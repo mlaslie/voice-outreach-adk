@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { BULK_LIMIT, CsvError, EXAMPLE_CSV, importInChunks, parseCallListCsv, previewCallListCsv } from "./call-list-csv";
+import {
+  BULK_LIMIT, CsvError, EXAMPLE_CSV, importInChunks, parseCallListCsv, parseCareSetting, previewCallListCsv,
+} from "./call-list-csv";
 
 const HEADER = "phone,patient_name,patient_id,patient_dob,operation_name,operation_date,is_diabetic";
 const ROW = "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false";
@@ -11,6 +13,7 @@ describe("parseCallListCsv", () => {
     expect(rows[2].patient_name).toBe("Ruiz, Maria"); // quoted comma survives
     expect(rows[1].is_diabetic).toBe(true);
     expect(rows[0].is_diabetic).toBe(false);
+    expect(rows.map((r) => r.care_setting)).toEqual(["inpatient", "inpatient", "outpatient"]);
   });
 
   it("accepts CRLF line endings", () => {
@@ -177,5 +180,37 @@ describe("importInChunks", () => {
     expect(r.added).toBe(3);
     expect(r.rejected).toEqual([{ count: 2, reason: "Call list is full" }]);
     expect(progress).toEqual([2, 4, 5]);
+  });
+});
+
+describe("care_setting", () => {
+  it("accepts inpatient, outpatient, in, out and blank, in any case", () => {
+    expect(parseCareSetting("inpatient")).toBe("inpatient");
+    expect(parseCareSetting(" IN ")).toBe("inpatient");
+    expect(parseCareSetting("Outpatient")).toBe("outpatient");
+    expect(parseCareSetting("out")).toBe("outpatient");
+    expect(parseCareSetting("")).toBeNull();
+    expect(parseCareSetting("  ")).toBeNull();
+    expect(parseCareSetting(undefined)).toBeNull();
+    expect(parseCareSetting("day surgery")).toBeUndefined();
+    expect(parseCareSetting("i")).toBeUndefined();
+  });
+
+  it("sends the column only when given, and rejects other values on the row", () => {
+    const H = `${HEADER},care_setting`;
+    const p = previewCallListCsv([
+      H,
+      `${ROW},OUT`,
+      "+12025550145,John Smith,P-1002,1962-11-04,Hip arthroplasty,2026-07-24,true,",
+      "+12025550146,Ann Lee,P-1003,1962-11-04,Hip arthroplasty,2026-07-24,true,home",
+    ].join("\n"));
+    expect(p.rows[0].entry?.care_setting).toBe("outpatient");
+    expect(p.rows[1].entry).not.toHaveProperty("care_setting");
+    expect(p.rows[2].entry).toBeNull();
+    expect(p.rows[2].errors.join(" ")).toMatch(/care_setting must be inpatient, outpatient, in, out or blank \(got "home"\)/);
+  });
+
+  it("is optional: a file without the column imports as before", () => {
+    expect(parseCallListCsv(`${HEADER}\n${ROW}`)[0]).not.toHaveProperty("care_setting");
   });
 });

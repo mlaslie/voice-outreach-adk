@@ -39,3 +39,47 @@ def test_finish_after_delete_writes_nothing():
     )
     for coll in ("calls", "transcripts", "call_events"):
         assert asyncio.run(store.get(coll, cid)) is None
+
+
+def _report():
+    from voa_core import patient_questions as pq
+
+    return {
+        "outcome": "reschedule_requested",
+        "follow_up": "routine_next_business_day",
+        "follow_up_reason": "question asked (activity)",
+        "survey_responses": {
+            "has_questions": "yes",
+            "patient_questions": [pq.record("When can I shower?")],
+        },
+    }
+
+
+def test_a_report_filed_in_shadow_mode_queues_the_knowledge_shadow_task():
+    from voa_core import knowledge as kb
+    from voa_core.tasks import MemoryTaskQueue
+
+    async def go(mode):
+        store, tasks = MemoryStore(), MemoryTaskQueue()
+        cid = "browser_" + "c" * 16
+        await store.set("calls", cid, {"call_sid": cid})
+        await store.set("settings", "knowledge", {"mode": mode})
+        kb.forget(store)
+        sink = StoreCallSink(
+            store,
+            recordings_bucket=None,
+            project_id="p",
+            call_id_pattern=CALL_ID_RE,
+            tasks=tasks,
+            events_queue="voa-events",
+        )
+        await sink.save_report(cid, _report())
+        return cid, tasks.tasks
+
+    cid, queued = asyncio.run(go("shadow"))
+    assert [(t["queue"], t["path"], t["payload"]) for t in queued] == [
+        ("voa-events", "/tasks/knowledge-shadow", {"call_id": cid})
+    ]
+    assert queued[0]["name"].startswith(f"kshadow-{cid}-")
+    for mode in ("off", "live"):
+        assert asyncio.run(go(mode))[1] == []

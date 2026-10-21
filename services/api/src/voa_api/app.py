@@ -48,6 +48,7 @@ def create_app(cfg: AppConfig | None = None, api: Api | None = None) -> FastAPI:
     app.include_router(routes_tasks.router)
     app.include_router(routes_branding.router)
     app.include_router(routes_knowledge.router)
+    app.include_router(routes_knowledge.calls_router)
     from . import routes_ingest
 
     app.include_router(routes_ingest.router)

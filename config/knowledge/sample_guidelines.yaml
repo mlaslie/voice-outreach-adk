@@ -1,0 +1,52 @@
+# Fictional starter guidelines for the knowledge agent (docs/KNOWLEDGE-PLAN.md v2).
+#
+# NOT clinical guidance: placeholder wording for demos and tests only. A clinic
+# replaces every guideline with its own, and a named clinician approves each one
+# in Admin -> Knowledge base before the agent can use it.
+#
+# Used by:
+#   scripts/seed_knowledge.py <env>   loads these as DRAFTS through the admin API
+#   packages/voa_knowledge/tests/test_knowledge_eval.py   approved, against eval_questions.yaml
+#   scripts/eval_knowledge.py         the live-model evaluation
+#
+# `key` names a guideline for the eval set only; it is not stored.
+# `procedures` and `care_settings` say who it applies to (empty: everyone).
+# Wording avoids medication and symptom words on purpose: the agent's output veto
+# refuses any answer that contains them.
+guidelines:
+  - key: lifting_knee_scope
+    title: Lifting after outpatient knee arthroscopy
+    procedures: [knee arthroscopy]
+    care_settings: [outpatient]
+    body: |-
+      For the first two weeks after outpatient knee arthroscopy, lift nothing heavier than ten pounds. Ten pounds is about the weight of a full gallon of milk.
+      This includes picking up children and grandchildren.
+      After two weeks you can slowly go back to lifting more, as your surgeon advises at your follow-up visit.
+
+  - key: driving_hip
+    title: Driving after hip replacement
+    procedures: [hip replacement]
+    care_settings: []
+    body: |-
+      Do not drive for at least six weeks after a hip replacement.
+      Before you drive again you should be able to get in and out of the car easily and brake hard and quickly.
+      Your surgeon will confirm when you can drive at your six-week visit.
+
+  - key: shower_cover
+    title: Showering with a waterproof cover
+    procedures: []
+    care_settings: []
+    body: |-
+      If you went home with a waterproof cover over the surgery site, you can shower from the day after surgery.
+      Keep the cover on, let the water run over it, and pat it dry afterwards.
+      Do not take a bath, use a hot tub or go swimming until your surgeon says it is okay.
+
+  - key: return_to_work
+    title: Returning to work by procedure
+    procedures: []
+    care_settings: []
+    body: |-
+      Knee arthroscopy: most people with a desk job go back after about one week. A physical job takes four to six weeks.
+      Total knee replacement: a desk job after about six weeks. A physical job after about three months.
+      Hip replacement: a desk job after four to six weeks. A physical job after about three months.
+      Your surgeon will confirm your own return date at your follow-up visit.

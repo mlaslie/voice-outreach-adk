@@ -92,6 +92,8 @@ class Gateway:
             recordings_bucket=cfg.services.recordings_bucket or None,
             project_id=cfg.gcp.project_id,
             call_id_pattern=CALL_ID_RE,
+            tasks=self.tasks,
+            events_queue=cfg.services.queue_events,
         )
         self.runner = Runner(
             app_name="voa_voice",

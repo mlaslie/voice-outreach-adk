@@ -45,12 +45,20 @@ class Api:
     store: DocStore
     tasks: TaskQueue
     voice: Any = None  # VoiceProvider; None = telephony not configured
-    # Knowledge-base matcher (voa_core.knowledge.Matcher); None = Gemini, built on first use.
-    knowledge_matcher: Any = None
+    # The knowledge agent (voa_knowledge.KnowledgeAgent); None = built from the
+    # config on first use (Gemini + Vertex grounding). Tests inject fakes.
+    knowledge_agent: Any = None
     clock: Any = field(default=lambda: datetime.now(UTC))
 
     def now(self) -> datetime:
         return self.clock()
+
+    def get_knowledge_agent(self) -> Any:
+        if self.knowledge_agent is None:
+            from voa_knowledge import KnowledgeAgent
+
+            self.knowledge_agent = KnowledgeAgent.from_config(self.cfg)
+        return self.knowledge_agent
 
     @classmethod
     def build(cls, cfg: AppConfig) -> Api:

@@ -10,6 +10,11 @@ describe("describeAction", () => {
     ["POST /api/sms/control", "Switched the shared SMS number"],
     ["DELETE /api/sms/callbacks/{callback_id}", "Cancelled a booked callback"],
     ["POST /api/calls/batch-delete", "Deleted calls"],
+    ["POST /api/admin/knowledge/documents", "Added a guideline"],
+    ["PATCH /api/admin/knowledge/documents/{doc_id}", "Edited a guideline"],
+    ["POST /api/admin/knowledge/documents/{doc_id}/approve", "Approved a guideline"],
+    ["POST /api/admin/knowledge/documents/{doc_id}/retire", "Retired a guideline"],
+    ["DELETE /api/admin/knowledge/documents/{doc_id}", "Deleted a guideline"],
   ])("%s reads as %s", (action, words) => {
     expect(describeAction(action)).toBe(words);
   });
@@ -28,6 +33,7 @@ describe("describeTarget", () => {
   it("names each path parameter", () => {
     expect(describeTarget({ phone: "+1•••••0123" })).toBe("Number +1•••••0123");
     expect(describeTarget({ run_id: "abc", entry_id: "e1" })).toBe("Run abc · Patient record e1");
+    expect(describeTarget({ doc_id: "kg_knee" })).toBe("Guideline kg_knee");
   });
 
   it("keeps an unknown key as it is", () => {

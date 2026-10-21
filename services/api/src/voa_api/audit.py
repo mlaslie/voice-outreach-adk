@@ -22,8 +22,14 @@ log = logging.getLogger(__name__)
 
 COLLECTION = "audit_log"
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-#: Clinical writes that are also worth an audit line (data removal).
-EXTRA = frozenset({"POST /api/calls/batch-delete"})
+#: Clinical writes that are also worth an audit line.
+EXTRA = frozenset(
+    {
+        "POST /api/calls/batch-delete",
+        # A nurse's rating of the knowledge agent's shadow draft (evaluation data).
+        "POST /api/calls/{call_id}/questions/{index}/shadow-review",
+    }
+)
 #: POSTs that change nothing (Admin → Knowledge base "Try it").
 READ_ONLY = frozenset({"POST /api/admin/knowledge/try"})
 

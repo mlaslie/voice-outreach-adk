@@ -285,3 +285,43 @@ def test_detail_card_shows_questions_answered_from_the_clinics_qa():
     qs = triage.patient_questions(_with(patient_questions=[answered, plain]))
     assert qs[0]["item_version"] == 3 and qs[0]["satisfied"] is True
     assert "item_version" not in qs[1]
+
+
+def test_detail_card_shows_v2_answers_and_the_shadow_draft_briefly():
+    src = [{"kind": "guideline", "id": "d1", "title": "Lifting", "version": 2}]
+    live = {
+        "text": "Can I lift my grandkid?",
+        "category": "activity",
+        "priority": "routine_next_business_day",
+        "outcome": "answered",
+        "answer": "Not yet: nothing over ten pounds for two weeks.",
+        "sources": src,
+        "support_score": 0.92,
+        "satisfied": None,
+    }
+    shadowed = {
+        "text": "When can I shower?",
+        "category": "activity",
+        "priority": "routine_next_business_day",
+        "shadow": {
+            "outcome": "answered",
+            "reason": "answered",
+            "answer": "You can usually shower two days after surgery. " + "x" * 300,
+            "sources": src,
+            "support_score": 0.9,
+            "at": "2026-10-20T10:00:00+00:00",
+        },
+    }
+    deferred_shadow = {
+        **shadowed,
+        "text": "Where do I park?",
+        "shadow": {**shadowed["shadow"], "outcome": "deferred", "answer": None},
+    }
+    card = cards.call_detail_card(_with(patient_questions=[live, shadowed, deferred_shadow]))
+    check(card)
+    text = card.as_text()
+    assert "Answered by the agent from the clinic's approved material" in text
+    assert "Agent's draft answer (not said): You can usually shower two days" in text
+    assert text.count("Agent's draft answer") == 1  # a deferred draft has no line
+    line = cards.shadow_line(triage.patient_questions(_with(patient_questions=[shadowed]))[0])
+    assert len(line) <= len("Agent's draft answer (not said): ") + cards.SHADOW_MAX

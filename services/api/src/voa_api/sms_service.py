@@ -1127,6 +1127,20 @@ async def submit_survey(api: Api, snap: dict) -> dict:
                 # The report settled the call; settle its call-list entry too, or
                 # the next run would ring a patient who already answered by text.
                 await api.store.transact(CALL_LIST, entry_id, settle)
+            if call:
+                # Shadow mode (docs/KNOWLEDGE-PLAN.md): what the knowledge agent
+                # would have said to each question, drafted in the background.
+                from voa_core import knowledge
+
+                await knowledge.enqueue_shadow(
+                    api.store,
+                    api.tasks,
+                    api.cfg.services.queue_events,
+                    call_id=call_id,
+                    survey=clean.get("survey_responses"),
+                    channel="sms",
+                    report_id=report_id,
+                )
         follow_up = clean["follow_up"]
         await api.store.merge(
             FILINGS,
@@ -1221,6 +1235,8 @@ async def _patient_context(api: Api, call: dict) -> dict:
             if entry.get("patient_dob"):
                 ctx["patient_dob"] = entry["patient_dob"]
             ctx.setdefault("is_diabetic", entry.get("is_diabetic", False))
+            if entry.get("care_setting"):
+                ctx.setdefault("care_setting", entry["care_setting"])
     return ctx
 
 
@@ -1443,6 +1459,7 @@ async def _place(api: Api, phone: str, ctx: dict, *, placed_via: str, entry_id: 
                 "operation_name": ctx.get("operation_name") or None,
                 "operation_date": ctx.get("operation_date") or None,
                 "is_diabetic": ctx.get("is_diabetic", False),
+                "care_setting": ctx.get("care_setting") or None,
             }
         )
     except ValidationError:

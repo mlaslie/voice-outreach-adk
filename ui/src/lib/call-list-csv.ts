@@ -1,4 +1,4 @@
-import { CallListEntryInput } from "./types";
+import { CallListEntryInput, CareSetting } from "./types";
 
 /** Column order of the example CSV — also the canonical header set. */
 export const CSV_COLUMNS = [
@@ -9,15 +9,16 @@ export const CSV_COLUMNS = [
   "operation_name",
   "operation_date",
   "is_diabetic",
+  "care_setting",
 ] as const;
 
 const REQUIRED = ["phone", "patient_name", "patient_id", "patient_dob"] as const;
 
 export const EXAMPLE_CSV = [
   CSV_COLUMNS.join(","),
-  "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false",
-  "+12025550145,John Smith,P-1002,1962-11-04,Hip arthroplasty,2026-07-24,true",
-  '+12025550111,"Ruiz, Maria",P-1003,1978-06-30,Rotator cuff repair,2026-07-25,false',
+  "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false,inpatient",
+  "+12025550145,John Smith,P-1002,1962-11-04,Hip arthroplasty,2026-07-24,true,inpatient",
+  '+12025550111,"Ruiz, Maria",P-1003,1978-06-30,Rotator cuff repair,2026-07-25,false,outpatient',
 ].join("\n");
 
 export class CsvError extends Error {}
@@ -78,6 +79,19 @@ function parseCsvRows(text: string): string[][] {
   }
   if (cur !== "" || sawField || row.length) endRow();
   return rows;
+}
+
+/**
+ * The optional care_setting column: inpatient / outpatient, "in" / "out",
+ * any case; blank means not given (null). Anything else is `undefined`, an
+ * error on that row.
+ */
+export function parseCareSetting(v: string | null | undefined): CareSetting | null | undefined {
+  const k = (v ?? "").trim().toLowerCase();
+  if (!k) return null;
+  if (k === "inpatient" || k === "in") return "inpatient";
+  if (k === "outpatient" || k === "out") return "outpatient";
+  return undefined;
 }
 
 function parseBool(v: string): boolean {
@@ -198,6 +212,10 @@ export function previewCallListCsv(text: string, existingPatientIds: Iterable<st
     if (opDate && !isRealDate(opDate)) {
       errors.push(`operation_date must be a real YYYY-MM-DD date (got "${opDate}").`);
     }
+    const careSetting = parseCareSetting(get("care_setting"));
+    if (careSetting === undefined) {
+      errors.push(`care_setting must be inpatient, outpatient, in, out or blank (got "${get("care_setting")}").`);
+    }
 
     out.push({
       row: rowNo,
@@ -213,6 +231,7 @@ export function previewCallListCsv(text: string, existingPatientIds: Iterable<st
             operation_name: get("operation_name") || undefined,
             operation_date: opDate || undefined,
             is_diabetic: parseBool(get("is_diabetic")),
+            ...(careSetting ? { care_setting: careSetting } : {}),
           },
     });
   }

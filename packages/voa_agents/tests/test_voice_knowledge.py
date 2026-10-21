@@ -1,4 +1,5 @@
-"""Knowledge base on the voice agent: off = exactly today's agent; on = the Q&A tools."""
+"""The knowledge agent on the voice agent: off and shadow = exactly today's agent;
+live = the knowledge tools, backed by voa_knowledge.KnowledgeAgent (fakes here)."""
 
 import json
 from pathlib import Path
@@ -12,11 +13,21 @@ from voa_core import knowledge as kb
 from voa_core.campaign import load_campaign
 from voa_core.config import load_config
 from voa_core.store import MemoryStore
+from voa_knowledge.testing import FixedClassifier, FixedGrounder, offline_agent
 
 GOLDEN = Path(__file__).parent / "golden"
 PATIENT = {"first_name": "Jordan", "last_name": "Rivera", "is_diabetic": False}
 KNOWLEDGE_WORDS = ("answer_from_knowledge", "record_answer_feedback", "Here's what the clinic says")
 
+GUIDE = {
+    "doc_id": "d-1",
+    "title": "Lifting after outpatient knee arthroscopy",
+    "body": "Lift nothing heavier than ten pounds for two weeks.",
+    "procedures": ["knee arthroscopy"],
+    "care_settings": ["outpatient"],
+    "status": "approved",
+    "version": 2,
+}
 SHOWER = {
     "item_id": "i-001",
     "question": "When can I shower?",
@@ -95,35 +106,77 @@ async def test_the_agent_exposes_the_knowledge_tools_only_when_switched_on():
     assert [t.name for t in on][-2:] == ["answer_from_knowledge", "record_answer_feedback"]
 
 
-async def test_prepare_is_off_by_default_and_on_when_enabled_for_voice():
+async def test_prepare_is_off_by_default_and_in_shadow_and_on_only_when_live():
     store = MemoryStore()
-    assert await vk.prepare(store, cfg(), matcher=kb.keyword_matcher) == (None, None)
-    await store.set("settings", "knowledge", {"enabled": True, "channels": {"voice": False}})
-    kb.forget(store)
-    assert await vk.prepare(store, cfg(), matcher=kb.keyword_matcher) == (None, None)
-    await store.set("settings", "knowledge", {"enabled": True, "ask_satisfied": False})
+    agent = offline_agent()
+    assert await vk.prepare(store, cfg(), agent=agent) == (None, None)
+    for doc in (
+        {"mode": "shadow"},  # shadow: the call is exactly as today
+        {"mode": "live", "channels": {"voice": False}},
+        {"enabled": False},  # a v1 document
+    ):
+        await store.set("settings", "knowledge", doc)
+        kb.forget(store)
+        assert await vk.prepare(store, cfg(), agent=agent) == (None, None), doc
+    await store.set("settings", "knowledge", {"mode": "live", "ask_satisfied": False})
     await store.set("knowledge_items", "i-001", SHOWER)
+    await store.set("knowledge_documents", "d-1", GUIDE)
     kb.forget(store)
-    flag, rt = await vk.prepare(store, cfg(), matcher=kb.keyword_matcher)
+    flag, rt = await vk.prepare(store, cfg(), agent=agent)
     assert flag == {"ask_satisfied": False} and [i["item_id"] for i in rt.items] == ["i-001"]
+    assert [d["doc_id"] for d in rt.snapshot.guidelines] == ["d-1"] and rt.agent is agent
+    # a v1 "enabled: true" reads as live
+    await store.set("settings", "knowledge", {"enabled": True})
+    kb.forget(store)
+    assert (await vk.prepare(store, cfg(), agent=agent))[0] == {"ask_satisfied": True}
 
 
 # --------------------------------------------------------------------------- on: the tools
 
 
+PATIENT_STATE = {
+    "first_name": "Jordan",
+    "last_name": "Rivera",
+    "patient_id": "A1234567",
+    "dob": "1950-03-15",
+    "operation_name": "Knee arthroscopy",
+    "operation_date": "2026-10-16",
+    "care_setting": "outpatient",
+    "is_diabetic": False,
+}
+
+
 def ctx(session_id="s-1", **state):
     return SimpleNamespace(
-        state={"patient": {"dob": "1950-03-15"}, "answers": {}, **state},
+        state={"patient": dict(PATIENT_STATE), "answers": {}, **state},
         session=SimpleNamespace(id=session_id),
     )
 
 
-def on(session_id="s-1", matcher=kb.keyword_matcher):
-    vk.register(session_id, vk.KnowledgeRuntime([SHOWER], kb.normalize_settings({}), matcher))
+class Spy:
+    """Wraps an agent and records what it was asked with."""
+
+    def __init__(self, agent):
+        self.agent, self.calls = agent, []
+
+    async def answer(self, question, context=None, **kw):
+        self.calls.append((question, dict(context or {})))
+        return await self.agent.answer(question, context, **kw)
 
 
-async def test_an_answered_question_is_recorded_with_its_source():
-    on()
+def on(session_id="s-1", agent=None, snapshot=None):
+    rt = vk.KnowledgeRuntime(
+        snapshot or kb.KnowledgeSnapshot(examples=[SHOWER], guidelines=[GUIDE]),
+        kb.normalize_settings({"mode": "live"}),
+        agent or offline_agent(),
+    )
+    vk.register(session_id, rt)
+    return rt
+
+
+async def test_an_answered_question_is_recorded_with_its_sources_and_score():
+    spy = Spy(offline_agent(grounder=FixedGrounder(0.92)))
+    on(agent=spy)
     c = ctx()
     try:
         r = await vk.answer_from_knowledge("when can I shower", c)
@@ -135,11 +188,52 @@ async def test_an_answered_question_is_recorded_with_its_source():
         "source": "the clinic's answer",
     }
     (q,) = c.state["answers"]["patient_questions"]
-    assert q["outcome"] == "answered" and q["item_id"] == "i-001" and q["item_version"] == 2
-    assert q["answer"] == SHOWER["answer"] and q["satisfied"] is None
+    assert q["outcome"] == "answered" and q["answer"] == SHOWER["answer"]
+    assert q["sources"] == [
+        {"kind": "example", "id": "i-001", "title": "When can I shower?", "version": 2}
+    ]
+    assert q["support_score"] == 0.92 and q["satisfied"] is None
     assert c.state["answers"]["has_questions"] == "yes"
     audit = c.state["tool_audit"][-1]
     assert audit["outcome"] == "answered" and "shower" not in json.dumps(audit)
+    # The agent got the patient context, never an identifier.
+    ((question, context),) = spy.calls
+    assert question == "when can I shower"
+    assert set(context) == {"procedure", "days_since_surgery", "care_setting", "is_diabetic"}
+    assert context["procedure"] == "Knee arthroscopy" and context["care_setting"] == "outpatient"
+    assert "Jordan" not in json.dumps(context) and "1950" not in json.dumps(context)
+
+
+async def test_a_question_deferred_by_the_llm_is_triaged_at_its_stricter_priority():
+    # The keywords call it recovery (next day); the LLM says symptom: immediate.
+    on(agent=offline_agent(classifier=FixedClassifier("symptom")))
+    c = ctx()
+    try:
+        r = await vk.answer_from_knowledge("is it normal to feel this tired", c)
+    finally:
+        vk.unregister("s-1")
+    assert r == {"outcome": "deferred"}
+    (q,) = c.state["answers"]["patient_questions"]
+    assert (q["category"], q["priority"], q["outcome"]) == (
+        "symptom",
+        "urgent_same_day",
+        "deferred",
+    )
+
+
+async def test_an_agent_that_raises_defers():
+    class Broken:
+        async def answer(self, *a, **kw):
+            raise RuntimeError("down")
+
+    on(agent=Broken())
+    c = ctx()
+    try:
+        r = await vk.answer_from_knowledge("when can I shower", c)
+    finally:
+        vk.unregister("s-1")
+    assert r == {"outcome": "deferred"}
+    assert c.state["answers"]["patient_questions"][0]["outcome"] == "deferred"
 
 
 async def test_a_medication_question_is_deferred_and_recorded():
@@ -212,7 +306,9 @@ async def test_no_to_did_that_answer_it_becomes_a_nurse_follow_up():
         vk.unregister("s-1")
     assert "follow up" in fb["say"]
     (q,) = c.state["answers"]["patient_questions"]
-    assert q["outcome"] == "deferred" and q["satisfied"] is False and q["item_version"] == 2
+    assert (
+        q["outcome"] == "deferred" and q["satisfied"] is False and q["sources"][0]["version"] == 2
+    )
     assert c.state["report"]["follow_up"] == "routine_next_business_day"
     assert "question asked (activity)" in c.state["report"]["follow_up_reason"]
     assert "care team will follow up" in r["closing"]
@@ -225,12 +321,8 @@ def test_knowledge_tools_are_blocking():
     assert all(t.behavior == types.Behavior.BLOCKING for t in vk.build_knowledge_tools())
 
 
-async def test_prepare_warms_the_matcher_in_the_background():
+async def test_prepare_warms_the_agent_in_the_background():
     import asyncio
-
-    from voa_agents.voice import knowledge as vk
-    from voa_core import knowledge as kb
-    from voa_core.store import MemoryStore
 
     class Warmable:
         warmed = 0
@@ -238,13 +330,13 @@ async def test_prepare_warms_the_matcher_in_the_background():
         async def warm(self):
             Warmable.warmed += 1
 
-        async def __call__(self, question, candidates):
-            return kb.Match(item_id=None, confidence=0.0)
+        async def answer(self, *a, **kw):  # pragma: no cover - not called
+            raise AssertionError
 
     store = MemoryStore()
-    await store.set("settings", "knowledge", {"enabled": True})
+    await store.set("settings", "knowledge", {"mode": "live"})
     kb.forget(store)
-    state, runtime = await vk.prepare(store, cfg=None, matcher=Warmable())
+    state, runtime = await vk.prepare(store, cfg=None, agent=Warmable())
     assert state is not None and runtime is not None
     await asyncio.sleep(0)
     assert Warmable.warmed == 1

@@ -204,8 +204,9 @@ class CallSession:
                 if store is not None
                 else self.cfg.site.org_name
             )
-            # Knowledge base (docs/KNOWLEDGE-PLAN.md): off unless an admin switched it
-            # on for voice; read once per call through a 60 s cache, like org_name.
+            # Knowledge agent (docs/KNOWLEDGE-PLAN.md): only in live mode for voice
+            # (off and shadow leave the agent exactly as before); read once per
+            # call through a 60 s cache, like org_name.
             kn_state, kn_runtime = (
                 await voice_knowledge.prepare(store, self.cfg)
                 if store is not None
@@ -228,7 +229,11 @@ class CallSession:
             self.facts = call_facts.register(session.id)
             if kn_runtime is not None:
                 voice_knowledge.register(session.id, kn_runtime)
-                self.timeline.add("knowledge.on", items=len(kn_runtime.items))
+                self.timeline.add(
+                    "knowledge.on",
+                    items=len(kn_runtime.snapshot.examples),
+                    guidelines=len(kn_runtime.snapshot.guidelines),
+                )
             with bind(session_id=session.id):
                 await self._run_bound(frames)
         return {

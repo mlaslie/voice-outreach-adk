@@ -31,6 +31,7 @@ This is how a service that reads the EHR schedules post-op calls without anyone 
           "procedure": "Total knee replacement",
           "procedure_date": "2026-10-19",
           "is_diabetic": false,
+          "care_setting": "outpatient",
           "language": "en"
         }
       ]
@@ -38,6 +39,8 @@ This is how a service that reads the EHR schedules post-op calls without anyone 
   ]
 }
 ```
+
+**Optional fields:** `procedure`, `procedure_date`, `is_diabetic` (default false), `care_setting` (`inpatient` or `outpatient`; it picks which of the clinic's guidelines apply to the patient, see `docs/KNOWLEDGE-API.md`) and `language`.
 
 **Limits:** up to 20 tranches and 500 calls per batch. Tranche labels and `external_id`s must be unique within a batch.
 

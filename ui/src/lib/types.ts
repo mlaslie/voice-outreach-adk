@@ -89,7 +89,46 @@ export interface PatientQuestion {
   answer?: string;
   /** "Did that answer your question?": false means it did not; null, not asked. */
   satisfied?: boolean | null;
+  /** Live answers (KNOWLEDGE-PLAN v2): the material the answer came from. */
+  sources?: KnowledgeSource[];
+  /** Live answers: the grounding check's support score (0–1). */
+  support_score?: number;
+  /** Shadow mode: what the agent would have said. Never said to the patient. */
+  shadow?: ShadowDraft;
+  /** A nurse's rating of the shadow draft. */
+  shadow_review?: ShadowReview;
 }
+
+/** One piece of approved material an answer drew on. */
+export interface KnowledgeSource {
+  kind: "example" | "guideline";
+  id: string;
+  title: string;
+  version?: number;
+}
+
+/** Shadow mode: the agent's draft for a question, run after the call. */
+export interface ShadowDraft {
+  outcome: "answered" | "deferred";
+  /** One of the knowledge reasons (lib/knowledge.ts REASONS). */
+  reason: string;
+  answer?: string;
+  sources?: KnowledgeSource[];
+  support_score?: number;
+  at?: string;
+}
+
+export type ShadowVerdict = "good" | "not_right";
+
+export interface ShadowReview {
+  verdict: ShadowVerdict;
+  note?: string | null;
+  by?: string | null;
+  at?: string | null;
+}
+
+/** Inpatient or outpatient care (optional on call-list entries and calls). */
+export type CareSetting = "inpatient" | "outpatient";
 
 /**
  * Post-op questionnaire answers (voice and SMS). The 19 Oct 2026 version
@@ -188,6 +227,8 @@ export interface PlaceCallRequest {
   operation_name?: string;
   operation_date?: string;
   is_diabetic: boolean;
+  /** Optional; null clears it on an edit. */
+  care_setting?: CareSetting | null;
 }
 
 export interface PlaceCallResponse {
@@ -233,6 +274,7 @@ export interface CallListEntry {
   operation_name?: string;
   operation_date?: string;
   is_diabetic: boolean;
+  care_setting?: CareSetting | null;
   /**
    * pending   = will be dialed on the next run
    * calling   = in flight right now

@@ -113,3 +113,15 @@ def test_the_feed_is_audited():
     client.put(URL, json=batch(call("e1")), headers={"X-Acting-User": "ehr-sync"})
     actions = [e["action"] for e in client.get("/api/audit").json()["entries"]]
     assert "PUT /api/v1/call-batches/{source}/{batch_id}" in actions
+
+
+def test_care_setting_is_fed_and_a_change_is_an_update():
+    client, api, _ = make()
+    r = client.put(URL, json=batch(call("e1", care_setting="outpatient")))
+    (item,) = r.json()["items"]
+    assert run(api.store.get("call_list", item["entry_id"]))["care_setting"] == "outpatient"
+    r = client.put(URL, json=batch(call("e1", care_setting="inpatient")))
+    assert statuses(r) == {"e1": "updated"}
+    assert run(api.store.get("call_list", item["entry_id"]))["care_setting"] == "inpatient"
+    r = client.put(URL, json=batch(call("e2", care_setting="home")))
+    assert r.status_code == 422

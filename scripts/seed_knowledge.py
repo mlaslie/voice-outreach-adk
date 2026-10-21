@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Load the fictional sample Q&A into the knowledge base, as DRAFTS.
+"""Load the fictional sample Q&A and guidelines into the knowledge base, as DRAFTS.
 
-Reads ``config/knowledge/sample_items.yaml``, signs in as the ``voa-admin``
-service account (the admin console's identity; operators may impersonate it, see
-infra), and POSTs each item to /api/admin/knowledge/items. Nothing is approved:
-a clinician reviews and approves each one in Admin -> Knowledge base. Items whose
-question is already there are skipped, so re-running is safe.
+Reads ``config/knowledge/sample_items.yaml`` and ``sample_guidelines.yaml``, signs
+in as the ``voa-admin`` service account (the admin console's identity; operators
+may impersonate it, see infra), and POSTs each example to
+/api/admin/knowledge/items and each guideline to /api/admin/knowledge/documents.
+Nothing is approved: a clinician reviews and approves each one in Admin ->
+Knowledge base. Examples whose question, and guidelines whose title, are already
+there are skipped, so re-running is safe.
 
   uv run python scripts/seed_knowledge.py demo [--dry-run]
 """
@@ -25,7 +27,9 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "config/knowledge/sample_items.yaml"
+GUIDELINES = ROOT / "config/knowledge/sample_guidelines.yaml"
 FIELDS = ("question", "answer", "category", "alt_questions")
+DOC_FIELDS = ("title", "body", "procedures", "care_settings")
 
 
 def tf_output(env: str, name: str, raw: bool = True) -> str:
@@ -86,22 +90,33 @@ def main() -> int:
     items = [
         {k: it[k] for k in FIELDS if k in it} for it in yaml.safe_load(SAMPLE.read_text())["items"]
     ]
+    docs = [
+        {k: g[k] for k in DOC_FIELDS if k in g}
+        for g in yaml.safe_load(GUIDELINES.read_text())["guidelines"]
+    ]
     if a.dry_run:
-        print(json.dumps(items, indent=2))
+        print(json.dumps({"items": items, "documents": docs}, indent=2))
         return 0
 
     api = tf_output(a.env, "api_url").strip()
     sa = json.loads(tf_output(a.env, "service_accounts", raw=False))["voa-admin"]
-    base = f"{api}/api/admin/knowledge/items"
+    base = f"{api}/api/admin/knowledge"
     tok = token(sa, api)
-    have = {i["question"] for i in call("GET", base, tok)["items"]}
+    have = {i["question"] for i in call("GET", f"{base}/items", tok)["items"]}
     for it in items:
         if it["question"] in have:
             print(f"  skip (already there): {it['question']}")
             continue
-        out = call("POST", base, tok, it)
+        out = call("POST", f"{base}/items", tok, it)
         print(f"  draft v{out['version']} [{out['category']}]: {out['question']}")
-    print("Approve them in Admin -> Knowledge base. Nothing is said to patients until then.")
+    have = {d["title"] for d in call("GET", f"{base}/documents", tok)["documents"]}
+    for d in docs:
+        if d["title"] in have:
+            print(f"  skip (already there): {d['title']}")
+            continue
+        out = call("POST", f"{base}/documents", tok, d)
+        print(f"  guideline draft v{out['version']} ({out['chars']} chars): {out['title']}")
+    print("Approve them in Admin -> Knowledge base. Nothing is used until then.")
     return 0
 
 

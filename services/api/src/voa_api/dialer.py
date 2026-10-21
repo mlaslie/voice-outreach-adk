@@ -84,6 +84,7 @@ def patient_from(req: Any) -> dict[str, Any]:
         "operation_name": req.operation_name,
         "operation_date": req.operation_date,
         "is_diabetic": req.is_diabetic,
+        "care_setting": getattr(req, "care_setting", None),
     }
 
 

@@ -31,6 +31,8 @@ export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 // are checked against the real value, never a percent-encoded disguise.
 const ID = "[A-Za-z0-9_-]{1,64}";
 const PHONE = "\\+[0-9]{6,15}";
+/** A patient question's position on its call (survey_responses.patient_questions). */
+const INDEX = "(0|[1-9][0-9]{0,2})";
 /** A branding image (lib/branding.ts ASSET_KINDS). */
 const ASSET = "(logo|logo_wide|favicon)";
 
@@ -41,7 +43,8 @@ const ASSET = "(logo|logo_wide|favicon)";
  *   - "both":  reads, which both consoles show, and cancelling a booked
  *              text callback (nurses and admins both may).
  * Admin-only reads: a call's millisecond event timeline (Call diagnostics),
- * the configuration audit log, and the knowledge base (items and settings).
+ * the configuration audit log, and the knowledge base (items, guidelines,
+ * settings).
  * The API enforces the same split by caller identity and refuses an admin
  * route from the nurse UI's service account. Enforcing it here as well means
  * neither build can even try the other's writes.
@@ -59,6 +62,9 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["GET", new RegExp(`^calls/${ID}/recording$`), "both"],
   ["GET", new RegExp(`^calls/${ID}/events$`), "admin"],
   ["POST", new RegExp(`^calls/${ID}/follow-up$`), "nurse"],
+  // A nurse rates the knowledge agent's shadow draft for one question
+  // (docs/KNOWLEDGE-PLAN.md §5). Clinical review: the nurse console only.
+  ["POST", new RegExp(`^calls/${ID}/questions/${INDEX}/shadow-review$`), "nurse"],
   ["GET", /^follow-ups\/open$/, "both"],
   ["POST", /^place-call$/, "nurse"],
   ["POST", /^test-call$/, "admin"],
@@ -122,9 +128,9 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["GET", new RegExp(`^branding/assets/${ASSET}$`), "both"],
   ["PUT", new RegExp(`^branding/assets/${ASSET}$`), "admin"],
 
-  // Knowledge base (Admin → Knowledge base, docs/KNOWLEDGE-PLAN.md): clinic
-  // Q&A the agent may read to patients, its settings and "Try it". Admin
-  // only, reads included: the nurse build never reaches /api/admin/*.
+  // Knowledge base (Admin → Knowledge base, docs/KNOWLEDGE-PLAN.md): example
+  // Q&A and guidelines the agent answers from, its settings and "Try it".
+  // Admin only, reads included: the nurse build never reaches /api/admin/*.
   ["GET", /^admin\/knowledge\/items$/, "admin"],
   ["POST", /^admin\/knowledge\/items$/, "admin"],
   ["PATCH", new RegExp(`^admin/knowledge/items/${ID}$`), "admin"],
@@ -134,6 +140,12 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["GET", /^admin\/knowledge\/settings$/, "admin"],
   ["PUT", /^admin\/knowledge\/settings$/, "admin"],
   ["POST", /^admin\/knowledge\/try$/, "admin"],
+  ["GET", /^admin\/knowledge\/documents$/, "admin"],
+  ["POST", /^admin\/knowledge\/documents$/, "admin"],
+  ["PATCH", new RegExp(`^admin/knowledge/documents/${ID}$`), "admin"],
+  ["DELETE", new RegExp(`^admin/knowledge/documents/${ID}$`), "admin"],
+  ["POST", new RegExp(`^admin/knowledge/documents/${ID}/approve$`), "admin"],
+  ["POST", new RegExp(`^admin/knowledge/documents/${ID}/retire$`), "admin"],
 ];
 
 /** Whether a route of this scope is served by a build in this mode. */

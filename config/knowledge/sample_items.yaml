@@ -1,4 +1,4 @@
-# Fictional starter Q&A for the knowledge base (docs/KNOWLEDGE-PLAN.md, step 1).
+# Fictional starter example Q&A for the knowledge agent (docs/KNOWLEDGE-PLAN.md v2).
 #
 # NOT clinical guidance: placeholder wording for demos and tests only. A clinic
 # replaces every answer with its own, and a named clinician approves each one in
@@ -6,12 +6,14 @@
 #
 # Used by:
 #   scripts/seed_knowledge.py <env>   loads these as DRAFTS through the admin API
-#   packages/voa_core/tests/test_knowledge_eval.py   approved, against eval_questions.yaml
+#   packages/voa_knowledge/tests/test_knowledge_eval.py   approved, against eval_questions.yaml
+#   scripts/eval_knowledge.py         the live-model evaluation
 #
 # `key` names an item for the eval set only; it is not stored.
-# `category` must be the category the deterministic classifier gives the question
-# (voa_core.patient_questions.classify): the agent only looks at items in the
-# patient's question's category. Medication, symptom and other are never allowed.
+# `category` is for filtering and display (medication, symptom and other are
+# never allowed). Answers avoid medication and symptom words on purpose: the
+# agent's output veto refuses any answer that contains them (note the keyword
+# rules match stems, e.g. "discharge" and "number" read as symptom words).
 items:
   - key: shower
     category: activity
@@ -71,8 +73,8 @@ items:
     alt_questions:
       - Can I change my appointment time?
     answer: >-
-      Call the clinic's main number on your discharge papers during office hours,
-      Monday to Friday, and choose the scheduling option.
+      Call the clinic's main line, listed on the papers you went home with,
+      during office hours, Monday to Friday, and choose the scheduling option.
 
   - key: diet
     category: diet
@@ -100,7 +102,7 @@ items:
       - Where do I pick up crutches or a walker?
     answer: >-
       The equipment desk on the first floor can fit you for a walker or crutches.
-      Bring the equipment order from your discharge papers.
+      Bring the equipment order from the papers you went home with.
 
   - key: supplies
     category: supplies

@@ -13,6 +13,7 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", `calls/${SID}/recording`],
     ["GET", `calls/${SID}/events`],
     ["POST", `calls/${SID}/follow-up`],
+    ["POST", `calls/${SID}/questions/2/shadow-review`],
     ["POST", "calls/batch-delete"],
     ["GET", "follow-ups/open"],
     ["POST", "place-call"],
@@ -67,6 +68,13 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", "admin/knowledge/settings"],
     ["PUT", "admin/knowledge/settings"],
     ["POST", "admin/knowledge/try"],
+    ["GET", "admin/knowledge/documents"],
+    ["POST", "admin/knowledge/documents"],
+    ["PATCH", `admin/knowledge/documents/${ID32}`],
+    ["DELETE", `admin/knowledge/documents/${ID32}`],
+    ["POST", `admin/knowledge/documents/${ID32}/approve`],
+    ["POST", `admin/knowledge/documents/${ID32}/retire`],
+    ["POST", `calls/${SID}/questions/0/shadow-review`],
   ])("allows %s %s (in the build that owns it)", (method, path) => {
     expect(matchRoute(method, path, "nurse") ?? matchRoute(method, path, "admin")).not.toBeNull();
   });
@@ -177,6 +185,11 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["POST", "admin/knowledge/items/kq_shower/retire"],
     ["PUT", "admin/knowledge/settings"],
     ["POST", "admin/knowledge/try"],
+    ["POST", "admin/knowledge/documents"],
+    ["PATCH", "admin/knowledge/documents/kg_knee"],
+    ["DELETE", "admin/knowledge/documents/kg_knee"],
+    ["POST", "admin/knowledge/documents/kg_knee/approve"],
+    ["POST", "admin/knowledge/documents/kg_knee/retire"],
   ];
   // Admin-only reads: the engineering timeline and the audit log.
   const ADMIN_READS: [string, string][] = [
@@ -184,10 +197,12 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["GET", "audit"],
     ["GET", "admin/knowledge/items"],
     ["GET", "admin/knowledge/settings"],
+    ["GET", "admin/knowledge/documents"],
   ];
   // Clinical work: the nurse console only.
   const NURSE_ROUTES: [string, string][] = [
     ["POST", `calls/${SID}/follow-up`],
+    ["POST", `calls/${SID}/questions/2/shadow-review`],
     ["POST", "calls/batch-delete"],
     ["POST", "place-call"],
     ["POST", "call-list/cancel"],
@@ -256,6 +271,10 @@ describe("matchRoute: each build calls only its own routes", () => {
       "admin/knowledge/items/kq_1/retire",
       "admin/knowledge/settings",
       "admin/knowledge/try",
+      "admin/knowledge/documents",
+      "admin/knowledge/documents/kg_1",
+      "admin/knowledge/documents/kg_1/approve",
+      "admin/knowledge/documents/kg_1/retire",
     ];
     for (const path of paths) {
       for (const method of ["GET", "POST", "PATCH", "PUT", "DELETE"]) {
@@ -272,7 +291,26 @@ describe("matchRoute: each build calls only its own routes", () => {
       expect(matchRoute("DELETE", "admin/knowledge/settings", mode)).toBeNull();
       expect(matchRoute("GET", "admin/knowledge/try", mode)).toBeNull();
       expect(matchRoute("PATCH", "admin/knowledge/items/..", mode)).toBeNull();
+      expect(matchRoute("GET", "admin/knowledge/documents/kg_1", mode)).toBeNull();
+      expect(matchRoute("PUT", "admin/knowledge/documents/kg_1", mode)).toBeNull();
+      expect(matchRoute("POST", "admin/knowledge/documents/kg_1/publish", mode)).toBeNull();
+      expect(matchRoute("DELETE", "admin/knowledge/documents", mode)).toBeNull();
     }
+  });
+
+  it("serves the shadow rating to the nurse build only, for a question index", () => {
+    expect(matchRoute("POST", `calls/${SID}/questions/0/shadow-review`, "nurse")).not.toBeNull();
+    expect(matchRoute("POST", `calls/${SID}/questions/12/shadow-review`, "nurse")).not.toBeNull();
+    for (const mode of ["nurse", "admin"] as const) {
+      expect(matchRoute("GET", `calls/${SID}/questions/0/shadow-review`, mode)).toBeNull();
+      expect(matchRoute("PUT", `calls/${SID}/questions/0/shadow-review`, mode)).toBeNull();
+      expect(matchRoute("POST", `calls/${SID}/questions/-1/shadow-review`, mode)).toBeNull();
+      expect(matchRoute("POST", `calls/${SID}/questions/01/shadow-review`, mode)).toBeNull();
+      expect(matchRoute("POST", `calls/${SID}/questions/1000/shadow-review`, mode)).toBeNull();
+      expect(matchRoute("POST", `calls/${SID}/questions/x/shadow-review`, mode)).toBeNull();
+      expect(matchRoute("POST", `calls/${SID}/questions/0`, mode)).toBeNull();
+    }
+    expect(matchRoute("POST", `calls/${SID}/questions/0/shadow-review`, "admin")).toBeNull();
   });
 
   it.each(ADMIN_ROUTES)("the nurse build refuses admin route %s %s; the admin build allows it", (method, path) => {

@@ -32,6 +32,15 @@ locals {
   ]
 }
 
+# The knowledge agent's grounding check (Discovery Engine
+# groundingConfigs/default_grounding_config:check) needs
+# discoveryengine.groundingConfigs.check. Per the IAM permissions reference that
+# permission is in Discovery Engine Viewer (and Editor/Admin), NOT in Discovery
+# Engine User, so Viewer is the least-privileged predefined role.
+locals {
+  grounding_role = "roles/discoveryengine.viewer"
+}
+
 module "services" {
   source     = "../../modules/project_services"
   project_id = var.project_id
@@ -46,11 +55,11 @@ module "sa" {
   accounts = {
     "${local.p}-gateway" = {
       display_name  = "Voice gateway (telephony media <-> Gemini Live)"
-      project_roles = concat(local.common_runtime_roles, ["roles/aiplatform.user", "roles/datastore.user"])
+      project_roles = concat(local.common_runtime_roles, ["roles/aiplatform.user", "roles/datastore.user", local.grounding_role])
     }
     "${local.p}-api" = {
       display_name  = "Outreach API (REST, webhooks, tasks, SMS agent)"
-      project_roles = concat(local.common_runtime_roles, ["roles/aiplatform.user", "roles/datastore.user"])
+      project_roles = concat(local.common_runtime_roles, ["roles/aiplatform.user", "roles/datastore.user", local.grounding_role])
     }
     "${local.p}-ui" = {
       display_name  = "Nurse dashboard (Next.js BFF)"

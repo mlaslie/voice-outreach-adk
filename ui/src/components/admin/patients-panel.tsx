@@ -151,6 +151,7 @@ export function PatientsPanel({
                     <div className="text-[12px] text-ink-muted">
                       {e.patient_id} · <span className="tabular-nums">{formatPhone(e.phone)}</span>
                       {e.is_diabetic ? " · diabetic" : ""}
+                      {e.care_setting === "inpatient" ? " · inpatient" : e.care_setting === "outpatient" ? " · outpatient" : ""}
                     </div>
                   </td>
                   <td className="hidden px-3 py-3 text-ink-soft md:table-cell">

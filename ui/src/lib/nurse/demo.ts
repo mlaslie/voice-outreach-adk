@@ -103,7 +103,10 @@ export function demoData(now: Date = new Date()): NurseData {
         has_questions: "yes",
         patient_questions: [
           { text: "I'm almost out of the pain pills. Can I take ibuprofen with them, or should I stop one?",
-            category: "medication", priority: "urgent_same_day" },
+            category: "medication", priority: "urgent_same_day",
+            // Shadow mode (docs/KNOWLEDGE-PLAN.md §4): what the agent would have done, rated by a nurse.
+            shadow: { outcome: "deferred", reason: "locked_category", at: at(-0.9) },
+            shadow_review: { verdict: "good", note: null, by: "J. Moreno, RN", at: at(-0.5) } },
         ] },
     }),
     call({
@@ -154,8 +157,14 @@ export function demoData(now: Date = new Date()): NurseData {
         has_questions: "yes",
         patient_questions: [
           { text: "When is my follow-up appointment with the surgeon? Nobody has called me yet.",
-            category: "appointment", priority: "routine_next_business_day" },
-          { text: "When am I allowed to drive again?", category: "activity", priority: "routine_next_business_day" },
+            category: "appointment", priority: "routine_next_business_day",
+            shadow: { outcome: "deferred", reason: "not_covered", at: at(-1.9) } },
+          { text: "When am I allowed to drive again?", category: "activity", priority: "routine_next_business_day",
+            shadow: {
+              outcome: "answered", reason: "answered", at: at(-1.9), support_score: 0.92,
+              answer: "Please don't drive while you are taking prescription pain medicine, and not for at least two weeks after surgery. Your surgeon will confirm at your follow-up visit.",
+              sources: [{ kind: "example", id: "kq_drive", title: "When can I drive again?", version: 1 }],
+            } },
         ] },
     }),
     call({
@@ -253,13 +262,13 @@ export function demoData(now: Date = new Date()): NurseData {
   });
 
   const entries: PlannedEntry[] = [
-    entry("Jamal Whitaker", "P-2061", "Laminectomy", 3, 1, "calling"),
-    entry("Eleanor Vance", "P-2060", "Total knee replacement", 2, 0),
+    { ...entry("Jamal Whitaker", "P-2061", "Laminectomy", 3, 1, "calling"), care_setting: "inpatient" },
+    { ...entry("Eleanor Vance", "P-2060", "Total knee replacement", 2, 0), care_setting: "inpatient" },
     entry("Ingrid Solberg", "P-2062", "Mastectomy", 1, 0),
     entry("Abigail Porter", "P-2065", "Tonsillectomy", 1, 0),
     entry("Naomi Castillo", "P-2049", "Appendectomy", 2, 1),
     entry("Walter Kim", "P-2050", "Cataract surgery", 1, 1),
-    entry("Felix Moreau", "P-2063", "Bunionectomy", 2, 0),
+    { ...entry("Felix Moreau", "P-2063", "Bunionectomy", 2, 0), care_setting: "outpatient" },
     entry("Chen Wei", "P-2064", "Sinus surgery", 1, 0),
     // On the list but not in any run yet — shows under Settings only.
     entry("Odette Marsh", "P-2066", "Shoulder arthroscopy", 1, 0),

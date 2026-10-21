@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from voa_core.compliance import coerce_bool
@@ -24,6 +25,13 @@ class PlaceCallRequest(_In):
     operation_name: str | None = Field(default=None, max_length=200)
     operation_date: str | None = None
     is_diabetic: bool = False
+    # Knowledge agent (docs/KNOWLEDGE-PLAN.md): which guidelines apply to the patient.
+    care_setting: Literal["inpatient", "outpatient"] | None = None
+
+    @field_validator("care_setting", mode="before")
+    @classmethod
+    def _setting(cls, v):
+        return v.strip().lower() or None if isinstance(v, str) else v
 
     @field_validator("phone")
     @classmethod

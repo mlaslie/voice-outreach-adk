@@ -58,6 +58,7 @@ export function EntryDialog({
             operation_name: entry.operation_name ?? "",
             operation_date: entry.operation_date ?? "",
             is_diabetic: !!entry.is_diabetic,
+            care_setting: entry.care_setting === "inpatient" || entry.care_setting === "outpatient" ? entry.care_setting : "",
             scheduled_for: isoToZonedInput(entry.scheduled_for, tz),
           }
         : INITIAL_PATIENT_FORM,

@@ -3,6 +3,8 @@
 /tasks/dial            dial one call-list entry (waits for a free call slot by returning 503)
 /tasks/call-terminal   a call reached a terminal status: settle its entry and run, auto-recall,
                        and hand missed calls to the SMS follow-up
+/tasks/knowledge-shadow  shadow mode: store what the knowledge agent would have said to each
+                       of a filed report's questions (docs/KNOWLEDGE-PLAN.md)
 /cron/dispatch-due     every minute: dial scheduled runs and entries whose time has come;
                        close browser test calls whose link was never opened
 
@@ -387,6 +389,13 @@ async def task_call_terminal(payload: dict, request: Request):
             name=f"sms-missed-{call_id}",
         )
     return result
+
+
+@router.post("/tasks/knowledge-shadow")
+async def task_knowledge_shadow(payload: dict, request: Request):
+    from .routes_knowledge import run_shadow
+
+    return await run_shadow(request.app.state.api, str(payload.get("call_id") or ""))
 
 
 async def _maybe_recall(api: Api, entry_id: str, entry: dict) -> str:

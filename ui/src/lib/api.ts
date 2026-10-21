@@ -18,16 +18,19 @@ import {
   CallsListResponse,
   FollowUpOverrideRequest,
   PlaceCallRequest,
+  ShadowVerdict,
   PlaceCallResponse,
   TranscriptResponse,
 } from "./types";
 import type { SmsMessage } from "./followups";
 import type { AssetKind, BrandingPatch, BrandingResponse } from "./branding";
 import type {
+  KnowledgeDoc,
+  KnowledgeDocInput,
   KnowledgeItem,
   KnowledgeItemInput,
-  KnowledgeSettings,
   KnowledgeSettingsPatch,
+  KnowledgeTryContext,
   KnowledgeTryResult,
 } from "./knowledge";
 
@@ -387,18 +390,65 @@ export const api = {
     return request<{ deleted: true }>(`/admin/knowledge/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
   },
 
-  getKnowledgeSettings(): Promise<KnowledgeSettings> {
-    return request<KnowledgeSettings>("/admin/knowledge/settings");
+  /**
+   * Raw settings: lib/knowledge normaliseSettings() turns them into the
+   * panel's shape (and reads a step-1 `enabled` document as off / live).
+   */
+  getKnowledgeSettings(): Promise<unknown> {
+    return request<unknown>("/admin/knowledge/settings");
   },
 
-  /** Partial update. */
-  saveKnowledgeSettings(patch: KnowledgeSettingsPatch): Promise<KnowledgeSettings> {
-    return request<KnowledgeSettings>("/admin/knowledge/settings", json("PUT", patch));
+  /** Partial update; returns the whole (raw) settings document. */
+  saveKnowledgeSettings(patch: KnowledgeSettingsPatch): Promise<unknown> {
+    return request<unknown>("/admin/knowledge/settings", json("PUT", patch));
   },
 
-  /** What the agent would do with a question: answer from approved Q&A, or defer. */
-  tryKnowledge(question: string): Promise<KnowledgeTryResult> {
-    return request<KnowledgeTryResult>("/admin/knowledge/try", json("POST", { question }));
+  /** What the agent would do with a question, for an optional patient context. Not audited, nothing recorded. */
+  tryKnowledge(question: string, context?: KnowledgeTryContext): Promise<KnowledgeTryResult> {
+    const body = context && Object.keys(context).length ? { question, context } : { question };
+    return request<KnowledgeTryResult>("/admin/knowledge/try", json("POST", body));
+  },
+
+  // Guidelines: the same lifecycle as items (draft → approved → retired).
+
+  getKnowledgeDocs(): Promise<{ documents: KnowledgeDoc[] }> {
+    return request<{ documents: KnowledgeDoc[] }>("/admin/knowledge/documents");
+  },
+
+  createKnowledgeDoc(body: KnowledgeDocInput): Promise<KnowledgeDoc> {
+    return request<KnowledgeDoc>("/admin/knowledge/documents", json("POST", body));
+  },
+
+  /** Editing an approved guideline sends it back to draft with version + 1. */
+  updateKnowledgeDoc(docId: string, body: Partial<KnowledgeDocInput>): Promise<KnowledgeDoc> {
+    return request<KnowledgeDoc>(`/admin/knowledge/documents/${encodeURIComponent(docId)}`, json("PATCH", body));
+  },
+
+  /** 409 when approving would pass the 200,000-character budget. */
+  approveKnowledgeDoc(docId: string): Promise<KnowledgeDoc> {
+    return request<KnowledgeDoc>(`/admin/knowledge/documents/${encodeURIComponent(docId)}/approve`, { method: "POST" });
+  },
+
+  retireKnowledgeDoc(docId: string): Promise<KnowledgeDoc> {
+    return request<KnowledgeDoc>(`/admin/knowledge/documents/${encodeURIComponent(docId)}/retire`, { method: "POST" });
+  },
+
+  /** Drafts and retired guidelines only; an approved one is refused (409). */
+  deleteKnowledgeDoc(docId: string): Promise<unknown> {
+    return request<unknown>(`/admin/knowledge/documents/${encodeURIComponent(docId)}`, { method: "DELETE" });
+  },
+
+  /**
+   * Nurse build: rate the agent's shadow draft for one question. `index` is
+   * the question's position in the call's survey_responses.patient_questions.
+   * The response shape is not fixed by the plan; lib/patient-questions
+   * reviewFromResponse() reads it.
+   */
+  reviewShadowDraft(callId: string, index: number, body: { verdict: ShadowVerdict; note?: string }): Promise<unknown> {
+    return request<unknown>(
+      `/calls/${encodeURIComponent(callId)}/questions/${encodeURIComponent(String(index))}/shadow-review`,
+      json("POST", body),
+    );
   },
 
   /** Same-origin SSE feed of call updates (proxied, streamed, by the BFF). */

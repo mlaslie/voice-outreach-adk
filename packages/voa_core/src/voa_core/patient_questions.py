@@ -3,9 +3,11 @@
 Deterministic on purpose, like the rest of triage: a priority can be pointed at a
 line of code. The agent never answers these questions itself (no medical advice);
 it repeats a short summary back, and this module decides who calls and when. With
-the knowledge base on (``knowledge.py``), it may read the clinic's own approved
-answer for an allowed, non-clinical category; such a question then needs no nurse
-unless the patient says it didn't answer it (:func:`needs_follow_up`).
+the knowledge agent live (``voa_knowledge``), it may give an answer drawn only from
+the clinic's approved material, for an allowed, non-clinical category; such a
+question then needs no nurse unless the patient says it didn't answer it
+(:func:`needs_follow_up`). These keyword rules also veto the agent: they can make a
+question stricter, never looser.
 
 Rules (agreed 19 Oct 2026; clinical sign-off pending, see docs/HANDOFF.md):
 
@@ -300,13 +302,63 @@ def record(text: str) -> dict[str, str]:
     return {"text": clean, "category": c.category, "priority": c.priority}
 
 
-#: Knowledge base (docs/KNOWLEDGE-PLAN.md): a question the agent answered from the
-#: clinic's approved Q&A, or one left for a nurse. Optional on an entry: entries
+#: Knowledge agent (docs/KNOWLEDGE-PLAN.md): a question the agent answered from the
+#: clinic's approved material, or one left for a nurse. Optional on an entry: entries
 #: recorded before the knowledge base (or with it off) have no outcome.
 OUTCOME_ANSWERED = "answered"
 OUTCOME_DEFERRED = "deferred"
 OUTCOMES = (OUTCOME_ANSWERED, OUTCOME_DEFERRED)
 MAX_ANSWER_CHARS = 600
+
+
+#: Knowledge agent v2: what an answered question was drawn from, and the shadow
+#: draft a nurse can rate (docs/KNOWLEDGE-PLAN.md section 5).
+SOURCE_KINDS = ("example", "guideline")
+MAX_SOURCES = 10
+SHADOW_VERDICTS = ("good", "not_right")
+MAX_REVIEW_NOTE = 300
+
+
+def _score_ok(v: object) -> bool:
+    return v is None or (isinstance(v, int | float) and not isinstance(v, bool) and 0 <= v <= 1)
+
+
+def _sources_ok(v: object) -> bool:
+    if v is None:
+        return True
+    if not isinstance(v, list) or len(v) > MAX_SOURCES:
+        return False
+    return all(
+        isinstance(s, dict)
+        and s.get("kind") in SOURCE_KINDS
+        and isinstance(s.get("id"), str)
+        and 0 < len(s["id"]) <= 64
+        for s in v
+    )
+
+
+def _shadow_ok(v: object) -> bool:
+    if v is None:
+        return True
+    return (
+        isinstance(v, dict)
+        and v.get("outcome") in OUTCOMES
+        and isinstance(v.get("reason"), str)
+        and (v.get("answer") is None or isinstance(v["answer"], str))
+        and _sources_ok(v.get("sources"))
+        and _score_ok(v.get("support_score"))
+    )
+
+
+def _review_ok(v: object) -> bool:
+    if v is None:
+        return True
+    note = v.get("note") if isinstance(v, dict) else None
+    return (
+        isinstance(v, dict)
+        and v.get("verdict") in SHADOW_VERDICTS
+        and (note is None or (isinstance(note, str) and len(note) <= MAX_REVIEW_NOTE))
+    )
 
 
 def _valid_optional(entry: dict) -> bool:
@@ -322,7 +374,24 @@ def _valid_optional(entry: dict) -> bool:
     a = entry.get("answer")
     if a is not None and not (isinstance(a, str) and len(a) <= MAX_ANSWER_CHARS):
         return False
-    return entry.get("satisfied") in (True, False, None)
+    return (
+        entry.get("satisfied") in (True, False, None)
+        and _sources_ok(entry.get("sources"))
+        and _score_ok(entry.get("support_score"))
+        and _shadow_ok(entry.get("shadow"))
+        and _review_ok(entry.get("shadow_review"))
+    )
+
+
+def priority_of(category: str) -> str:
+    """Medication, symptom and anything unclear: immediate; the rest next day."""
+    if category in (CAT_MEDICATION, CAT_SYMPTOM) or category not in CATEGORY_LABELS:
+        return PRIORITY_IMMEDIATE
+    return PRIORITY_IMMEDIATE if category == CAT_OTHER else PRIORITY_NEXT_DAY
+
+
+def more_urgent(a: str, b: str) -> str:
+    return PRIORITY_IMMEDIATE if PRIORITY_IMMEDIATE in (a, b) else PRIORITY_NEXT_DAY
 
 
 def valid_entry(entry: object) -> bool:

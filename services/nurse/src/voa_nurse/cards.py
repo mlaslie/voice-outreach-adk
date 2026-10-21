@@ -627,17 +627,34 @@ def patient_questions_block(card: Card, questions: list[dict]) -> None:
         ]
         if line := knowledge_line(q):
             parts.append(card.text(line, "caption"))
+        if line := shadow_line(q):
+            parts.append(card.text(line, "caption"))
         card.put(marked(card, QUESTION_MARK[q["priority"]], *parts))
 
 
 def knowledge_line(q: dict) -> str | None:
-    """How the agent handled a question from the clinic's Q&A (knowledge base), if it did."""
-    if not q.get("item_version"):
+    """How the agent handled a question from the clinic's knowledge, if it did."""
+    if q.get("item_version"):
+        line = f"Answered by the agent from the clinic's Q&A (v{q['item_version']})"
+    elif q.get("sources"):
+        line = "Answered by the agent from the clinic's approved material"
+    else:
         return None
-    line = f"Answered by the agent from the clinic's Q&A (v{q['item_version']})"
     if q.get("satisfied") is False:
         line += "; patient said it didn't answer it"
     return line
+
+
+SHADOW_MAX = 240
+
+
+def shadow_line(q: dict) -> str | None:
+    """Shadow mode: the agent's draft answer, which the patient never heard."""
+    answer = (q.get("shadow") or {}).get("answer")
+    if not answer:
+        return None
+    text = answer if len(answer) <= SHADOW_MAX else answer[: SHADOW_MAX - 1].rstrip() + "…"
+    return f"Agent's draft answer (not said): {text}"
 
 
 def transcript_card(c: dict, t: dict, limit: int = 40) -> Card:

@@ -17,6 +17,7 @@ import { RecordingPlayer } from "@/components/recording-player";
 import { CallTexts } from "@/components/call-texts";
 import { SurveyAnswers } from "@/components/survey-answers";
 import { PatientQuestionsSection } from "@/components/patient-questions";
+import { withShadowReview } from "@/lib/patient-questions";
 import { cn } from "@/lib/utils";
 import { Avatar, Pill, Tone, ago, clock } from "./parts";
 import { ClinicDateTimeInput } from "./clinic-time-input";
@@ -239,7 +240,19 @@ function Body({
               </Section>
             ) : null}
 
-            {call ? <PatientQuestionsSection call={call} /> : null}
+            {call ? (
+              <PatientQuestionsSection
+                call={call}
+                timeZone={settings?.timezone}
+                onReview={async (index, body) => {
+                  const review = await actions.reviewShadow(call, index, body);
+                  const updated = withShadowReview(call, index, review);
+                  setCall(updated);
+                  onCallUpdated?.(updated);
+                  if (actions.live) toast.success("Rating saved");
+                }}
+              />
+            ) : null}
 
             {findings.length ? (
               <Section title="Top answers">

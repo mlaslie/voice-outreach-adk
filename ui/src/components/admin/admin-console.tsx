@@ -49,7 +49,7 @@ const SECTIONS: { key: Section; label: string; short: string; blurb: string; ico
   { key: "messaging", label: "Messaging", short: "Texts", icon: MessageSquareText,
     blurb: "The shared SMS number, the missed-call text limit, text conversations and booked callbacks." },
   { key: "knowledge", label: "Knowledge base", short: "Q&A", icon: BookOpenCheck,
-    blurb: "Approved clinic answers the agent may read to patients word for word. Medication and symptom questions always go to a nurse." },
+    blurb: "Guidelines and example answers the agent may answer patients from, off, in shadow or live. Medication and symptom questions always go to a nurse." },
   { key: "display", label: "Display", short: "Display", icon: Clock,
     blurb: "The company name patients hear and read, and how times show for nurses." },
   { key: "branding", label: "Branding", short: "Brand", icon: Palette,
@@ -223,7 +223,7 @@ export function AdminConsole({
                   <BookedCallbacksPanel callbacks={data.callbacks} actions={actions} now={now} timeZone={tz} />
                 </>
               ) : null}
-              {section === "knowledge" ? <KnowledgePanel live={actions.live} timeZone={tz} /> : null}
+              {section === "knowledge" ? <KnowledgePanel live={actions.live} timeZone={tz} calls={callsError ? undefined : data.calls} /> : null}
               {section === "testing" ? (
                 <>
                   <TestInBrowserPanel actions={actions} />
