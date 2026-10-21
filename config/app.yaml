@@ -17,6 +17,10 @@ models:
   text_location: global
   tts: gemini-2.5-flash-tts
   tts_location: us-central1
+  knowledge_classify: gemini-2.5-flash-lite   # in-call budget; see ModelsConfig
+  knowledge_draft: gemini-2.5-flash           # not flash-lite: it picked the wrong guideline
+  knowledge_draft_thinking_budget: 0
+  knowledge_location: global
 
 voice:
   voice_name: Algenib

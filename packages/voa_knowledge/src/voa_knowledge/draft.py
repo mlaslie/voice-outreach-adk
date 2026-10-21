@@ -69,8 +69,9 @@ def build_prompt(question: str, context: Mapping[str, Any], materials: Sequence[
     )
 
 
-def build_agent(model: Any):
-    """The ADK agent. ``model``: a model name or an ADK ``BaseLlm``."""
+def build_agent(model: Any, thinking_budget: int | None = 0):
+    """The ADK agent. ``model``: a model name or an ADK ``BaseLlm``.
+    ``thinking_budget``: 0 turns thinking off (the in-call budget needs it)."""
     from google.adk.agents import LlmAgent
     from google.genai import types
 
@@ -83,7 +84,12 @@ def build_agent(model: Any):
         include_contents="none",  # one question per run; no history
         disallow_transfer_to_parent=True,
         disallow_transfer_to_peers=True,
-        generate_content_config=types.GenerateContentConfig(temperature=0),
+        generate_content_config=types.GenerateContentConfig(
+            temperature=0,
+            thinking_config=None
+            if thinking_budget is None
+            else types.ThinkingConfig(thinking_budget=thinking_budget),
+        ),
     )
 
 
@@ -91,11 +97,11 @@ def vertex_model(cfg) -> Any:
     from google.adk.models import Gemini
 
     return Gemini(
-        model=cfg.models.text,
+        model=cfg.models.knowledge_draft,
         client_kwargs={
             "enterprise": True,  # Vertex (Agent Platform), not the AI Studio API
             "project": cfg.gcp.project_id,
-            "location": cfg.models.text_location,
+            "location": cfg.models.knowledge_location,
         },
     )
 
@@ -109,7 +115,10 @@ class AdkDrafter:
         from google.adk.sessions import InMemorySessionService
 
         self._model = model if model is not None else vertex_model(cfg)
-        self.agent = build_agent(self._model)
+        self.agent = build_agent(
+            self._model,
+            thinking_budget=cfg.models.knowledge_draft_thinking_budget if cfg is not None else 0,
+        )
         self._sessions = InMemorySessionService()
         self._runner = Runner(app_name=APP_NAME, agent=self.agent, session_service=self._sessions)
         self._warmed = False

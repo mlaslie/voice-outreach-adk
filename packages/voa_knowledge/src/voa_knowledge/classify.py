@@ -153,10 +153,10 @@ def build_prompt(question: str) -> str:
 
 class GeminiClassifier:
     """``await classifier(question) -> LlmClassification``: one structured-output
-    call to ``cfg.models.text`` on Vertex. Sees only the question."""
+    call to ``cfg.models.knowledge_classify`` on Vertex. Sees only the question."""
 
     def __init__(self, cfg=None, *, model: str | None = None, client=None, **client_kwargs):
-        self._model = model or cfg.models.text
+        self._model = model or cfg.models.knowledge_classify
         self._client = client
         if client_kwargs or cfg is None:
             self._kwargs = client_kwargs
@@ -164,7 +164,7 @@ class GeminiClassifier:
             self._kwargs = {
                 "enterprise": True,  # Vertex (Agent Platform), not the AI Studio API
                 "project": cfg.gcp.project_id,
-                "location": cfg.models.text_location,
+                "location": cfg.models.knowledge_location,
             }
         self._instruction = load_prompt("classify.md")
         self._warmed = False

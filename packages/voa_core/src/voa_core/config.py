@@ -48,6 +48,16 @@ class ModelsConfig(_Strict):
     text_location: str = "global"
     tts: str = "gemini-2.5-flash-tts"
     tts_location: str = "us-central1"
+    # The knowledge agent (packages/voa_knowledge) runs inside a live call's 4 s
+    # budget, so it has its own models. Measured 20 Oct 2026 on global: 3.8-flash
+    # took 2-15 s per call; 2.5-flash-lite ~0.9 s; 2.5-flash ~1.2 s.
+    knowledge_classify: str = "gemini-2.5-flash-lite"
+    knowledge_draft: str = "gemini-2.5-flash"
+    # Thinking off: 1.1-1.4 s and correct, vs 2-4 s with it on. Do NOT move the
+    # drafter to flash-lite: it answered a hip-replacement driving question with
+    # the general "two weeks" guideline instead of the hip one (6 weeks).
+    knowledge_draft_thinking_budget: int | None = 0
+    knowledge_location: str = "global"
 
 
 class VoiceConfig(_Strict):

@@ -392,3 +392,8 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 - It reuses the triage keyword stems: "number" matches *numb*, "discharge" is a symptom word, and "can I take" reads as medication.
 - Clinic wording that uses these words will defer, even when correct. Guideline text about a "dressing" or "incision" can never be answered.
 - This is safe, but it will cost coverage. Shadow-mode data will show how much, and a narrower output vocabulary is the fix if it matters.
+- **Bit us on the first live test: speed.** The knowledge agent first ran on `gemini-3.8-flash` (the SMS parser's model), and every answerable question hit the 4 s budget: 2–15 s per call.
+  - **Measured on global:** the classifier on `gemini-2.5-flash-lite` takes about 0.9 s; the drafter on `gemini-2.5-flash` with thinking off takes 1.1–1.4 s; check-grounding takes about 0.4 s. A full answer now takes 2.3–3.5 s.
+  - **Don't put the drafter on flash-lite.** It answered "when can I drive again?" for a hip replacement with the general "two weeks" guideline instead of the hip one (six weeks). Grounding may well pass such an answer, because the cited text does say it, only for other patients.
+  - The settings are in `models.knowledge_*` in `config/app.yaml`. The grounding scores on correct answers were 0.97–0.99.
+- **Live demo settings:** allowed topics are activity, diet and recovery, saved earlier in the admin console. So parking and appointment questions defer as "category not allowed", which is not a bug. All sample content (fictional) is approved, and the mode is **shadow**.
