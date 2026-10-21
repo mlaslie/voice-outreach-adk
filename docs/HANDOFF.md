@@ -421,7 +421,7 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
 - The service now also reads `call_status`.
 - **Bit us on the first live read:** two "wrong person" calls on demo carry `call_status: left_vmail`, so the first version counted them as voicemails. The agent's outcome now wins, and the line status is used only when a call has no outcome (no answer, busy, failed). Tested with that exact shape. Why a wrong-person call ends with `left_vmail` is a separate question for the call lifecycle (`lifecycle.classify_completed`); it is not changed here.
 
-## 21 Oct: ADK owns the number (switch removed; not deployed)
+## 21 Oct: ADK owns the number (switch removed; deployed 21 Oct)
 
 **Why:** the user chose to go all in on this (ADK) system. The Twilio number is no longer shared with GE-CX, so the take/give switch had nothing left to do.
 
