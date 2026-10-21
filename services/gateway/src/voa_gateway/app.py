@@ -31,7 +31,7 @@ from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from voa_agents.voice.agent import build_voice_agent
 from voa_core import lifecycle
-from voa_core.campaign import load_campaign
+from voa_core.campaign import DEFAULT_CAMPAIGN_ID, load_campaign
 from voa_core.config import AppConfig, load_config, resolve_secret
 from voa_core.logging import bind, configure_logging, mask_phone, parse_cloud_trace_header
 from voa_core.store import DocStore, FirestoreStore, MemoryStore
@@ -119,17 +119,23 @@ class Gateway:
         self._twilio_token: str | None = None
         self._softphone_secret: str | None = None
 
-    def voicemail_text(self, org_name: str | None = None) -> str:
-        return load_campaign("post_op").script(
-            "voicemail", org_name=org_name or self.cfg.site.org_name
-        )
+    def voicemail_text(
+        self, org_name: str | None = None, campaign_id: str = DEFAULT_CAMPAIGN_ID
+    ) -> str:
+        """The call's use case's voicemail (specs are cached per id by load_campaign)."""
+        try:
+            spec = load_campaign(campaign_id)
+        except (OSError, ValueError):
+            spec = load_campaign(DEFAULT_CAMPAIGN_ID)
+        return spec.script("voicemail", org_name=org_name or self.cfg.site.org_name)
 
-    async def voicemail_clip(self) -> bytes | None:
+    async def voicemail_clip(self, campaign_id: str = DEFAULT_CAMPAIGN_ID) -> bytes | None:
         # The clip says the company name: a new name renders (and caches) a new clip.
+        # One clip per distinct text, so use cases with the same wording share it.
         from voa_core import organization
 
         org = await organization.org_name(self.store, self.cfg.site.org_name)
-        return await self.prompts.ensure(self.voicemail_text(org))
+        return await self.prompts.ensure(self.voicemail_text(org, campaign_id))
 
     def _secret(self, ref: str) -> str:
         """Resolve a secret, failing closed: a missing secret or version yields ""

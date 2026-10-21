@@ -410,7 +410,9 @@ def patient_body(p: dict) -> dict:
         "patient_dob": p["patient_dob"].strip(),
         "is_diabetic": bool(p.get("is_diabetic")),
     }
-    for k in ("operation_name", "operation_date"):
+    # campaign_id: passed through when present (a redial keeps the call's use
+    # case); the API validates it.
+    for k in ("operation_name", "operation_date", "campaign_id"):
         if p.get(k) and str(p[k]).strip():
             body[k] = str(p[k]).strip()
     return body
@@ -495,6 +497,7 @@ async def propose_redial(call_sid: str):
         "operation_name": ctx.get("operation_name"),
         "operation_date": ctx.get("operation_date"),
         "is_diabetic": bool(ctx.get("is_diabetic", False)),
+        "campaign_id": c.get("campaign_id"),
     }
     if p["patient_id"]:
         try:

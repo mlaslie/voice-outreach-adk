@@ -22,32 +22,15 @@ from .call_facts import facts_for
 
 
 def _campaign(tool_context: ToolContext):
-    cid = tool_context.state.get("campaign_id")
-    if not cid:
-        return None
-    from voa_core.campaign import load_campaign
+    """The call's use-case spec (``state["campaign_id"]``, set by the gateway for
+    every call); post-op when a state has none (tests, spikes)."""
+    from voa_core.campaign import DEFAULT_CAMPAIGN_ID, load_campaign
 
-    return load_campaign(cid)
+    return load_campaign(tool_context.state.get("campaign_id") or DEFAULT_CAMPAIGN_ID)
 
 
 log = logging.getLogger(__name__)
 
-#: Fallback when no campaign is in session state (tests, spikes).
-QUESTION_IDS = (
-    "overall_feeling",
-    "pain_present",
-    "pain_severity",
-    "pain_location",
-    "pain_trend",
-    "fever_reported",
-    "incision_concerns",
-    "incision_description",
-    "legs_swollen",
-    "swelling_description",
-    "sleeping_well",
-    "blood_sugar_status",
-    "has_questions",
-)
 OUTCOMES = (
     "questionnaire_completed",
     "reschedule_requested",
@@ -58,15 +41,8 @@ OUTCOMES = (
     "voicemail_left",
 )
 MAX_DOB_ATTEMPTS = 2
-_MUST_BE_TYPED = {
-    "pain_present",
-    "pain_severity",
-    "pain_trend",
-    "incision_concerns",
-    "has_questions",
-}
-# An unclear answer is recorded as "unknown" rather than re-asked.
-_UNKNOWN_OK = {"fever_reported", "legs_swollen", "sleeping_well", "blood_sugar_status"}
+# What an unreadable answer does is decided by the question's TYPE (or named
+# parser): voa_core.parsers.voice_on_unclear.
 
 
 def _yes(value: Any) -> bool:
@@ -124,34 +100,36 @@ async def record_answer(question_id: str, answer: str, tool_context: ToolContext
             numbers or words for blood_sugar_status.
     """
     campaign = _campaign(tool_context)
-    ids = tuple(q.id for q in campaign.questions) if campaign else QUESTION_IDS
-    if question_id not in ids:
+    ids = campaign.question_ids
+    question = campaign.question(question_id)
+    if question is None:
         return {
             "status": "error",
             "message": f"unknown question_id; use one of {', '.join(ids)}",
         }
-    # Normalize with the same deterministic parsers the SMS survey uses, so voice and
-    # text answers are typed identically and triage sees one vocabulary.
-    from voa_core import survey
+    # Normalize with the same deterministic parsers the SMS survey uses (by question
+    # type), so voice and text answers are typed identically and triage sees one
+    # vocabulary.
+    from voa_core import parsers, survey
 
-    parsed: object = answer
-    if question_id in survey._PARSERS:
-        parsed = survey.parse_answer(question_id, answer)
-        if parsed is None and question_id in _UNKNOWN_OK:
+    parsed: object = parsers.parse(question, answer)
+    if parsed is None:
+        on_unclear = parsers.voice_on_unclear(question)
+        if on_unclear == "unknown":
             parsed = "unknown"
-        if parsed is None and question_id in _MUST_BE_TYPED:
+        elif on_unclear == "reask":
             _audit(tool_context, "record_answer", question_id=question_id, status="unclear")
             return {
                 "status": "unclear",
                 "message": f"The answer to {question_id} was unclear. Ask the question again.",
             }
-        if parsed is None:
+        else:
             parsed = answer
     answers = dict(tool_context.state.get("answers", {}))
     answers[question_id] = parsed
-    if question_id == survey.Q_SUGAR:
-        # The status is for triage; the nurse wants the patient's own numbers.
-        answers[survey.F_SUGAR_READING] = answer.strip()[: survey.MAX_FREE_TEXT]
+    if rf := parsers.raw_field(question):
+        # The status is for triage; the nurse wants the patient's own words.
+        answers[rf] = answer.strip()[: survey.MAX_FREE_TEXT]
     raw = dict(answers.get(survey.RAW_KEY, {}))
     raw[question_id] = answer
     answers[survey.RAW_KEY] = raw
@@ -190,7 +168,8 @@ async def record_patient_question(question: str, tool_context: ToolContext) -> d
         return {"status": "recorded", "count": len(qs)}
     qs.append(entry)
     answers[survey.F_PATIENT_QUESTIONS] = qs
-    answers.setdefault(survey.Q_HAS_QUESTIONS, "yes")
+    for qid in _campaign(tool_context).open_question_ids:
+        answers.setdefault(qid, "yes")
     tool_context.state["answers"] = answers
     # Field names and the triage only: the question itself is PHI-adjacent.
     _audit(
@@ -204,27 +183,8 @@ async def record_patient_question(question: str, tool_context: ToolContext) -> d
     return {"status": "recorded", "count": len(qs)}
 
 
-def _missing(answers: dict[str, str]) -> list[str]:
-    need = [
-        "overall_feeling",
-        "pain_present",
-        "fever_reported",
-        "incision_concerns",
-        "legs_swollen",
-        "sleeping_well",
-        "has_questions",
-    ]
-    if _yes(answers.get("pain_present")):
-        need += ["pain_severity", "pain_location", "pain_trend"]
-    if _yes(answers.get("incision_concerns")):
-        need.append("incision_description")
-    if _yes(answers.get("legs_swollen")):
-        need.append("swelling_description")
-    return [q for q in need if not str(answers.get(q, "")).strip()]
-
-
 _DEFAULT_SCRIPTS = {
-    "medication_reminder": "Before I let you go, please bring a list of your current "
+    "closing_extra": "Before I let you go, please bring a list of your current "
     "medications to your post-op follow-up clinic visit.",
     "closing_questions": "Thank you for your questions. Our care team will follow up with you "
     "to get them answered. Take care, goodbye.",
@@ -236,11 +196,12 @@ _DEFAULT_SCRIPTS = {
 
 
 def closing_for(campaign, tier: str, asked_questions: bool) -> str:
-    """Medication-list reminder, then the questions / follow-up / all-clear goodbye."""
+    """``closing_extra`` (post-op: the medication-list reminder), then the
+    questions / follow-up / all-clear goodbye."""
 
     def s(key: str) -> str:
-        if campaign and key in campaign.scripts:
-            return campaign.scripts[key]
+        if campaign is not None:
+            return campaign.scripts.get(key, "")
         return _DEFAULT_SCRIPTS[key]
 
     if asked_questions:
@@ -249,7 +210,8 @@ def closing_for(campaign, tier: str, asked_questions: bool) -> str:
         end = s("closing_follow_up")
     else:
         end = s("closing_no_follow_up")
-    return f"{s('medication_reminder')} {end}"
+    extra = s("closing_extra")
+    return f"{extra} {end}" if extra else end
 
 
 async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
@@ -287,7 +249,7 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
     campaign = _campaign(tool_context)
     patient = tool_context.state.get("patient", {})
     visible = {k: v for k, v in answers.items() if not k.startswith("_")}
-    missing = campaign.missing(patient, visible) if campaign else _missing(visible)
+    missing = campaign.missing(patient, visible)
     if outcome == "questionnaire_completed" and missing:
         _audit(tool_context, "submit_report", status="incomplete", missing=missing)
         return {"status": "incomplete", "ask_these_questions": missing}
@@ -303,7 +265,7 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
     elif outcome == "questionnaire_completed":
         from voa_core import survey
 
-        t = survey.triage(answers)
+        t = survey.triage(answers, campaign, patient)
         tier, reason, reasons = t.follow_up, t.reason, t.reasons
     else:
         tier, reason, reasons = "none", outcome.replace("_", " "), []
@@ -322,7 +284,8 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
         {
             **report,
             "patient_id": str(tool_context.state.get("patient", {}).get("patient_id") or "unknown"),
-        }
+        },
+        campaign=campaign,
     )
     if errors:
         _audit(tool_context, "submit_report", status="invalid", errors=errors)
@@ -334,7 +297,8 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
 
     qs = list(answers.get("patient_questions") or [])
     pending = [q for q in qs if not isinstance(q, dict) or patient_questions.needs_follow_up(q)]
-    asked = bool(pending) or (_yes(answers.get("has_questions")) and not qs)
+    said_yes = any(_yes(answers.get(qid)) for qid in campaign.open_question_ids)
+    asked = bool(pending) or (said_yes and not qs)
     closing = closing_for(campaign, tier, asked)
     return (
         {"status": "ok", "closing": closing}

@@ -9,7 +9,7 @@ from google.adk.agents import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.models import Gemini
 from google.genai import types
-from voa_core.campaign import load_campaign
+from voa_core.campaign import DEFAULT_CAMPAIGN_ID, load_campaign
 from voa_core.config import AppConfig
 
 from .instruction import build_instruction
@@ -48,7 +48,7 @@ def build_voice_agent(
     def instruction(ctx: ReadonlyContext) -> str:
         patient = ctx.state.get("patient", {})
         if template is None:
-            campaign = load_campaign(ctx.state.get("campaign_id", "post_op"))
+            campaign = load_campaign(ctx.state.get("campaign_id") or DEFAULT_CAMPAIGN_ID)
             # The admin console's company name, resolved by the gateway when the call starts.
             org = ctx.state.get("org_name") or cfg.site.org_name
             return build_instruction(
@@ -76,6 +76,9 @@ def build_voice_agent(
         ),
     )
     return Agent(
+        # One agent serves every use case (the instruction is built per call from
+        # state["campaign_id"]); the name stays as it was, since ADK session and
+        # trace names key on it.
         name="post_op_voice_agent",
         model=model,
         instruction=instruction,

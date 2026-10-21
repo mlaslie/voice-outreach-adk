@@ -36,4 +36,4 @@ def test_scripts_render_and_tiers():
     assert "Acme" in c.script(
         "opener", org_name="Acme", patient_first_name="J", patient_last_name="R"
     )
-    assert c.follow_up_tiers[0] == "emergency" and "voicemail_left" in c.outcomes
+    assert c.version >= 1 and c.channels == ["voice", "sms"]

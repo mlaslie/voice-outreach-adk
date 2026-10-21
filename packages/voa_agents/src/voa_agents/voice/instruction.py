@@ -16,7 +16,11 @@ _TYPE_HINTS = {
     "yes_no": 'Record "yes" or "no".',
     "yes_no_unknown": 'Record "yes", "no" or "unknown".',
     "scale_0_10": "Record a whole number from 0 to 10.",
+    "scale": "Record a whole number from {min} to {max}.",
     "choice": "Record one of: {choices}.",
+    "number": "Record the number they say{unit}.",
+    "date": "Record the date they say.",
+    "time": "Record the time they say.",
     "text": "Record a short summary in the caller's words.",
     "open_questions": (
         'Record "yes" or "no" with record_answer. If yes (or they simply ask something), then '
@@ -66,7 +70,13 @@ def _questions_block(
         if knowledge and q.type == "open_questions":
             hint = _knowledge_hint(knowledge)
         else:
-            hint = _TYPE_HINTS[q.type].format(choices=", ".join(q.choices))
+            lo, hi = q.scale_range()
+            hint = _TYPE_HINTS[q.type].format(
+                choices=", ".join(q.choices),
+                min=lo,
+                max=hi,
+                unit=f" (in {q.unit})" if q.unit else "",
+            )
         note = f" {q.note}" if q.note else ""
         lines.append(f'- {q.id}{cond}: "{q.ask}" {hint}{note}')
     return "\n".join(lines)
@@ -87,7 +97,10 @@ def build_instruction(
         "patient_last_name": patient.get("last_name", ""),
     }
     s = lambda key: c.script(key, **v)  # noqa: E731
-    flags = "\n".join(f"- {f}" for f in c.red_flags)
+    flags = "\n".join(f"- {f}" for f in c.all_red_flags)
+    # closing_extra (post-op: the medication-list reminder) is part of the closing
+    # submit_report returns; the frame names it so the model does not skip it.
+    extra = f" (it includes {c.closing_extra_label})" if c.closing_extra_label else ""
     return f"""You are {c.agent_name}, an automated assistant calling on behalf of {org_name}. You are on a PHONE CALL. Everything you say is spoken aloud.
 
 # Speaking style
@@ -112,7 +125,7 @@ def build_instruction(
 3. CONSENT: "{s("consent")}" If not a good time: submit_report with outcome "reschedule_requested", then say "{s("reschedule")}" and call end_call.
 4. QUESTIONS, one per turn, in this order. After each answer call record_answer with the question id. Listen to what the caller already told you: never ask for something they just said. If an earlier answer already covers a question, record it with record_answer without asking, or ask only for the missing part.
 {_questions_block(c, patient, knowledge)}
-5. CLOSING: call submit_report with outcome "questionnaire_completed" BEFORE saying anything else. If it returns questions still to ask, ask them, record them and submit again. When it returns "ok", say the closing it gives you word for word (it includes the medication-list reminder), then call end_call.
+5. CLOSING: call submit_report with outcome "questionnaire_completed" BEFORE saying anything else. If it returns questions still to ask, ask them, record them and submit again. When it returns "ok", say the closing it gives you word for word{extra}, then call end_call.
 
 # Safety: check every turn
 If the caller mentions any of the following (a clear denial like "no chest pain" does not count):

@@ -1,26 +1,28 @@
-# Campaign: post-operative wellness check.
-# A campaign is one kind of outreach call described as data. The voice agent's
-# instruction, the SMS questionnaire and the completeness check all read this
-# file. How to edit it: docs/EDITING-QUESTIONS.md.
+# Use case: post-operative wellness check (spec schema v2).
+# A use case is one kind of outreach call described as data: what it asks, how
+# the answers are triaged, and what the voice agent and the text questionnaire
+# say. The voice agent's instruction, the SMS questionnaire, the triage and the
+# report check all read this file; the code is a generic engine
+# (docs/USE-CASES-PLAN.md). How to edit it: docs/EDITING-QUESTIONS.md.
 #
 # SAFE TO EDIT HERE (rewording):
 #   ask, note, scripts      -> what the voice agent says
 #   sms, sms_if_*,          -> what the text-message questionnaire sends
 #   sms_scripts
-#   red_flags               -> wording only; a NEW or REMOVED red flag is a
-#                              clinical change (see below)
+#   reason (in rules)       -> the words a nurse reads for a finding
+# NEEDS A CLINICIAN (and a review of the triage tests):
+#   rules (when, check, tier): what makes a patient same-day, next-day or noted.
+#   Post-op's rules reproduce the pre-engine code exactly; the parity suite
+#   (packages/voa_core/tests/parity) fails on any change in outcome.
+#   red_flags_extra (adding a red flag; the shared ones are in code and can
+#   never be removed: voa_core/campaign.py SHARED_RED_FLAGS).
 # NEEDS A DEVELOPER:
-#   adding, removing or renaming a question id, or changing `type`, `when` or
-#   `when_patient`. Every id needs a parser and a triage meaning in
-#   packages/voa_core/src/voa_core/survey.py, and the report the proxy files is
-#   validated field by field.
-# NEEDS A DEVELOPER AND A CLINICIAN:
-#   triage and priority rules (what makes a patient same-day, next-day or
-#   noted), red flags, and the swelling / patient-question rules. They are
-#   deliberately code, not data: survey.triage, patient_questions.py and
-#   survey._SWELLING_URGENT. Nothing in this file changes who gets escalated.
+#   a new named check, parser or reuse helper (reviewed code in voa_core/checks.py,
+#   parsers.py, survey.py), and anything the nurse UI or analytics must show
+#   differently (display/analytics are schema only until step 2).
 # NOT IN THIS FILE: the SMS invite, the 1/2/3 menu, the date-of-birth check,
-#   STOP/HELP and other compliance replies (packages/voa_core/src/voa_core/copy.py).
+#   STOP/HELP and other compliance replies (packages/voa_core/src/voa_core/copy.py),
+#   and the call frame (identity, consent, the 911 script: voice/instruction.py).
 #
 # Placeholders in {braces} are filled in by the code; only the ones listed in
 # docs/EDITING-QUESTIONS.md exist. Voice scripts: {org_name},
@@ -31,7 +33,23 @@
 
 id: post_op
 name: Post-operative wellness check
+version: 1
+status: active
+channels: [voice, sms]
 agent_name: Sara
+purpose: >
+  Check on a patient at home after their procedure: pain, fever, the incision,
+  leg swelling, sleep, blood sugars for diabetic patients, and any questions for
+  the care team.
+# The patient context a call carries (call-list entries, ingest, the nurse forms).
+patient_fields:
+  - {id: operation_name, type: text}
+  - {id: operation_date, type: date}
+  - {id: is_diabetic, type: bool}
+  - {id: care_setting, type: choice, choices: [inpatient, outpatient]}
+# The voice frame's name for scripts.closing_extra, and the word in report errors.
+closing_extra_label: the medication-list reminder
+question_noun: wellness
 
 scripts:
   opener: "Hello, this is an automated call from {org_name}. May I please speak with {patient_first_name} {patient_last_name}?"
@@ -43,8 +61,8 @@ scripts:
   reschedule: "No problem. We'll reach out again at a better time. Goodbye."
   emergency: "That sounds serious. Please hang up now and call nine one one. I'll make sure the care team is notified."
   no_medical_advice: "I'm an automated assistant, so I can't give medical advice, but I'll make sure a nurse follows up with you."
-  # Every completed call: said before the closing.
-  medication_reminder: "Before I let you go, please bring a list of your current medications to your post-op follow-up clinic visit."
+  # Every completed call: said before the closing (clinic request, 19 Oct 2026).
+  closing_extra: "Before I let you go, please bring a list of your current medications to your post-op follow-up clinic visit."
   closing_questions: "Thank you for your questions. Our care team will follow up with you to get them answered. Take care, goodbye."
   closing_follow_up: "Thank you. One of our nurses will be in touch with you soon. Take care, goodbye."
   closing_no_follow_up: "Thank you, that's everything. Nothing else is required from you today. Take care, goodbye."
@@ -66,10 +84,18 @@ questions:
     ask: "Are you having any pain?"
     sms: "Are you having any pain right now? Reply YES or NO."
     type: yes_no
+    # A completed report needs all three pain follow-ups once pain_present is yes.
+    required_with:
+      answer: "yes"
+      fields: [pain_severity, pain_location, pain_trend]
+      presence: key
+      message: "pain_present=yes requires pain sub-fields: {missing}. Ask the pain severity, location, and trend sub-questions before submitting."
   - id: pain_severity
     ask: "On a scale from zero to ten, how bad is the pain?"
     sms: "On a scale of 0 to 10, where 10 is the worst pain imaginable, what number would you give it right now?"
-    type: scale_0_10
+    type: scale
+    min: 0
+    max: 10
     when: {pain_present: "yes"}
     note: "For a range, record the higher number."
   - id: pain_location
@@ -79,12 +105,14 @@ questions:
     sms_if_known: "You mentioned pain at your {site}. Is there pain anywhere else? Reply NO, or tell us where and what it feels like."
     type: text
     when: {pain_present: "yes"}
+    reuse: pain_site
     note: "If they already said where it hurts, do not ask where again: say \"You mentioned your <place>. Is there pain anywhere else?\" and record both."
   - id: pain_trend
     ask: "Is it getting better, staying the same, or getting worse?"
     sms: "Is it getting better, staying the same, or getting worse?"
     type: choice
     choices: [better, same, worse]
+    parser: trend
     when: {pain_present: "yes"}
   - id: fever_reported
     ask: "Have you had a fever, a temperature over one hundred point four, since you went home?"
@@ -94,6 +122,9 @@ questions:
     ask: "Have you noticed anything unusual with your incision, like spreading redness, drainage, warmth, or opening?"
     sms: "Is there anything unusual about your incision or bandage - spreading redness, drainage, warmth, opening, or a bad smell? Reply YES or NO."
     type: yes_no
+    required_with:
+      fields: [incision_description]
+      message: "incision_concerns=yes requires incision_description. Ask the patient to describe what they see."
   - id: incision_description
     ask: "Can you describe what you see?"
     sms: "Can you describe what you're seeing?"
@@ -103,6 +134,9 @@ questions:
     ask: "Are your legs or feet swollen?"
     sms: "Are your legs or feet swollen? Reply YES or NO."
     type: yes_no_unknown
+    required_with:
+      fields: [swelling_description]
+      message: "legs_swollen=yes requires swelling_description. Ask whether it is one leg or both and whether it is getting worse."
   - id: swelling_description
     ask: "Is it in one leg or both, and is it getting worse?"
     sms: "Is it one leg or both, and is it getting worse?"
@@ -111,6 +145,7 @@ questions:
     sms_if_trend_known: "Is it in one leg or foot, or both?"
     type: text
     when: {legs_swollen: "yes"}
+    reuse: swelling_parts
     note: "Ask only the part they have not already told you (which side, or whether it is getting worse); if they told you both, record what they said without asking."
   - id: sleeping_well
     ask: "Are you sleeping well?"
@@ -120,6 +155,9 @@ questions:
     ask: "What has the range of your blood sugars been?"
     sms: "What is the range of your blood sugars? Reply with your numbers, like \"110 to 160\", or say if they have been high or low."
     type: text
+    # high / low / in_range for triage; the patient's own words are kept as
+    # blood_sugar_reading for the nurse.
+    parser: blood_sugar
     when_patient: {is_diabetic: true}
     note: "Record the numbers or words they say, e.g. \"120 to 250\"."
   - id: has_questions
@@ -147,42 +185,135 @@ sms_scripts:
   # Closings, sent once the answers are filed. Urgent = triage found something
   # for the same day. {questions_follow_up} becomes the questions_follow_up
   # line plus a space if they asked a question, and nothing otherwise.
-  # {medication_reminder} is the medication_reminder line (clinic request:
-  # every completed questionnaire ends with it).
-  closing_routine: "That's everything - thank you. Your care team has your answers. {questions_follow_up}{medication_reminder} If anything changes or gets worse, call your care team, or 911 in an emergency."
-  closing_urgent: "Thank you - that's everything. Based on your answers someone from your care team will reach out to you. {questions_follow_up}{medication_reminder} If things get worse before then, call your care team, or 911 in an emergency."
+  # {closing_extra} is the closing_extra line (clinic request: every completed
+  # questionnaire ends with the medication-list reminder).
+  closing_routine: "That's everything - thank you. Your care team has your answers. {questions_follow_up}{closing_extra} If anything changes or gets worse, call your care team, or 911 in an emergency."
+  closing_urgent: "Thank you - that's everything. Based on your answers someone from your care team will reach out to you. {questions_follow_up}{closing_extra} If things get worse before then, call your care team, or 911 in an emergency."
   questions_follow_up: "Your care team will follow up to get your questions answered."
-  medication_reminder: "Please bring a list of your current medications to your post-op follow-up clinic visit."
+  closing_extra: "Please bring a list of your current medications to your post-op follow-up clinic visit."
   # We stopped asking (a required answer could not be read after several tries).
   cut_short: "Thanks - we'll stop there. Your care team has what you've told us and can follow up with you directly. In an emergency, call 911."
   # Filing the answers failed for good. Sent once.
   file_failed: "Thank you for your answers. We had a problem recording them - please call the number on your paperwork so your care team has them."
 
-red_flags:
-  - chest pain, pressure, tightness or squeezing
-  - trouble breathing or shortness of breath at rest
-  - fainting or passing out
-  - heavy or uncontrolled bleeding
-  - coughing up or vomiting blood, or bloody stool
-  - a sudden, severe ("worst ever") headache
-  - "signs of stroke: face drooping, arm weakness, slurred speech"
-  - calf swelling with pain
-  - thoughts of harming themselves
+# The red flags are shared by every use case (voa_core/campaign.py
+# SHARED_RED_FLAGS) and checked every turn; add one here with red_flags_extra.
 
-follow_up_tiers:
-  - emergency
-  - urgent_same_day
-  - routine_next_business_day
-  - informational
-  - none
+# Triage. Evaluated in order; every match is a finding, and the most urgent
+# tier is the call's follow-up (same day > next business day > noted). The
+# findings are listed most urgent first, rule order within a tier, and the
+# nurse reads the reasons as written. `when` is the rule language
+# (docs/EDITING-QUESTIONS.md); `check` is a named, reviewed Python check
+# (voa_core/checks.py) for what the language cannot say safely.
+# These rules reproduce the pre-engine survey.triage exactly (parity suite).
+rules:
+  # --- same day
+  - {when: "pain_severity >= 8", tier: urgent_same_day, reason: "pain {pain_severity}/10", fields: [pain_severity]}
+  - {when: "pain_trend == worse", tier: urgent_same_day, reason: "pain worsening", fields: [pain_trend]}
+  - {when: "fever_reported == yes", tier: urgent_same_day, reason: "fever reported", fields: [fever_reported]}
+  # Voice escalates on a CONCERNING description, not on the bare yes.
+  - when: "incision_concerns == yes and answered(incision_description)"
+    tier: urgent_same_day
+    reason: "incision concern described"
+    fields: [incision_description, incision_concerns]
+  - when: "incision_concerns == yes and not answered(incision_description)"
+    tier: urgent_same_day
+    reason: "incision concern reported"
+    fields: [incision_concerns]
+  - when: "blood_sugar_status in [high, low]"
+    tier: urgent_same_day
+    reason: "blood sugar {blood_sugar_status}"
+    fields: [blood_sugar_status]
+  # One leg, worsening, or painful/red/warm swelling can mean a clot.
+  - when: "legs_swollen == yes"
+    check: swelling_is_urgent
+    args: [swelling_description]
+    tier: urgent_same_day
+    reason: "leg or foot swelling (one side, worsening, or painful)"
+    fields: [legs_swollen, swelling_description]
+  # Medication, symptom and unclear questions: one line naming the topics.
+  - {check: questions_for_care_team, args: [same_day], tier: urgent_same_day, fields: [patient_questions]}
+  - when: "pain_present == yes and not answered(pain_severity)"
+    check: severe_language
+    tier: urgent_same_day
+    reason: "severe pain described without a number"
+    fields: [pain_present]
+  - {check: asks_for_a_person, tier: urgent_same_day, reason: "asked to speak to someone", fields: [overall_feeling]}
+  - {check: expressed_worry, tier: urgent_same_day, reason: "expressed worry", fields: [overall_feeling]}
+  # --- next business day
+  - when: "pain_severity >= 4 and pain_severity <= 7"
+    tier: routine_next_business_day
+    reason: "pain {pain_severity}/10"
+    fields: [pain_severity]
+  # Pain confirmed but no number obtained: voice's "uncertain but not distressed".
+  - when: "pain_present == yes and not answered(pain_severity)"
+    tier: routine_next_business_day
+    reason: "pain reported, no severity given"
+    fields: [pain_present]
+  - when: "legs_swollen == yes and not check(swelling_is_urgent, swelling_description)"
+    tier: routine_next_business_day
+    reason: "leg or foot swelling"
+    fields: [legs_swollen]
+  - {check: questions_for_care_team, args: [next_day], tier: routine_next_business_day, fields: [patient_questions]}
+  # Said yes but no question was captured: a nurse still needs to call.
+  - when: "has_questions == yes and not check(questions_recorded)"
+    tier: routine_next_business_day
+    reason: "has questions for the care team"
+    fields: [has_questions]
+  - any_of: [pain_present, fever_reported, incision_concerns, blood_sugar_status, legs_swollen]
+    when: "_ == unknown"
+    tier: routine_next_business_day
+    reason: "some answers unclear"
+  # --- noted only
+  - when: "pain_severity >= 1 and pain_severity <= 3"
+    tier: informational
+    reason: "mild pain {pain_severity}/10"
+    fields: [pain_severity]
+  - {when: "sleeping_well == no", tier: informational, reason: "not sleeping well", fields: [sleeping_well]}
 
-outcomes:
-  - questionnaire_completed
-  - reschedule_requested
-  - voicemail_left
-  - unable_to_reach_wrong_person
-  - consent_declined
-  - identity_verification_failed
-  - emergency_ended
+# Scripted patients, run through the rules offline (CI and campaign_problems).
+tests:
+  - name: all clear
+    answers: {overall_feeling: "doing fine", pain_present: "no", fever_reported: "no", incision_concerns: "no", legs_swollen: "no", sleeping_well: "yes", has_questions: "no"}
+    expect: {tier: none}
+  - name: severe pain
+    answers: {overall_feeling: "ok", pain_present: "yes", pain_severity: 9, pain_location: "knee", pain_trend: "same"}
+    expect: {tier: urgent_same_day, reasons: ["pain 9/10"]}
+  - name: moderate pain and poor sleep
+    answers: {pain_present: "yes", pain_severity: 5, pain_location: "hip", pain_trend: "better", sleeping_well: "no"}
+    expect: {tier: routine_next_business_day, reasons: ["pain 5/10", "not sleeping well"]}
+  - name: one-sided swelling
+    answers: {legs_swollen: "yes", swelling_description: "just my left leg"}
+    expect: {tier: urgent_same_day, reasons_include: ["leg or foot swelling (one side"]}
+  - name: swelling both legs, not worse
+    answers: {legs_swollen: "yes", swelling_description: "both legs, not getting worse"}
+    expect: {tier: routine_next_business_day, reasons: ["leg or foot swelling"]}
+  - name: asks for a nurse in a yes/no answer
+    answers: {fever_reported: "no", _raw: {fever_reported: "no but please have a nurse call me"}}
+    expect: {tier: urgent_same_day, reasons: ["asked to speak to someone"]}
+  - name: unclear answers
+    answers: {fever_reported: "unknown", legs_swollen: "unknown"}
+    expect: {tier: routine_next_business_day, reasons: ["some answers unclear"]}
+  - name: diabetic, sugar high
+    patient: {is_diabetic: true}
+    answers: {blood_sugar_status: "high", blood_sugar_reading: "250"}
+    expect: {tier: urgent_same_day, reasons: ["blood sugar high"]}
+
+# Schema only until step 2 (the nurse UI and analytics render from these then).
+display:
+  title: Post-op check
+  facts: [operation_name, operation_date]
+  findings:
+    - {label: Pain, from: [pain_present, pain_severity, pain_location, pain_trend]}
+    - {label: Fever, from: fever_reported}
+    - {label: Incision, from: [incision_concerns, incision_description]}
+    - {label: Swelling, from: [legs_swollen, swelling_description]}
+    - {label: Sleep, from: sleeping_well}
+    - {label: Blood sugar, from: blood_sugar_status}
+analytics:
+  measures: [pain_severity, pain_trend, fever_reported, incision_concerns, legs_swollen, sleeping_well, blood_sugar_status, has_questions]
+knowledge:
+  scope: post_op
+  context: [operation_name, operation_date, care_setting]
 
 custom_vocabulary: [incision, drainage, redness, swollen, Tylenol, ibuprofen, oxycodone, insulin]

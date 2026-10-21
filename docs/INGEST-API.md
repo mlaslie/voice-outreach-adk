@@ -42,6 +42,12 @@ This is how a service that reads the EHR schedules post-op calls without anyone 
 
 **Optional fields:** `procedure`, `procedure_date`, `is_diabetic` (default false), `care_setting` (`inpatient` or `outpatient`; it picks which of the clinic's guidelines apply to the patient, see `docs/KNOWLEDGE-API.md`) and `language`.
 
+**Use case (optional):** `"campaign"` on a tranche applies to every call in it; `"campaign"` on a call overrides the tranche's. It names a use-case spec under `config/campaigns/` (for example `"pre_op"`); without one the call is post-op. An unknown use case rejects the whole batch with a 422. The call-list entry stores it as `campaign_id`, and changing it on a re-send counts as an update. A batch without `campaign` fingerprints exactly as before the field existed, so a re-send after the upgrade is still a replay. See `docs/USE-CASES-PLAN.md`.
+
+```json
+{"label": "Pre-op", "scheduled_for": "…", "campaign": "pre_op", "calls": [{"external_id": "enc-200", "…": "…"}]}
+```
+
 **Limits:** up to 20 tranches and 500 calls per batch. Tranche labels and `external_id`s must be unique within a batch.
 
 **Response:** per-item results, with no patient details echoed back.

@@ -27,7 +27,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from voa_core.store import new_id, now_iso
 
 from .auth import acting_user
@@ -63,7 +63,15 @@ FEED_FIELDS = (
     "operation_date",
     "is_diabetic",
     "care_setting",
+    "campaign_id",
 )
+
+
+def _campaign(v):
+    """A known use case or None (an unknown one rejects the batch with a 422)."""
+    from voa_core.campaign import validate_campaign_id
+
+    return validate_campaign_id(v)
 
 
 class IngestCall(BaseModel):
@@ -78,6 +86,13 @@ class IngestCall(BaseModel):
     is_diabetic: bool = False
     care_setting: Literal["inpatient", "outpatient"] | None = None
     language: str | None = Field(default=None, max_length=16)
+    # The use case for this patient (docs/USE-CASES-PLAN.md); overrides the tranche's.
+    campaign: str | None = None
+
+    @field_validator("campaign", mode="before")
+    @classmethod
+    def _check_campaign(cls, v):
+        return _campaign(v)
 
 
 class IngestTranche(BaseModel):
@@ -85,6 +100,13 @@ class IngestTranche(BaseModel):
     label: str = Field(min_length=1, max_length=60)
     scheduled_for: str
     calls: list[IngestCall] = Field(min_length=1)
+    # The use case for every call in the tranche without its own (default: post-op).
+    campaign: str | None = None
+
+    @field_validator("campaign", mode="before")
+    @classmethod
+    def _check_campaign(cls, v):
+        return _campaign(v)
 
 
 class IngestBatch(BaseModel):
@@ -106,11 +128,21 @@ def _run_id(source: str, batch_id: str, label: str) -> str:
 
 
 def _fingerprint(body: IngestBatch) -> str:
-    return hashlib.sha256(json.dumps(body.model_dump(), sort_keys=True).encode()).hexdigest()
+    data = body.model_dump()
+    # A batch without use cases fingerprints exactly as it did before the field
+    # existed, so a re-send after the upgrade is still recognised as the same.
+    for t in data["tranches"]:
+        if t.get("campaign") is None:
+            t.pop("campaign", None)
+        for c in t["calls"]:
+            if c.get("campaign") is None:
+                c.pop("campaign", None)
+    return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
 
-def _entry_input(c: IngestCall) -> CallListEntryInput:
+def _entry_input(c: IngestCall, tranche: IngestTranche | None = None) -> CallListEntryInput:
     return CallListEntryInput(
+        campaign_id=c.campaign or (tranche.campaign if tranche else None),
         phone=c.phone,
         patient_name=c.name,
         patient_id=c.mrn,
@@ -177,7 +209,7 @@ async def put_batch(source: str, batch_id: str, body: IngestBatch, request: Requ
                 items.append({**item, "status": "rejected", "reason": problem})
                 continue
             try:
-                entry_in = _entry_input(c)
+                entry_in = _entry_input(c, t)
             except ValidationError as exc:
                 items.append({**item, "status": "rejected", "reason": _why(exc)})
                 continue

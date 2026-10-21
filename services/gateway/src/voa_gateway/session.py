@@ -35,6 +35,7 @@ from google.adk.runners import Runner
 from google.genai import types
 from voa_agents.voice import call_facts
 from voa_agents.voice import knowledge as voice_knowledge
+from voa_core.campaign import DEFAULT_CAMPAIGN_ID
 from voa_core.config import AppConfig
 from voa_core.logging import bind, safe_extra
 from voa_providers.audio import (
@@ -147,8 +148,8 @@ class CallSession:
         sink: CallSink,
         inbound_codec: Codec | None = None,
         amd: AmdPolicy | None = None,
-        voicemail_clip: Callable[[], Awaitable[bytes | None]] | None = None,
-        campaign_id: str = "post_op",
+        voicemail_clip: Callable[[str], Awaitable[bytes | None]] | None = None,
+        campaign_id: str | None = None,
         patient_override: dict[str, Any] | None = None,
         drain_timeout_s: float = 30.0,
         record: bool = True,
@@ -157,7 +158,11 @@ class CallSession:
         self.cfg, self.runner, self.media, self.sink = cfg, runner, media, sink
         self.amd = amd or AmdPolicy(enabled=False)
         self.voicemail_clip = voicemail_clip
-        self.campaign_id = campaign_id
+        # The use case: explicit here (tests), else read from the call's staging or
+        # call doc when the call starts (_resolve_campaign), else the default.
+        self._campaign_explicit = campaign_id is not None
+        self.campaign_id = campaign_id or DEFAULT_CAMPAIGN_ID
+        self.spec_version: int | None = None
         self.patient_override = patient_override
         self.drain_timeout_s = drain_timeout_s
         self.on_agent_turn_end = on_agent_turn_end
@@ -196,6 +201,11 @@ class CallSession:
                 self.sink.remember_patient(self.call_id, self.patient_override)
             if not patient:
                 self.timeline.add("call.no_patient_context")
+            # The staging doc carries the use case next to the patient; it is not
+            # patient context, so it never reaches state["patient"].
+            patient = dict(patient)
+            use_case = {k: patient.pop(k) for k in ("campaign_id", "spec_version") if k in patient}
+            await self._resolve_campaign(use_case)
             from voa_core import organization
 
             store = getattr(self.sink, "store", None)
@@ -234,13 +244,43 @@ class CallSession:
                     items=len(kn_runtime.snapshot.examples),
                     guidelines=len(kn_runtime.snapshot.guidelines),
                 )
-            with bind(session_id=session.id):
+            with bind(session_id=session.id, campaign=self.campaign_id):
                 await self._run_bound(frames)
         return {
             "call_id": self.call_id,
             "timeline": self.timeline.entries,
             "transcript": self.transcript,
         }
+
+    async def _resolve_campaign(self, use_case: dict[str, Any]) -> None:
+        """Which use case this call runs: the staging doc's, else the call doc's,
+        else the default. A use case this gateway cannot load falls back to the
+        default (logged): the call still runs its identity, consent and safety
+        frame rather than dropping the patient."""
+        from voa_core.campaign import load_campaign
+
+        cid, version = use_case.get("campaign_id"), use_case.get("spec_version")
+        if not self._campaign_explicit:
+            if not cid:
+                doc = await self.sink.call_doc(self.call_id) or {}
+                cid, version = doc.get("campaign_id"), doc.get("spec_version")
+            self.campaign_id = cid or DEFAULT_CAMPAIGN_ID
+        try:
+            spec = load_campaign(self.campaign_id)
+        except (OSError, ValueError):
+            log.error(
+                "unknown use case; running the default",
+                extra=safe_extra({"event": "call.unknown_campaign", "requested": self.campaign_id}),
+            )
+            self.timeline.add("campaign.unknown", requested=self.campaign_id)
+            self.campaign_id, version = DEFAULT_CAMPAIGN_ID, None
+            spec = load_campaign(self.campaign_id)
+        self.spec_version = version if isinstance(version, int) else spec.version
+        self.timeline.add("campaign", id=self.campaign_id, version=self.spec_version)
+
+    def _use_case(self) -> dict[str, Any]:
+        """Stamped on every report this call files (the model never sets it)."""
+        return {"campaign_id": self.campaign_id, "spec_version": self.spec_version}
 
     async def _run_bound(self, frames) -> None:
         doc = await self.sink.call_doc(self.call_id) or {}
@@ -345,7 +385,7 @@ class CallSession:
 
     async def _voicemail_drop(self) -> None:
         self._phase = "voicemail"
-        clip = await self.voicemail_clip() if self.voicemail_clip else None
+        clip = await self.voicemail_clip(self.campaign_id) if self.voicemail_clip else None
         await self.media.clear()
         if self.recorder:
             self.recorder.clear()
@@ -365,6 +405,7 @@ class CallSession:
                 "follow_up_reason": "Voicemail left; no patient contact.",
                 "dob_verification_result": "skipped",
                 "survey_responses": {},
+                **self._use_case(),
             },
         )
         await self._drain_then_hangup("vm")
@@ -518,7 +559,7 @@ class CallSession:
         )
         report = (session.state if session else {}).get("report")
         if report:
-            await self.sink.save_report(self.call_id, dict(report))
+            await self.sink.save_report(self.call_id, {**dict(report), **self._use_case()})
             self.timeline.add("report.saved", outcome=report.get("outcome"))
 
     # ------------------------------------------------------------------ ending

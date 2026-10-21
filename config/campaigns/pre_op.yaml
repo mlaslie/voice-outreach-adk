@@ -1,0 +1,149 @@
+# Use case: pre-operative readiness call (spec schema v2). EXAMPLE, status draft.
+#
+# The second use case on the generic engine (docs/USE-CASES-PLAN.md, step 1): it
+# exists to prove a new scenario needs no code. It is reachable only through the
+# API's campaign_id field (call-list entries, runs, ingest, test calls); nothing
+# user-facing offers it yet, and it has had no clinical review. Before real use:
+# clinical sign-off on the rules, an A2P 10DLC check for its text-message copy,
+# and live persona evals (docs/USE-CASES-PLAN.md sections 6 and 7).
+#
+# How to edit: docs/EDITING-QUESTIONS.md. Check after any edit:
+#   uv run pytest -q -p no:warnings packages/voa_core packages/voa_agents
+
+id: pre_op
+name: Pre-op readiness call
+version: 1
+status: draft
+channels: [voice, sms]
+agent_name: Sara
+purpose: >
+  Confirm the patient is ready for surgery: arrival time, fasting, a ride home,
+  medicines they were told to stop, and any questions.
+patient_fields:
+  - {id: operation_name, type: text}
+  - {id: operation_date, type: date}
+  - {id: is_diabetic, type: bool}
+question_noun: readiness
+
+scripts:
+  opener: "Hello, this is an automated call from {org_name}. May I please speak with {patient_first_name} {patient_last_name}?"
+  identity_prompt: "To protect your privacy, could you please tell me your date of birth?"
+  identity_verified: "Thank you, that's verified."
+  consent: "I'm calling from {org_name}'s surgical team to help you get ready for your upcoming procedure. This call may be recorded for quality. It takes a few minutes. Is now a good time?"
+  wrong_person: "Thank you, we'll try again another time. Goodbye."
+  identity_failed: "I'm sorry, I wasn't able to verify your identity. A member of our care team will reach out. Goodbye."
+  reschedule: "No problem. We'll reach out again at a better time. Goodbye."
+  emergency: "That sounds serious. Please hang up now and call nine one one. I'll make sure the care team is notified."
+  no_medical_advice: "I'm an automated assistant, so I can't give medical advice, but I'll make sure a nurse follows up with you."
+  closing_questions: "Thank you for your questions. Our surgical team will follow up with you to get them answered. Take care, goodbye."
+  closing_follow_up: "Thank you. One of our nurses will be in touch with you before your procedure. Take care, goodbye."
+  closing_no_follow_up: "Thank you, that's everything. We'll see you on the day of your procedure. Take care, goodbye."
+  # No patient name or clinical detail on a voicemail: anyone may hear it.
+  voicemail: "Hello, this is {org_name} calling with a message. Please call us back at your convenience at the number on your paperwork. Thank you."
+
+questions:
+  - id: arrival_confirmed
+    ask: "Do you know what time to arrive on the day of your procedure, and does that time still work for you?"
+    sms: "Do you know what time to arrive for your procedure, and does that time still work for you? Reply YES or NO."
+    type: yes_no
+  - id: fasting_understood
+    ask: "Do you know when to stop eating and drinking before your procedure?"
+    sms: "Do you know when to stop eating and drinking before your procedure? Reply YES or NO."
+    type: yes_no
+  - id: ride_home
+    ask: "Do you have an adult who can drive you home and stay with you afterwards?"
+    sms: "Do you have an adult who can drive you home and stay with you afterwards? Reply YES or NO."
+    type: yes_no
+  - id: stop_meds_instructions
+    ask: "Were you told which of your medicines to stop before your procedure?"
+    sms: "Were you told which of your medicines to stop before your procedure? Reply YES or NO."
+    type: yes_no_unknown
+  - id: feeling_unwell
+    ask: "Have you had a fever, a cough or a cold in the last few days?"
+    sms: "Have you had a fever, a cough or a cold in the last few days? Reply YES or NO."
+    type: yes_no
+    required_with:
+      fields: [unwell_description]
+      message: "feeling_unwell=yes requires unwell_description. Ask the patient to tell you a little about it."
+  - id: unwell_description
+    ask: "Can you tell me a little about that?"
+    sms: "Can you tell us a little about that?"
+    type: text
+    when: {feeling_unwell: "yes"}
+  - id: has_questions
+    ask: "Do you have any questions for the surgical team?"
+    sms: "Do you have any questions for the surgical team? Reply NO, or type your question."
+    type: open_questions
+
+sms_scripts:
+  preamble: "Thank you, that's verified. I'll send {total} short questions, one at a time. Just reply to each one. Reply C at any point to stop."
+  numbered_question: "({number}/{total}) {question}"
+  unclear_answer: "Sorry, I didn't catch that. {question}"
+  ask_question: "What is your question? Please type it in one message."
+  another_question: "Any other questions? Reply with your question, or NO if that's all."
+  question_noted: "Got it: \"{question}\". {another_question}"
+  question_noted_last: "Got it: \"{question}\". That's as many as we can take by text - your care team can help with anything else."
+  closing_routine: "That's everything - thank you. Your care team has your answers. {questions_follow_up}If anything changes before your procedure, call your care team, or 911 in an emergency."
+  closing_urgent: "Thank you - that's everything. Based on your answers someone from your care team will reach out to you before your procedure. {questions_follow_up}If things get worse before then, call your care team, or 911 in an emergency."
+  questions_follow_up: "Your care team will follow up to get your questions answered."
+  cut_short: "Thanks - we'll stop there. Your care team has what you've told us and can follow up with you directly. In an emergency, call 911."
+  file_failed: "Thank you for your answers. We had a problem recording them - please call the number on your paperwork so your care team has them."
+
+rules:
+  # --- same day
+  - {when: "feeling_unwell == yes", tier: urgent_same_day, reason: "unwell before surgery", fields: [feeling_unwell, unwell_description]}
+  - {when: "stop_meds_instructions in [no, unknown]", tier: urgent_same_day, reason: "unsure which medicines to stop", fields: [stop_meds_instructions]}
+  - {when: "fasting_understood == no", tier: urgent_same_day, reason: "fasting instructions not understood", fields: [fasting_understood]}
+  - {check: questions_for_care_team, args: [same_day], tier: urgent_same_day, fields: [patient_questions]}
+  - {check: asks_for_a_person, tier: urgent_same_day, reason: "asked to speak to someone", fields: [unwell_description]}
+  - {check: expressed_worry, tier: urgent_same_day, reason: "expressed worry", fields: [unwell_description]}
+  # --- next business day
+  - {when: "ride_home == no", tier: routine_next_business_day, reason: "no ride home arranged", fields: [ride_home]}
+  - {when: "arrival_confirmed == no", tier: routine_next_business_day, reason: "arrival time does not work", fields: [arrival_confirmed]}
+  - {check: questions_for_care_team, args: [next_day], tier: routine_next_business_day, fields: [patient_questions]}
+  - when: "has_questions == yes and not check(questions_recorded)"
+    tier: routine_next_business_day
+    reason: "has questions for the care team"
+    fields: [has_questions]
+  - any_of: [arrival_confirmed, fasting_understood, ride_home, feeling_unwell]
+    when: "_ == unknown"
+    tier: routine_next_business_day
+    reason: "some answers unclear"
+
+tests:
+  - name: all good
+    answers: {arrival_confirmed: "yes", fasting_understood: "yes", ride_home: "yes", stop_meds_instructions: "yes", feeling_unwell: "no", has_questions: "no"}
+    expect: {tier: none}
+  - name: has a cold
+    answers: {arrival_confirmed: "yes", fasting_understood: "yes", ride_home: "yes", stop_meds_instructions: "yes", feeling_unwell: "yes", unwell_description: "bad cough since Sunday", has_questions: "no"}
+    expect: {tier: urgent_same_day, reasons: ["unwell before surgery"]}
+  - name: no ride and unsure about medicines
+    answers: {arrival_confirmed: "yes", fasting_understood: "yes", ride_home: "no", stop_meds_instructions: "unknown", feeling_unwell: "no", has_questions: "no"}
+    expect: {tier: urgent_same_day, reasons: ["unsure which medicines to stop", "no ride home arranged"]}
+  - name: arrival time does not work
+    answers: {arrival_confirmed: "no", fasting_understood: "yes", ride_home: "yes", stop_meds_instructions: "yes", feeling_unwell: "no", has_questions: "no"}
+    expect: {tier: routine_next_business_day, reasons: ["arrival time does not work"]}
+  - name: said yes to questions but none recorded
+    answers: {arrival_confirmed: "yes", fasting_understood: "yes", ride_home: "yes", stop_meds_instructions: "yes", feeling_unwell: "no", has_questions: "yes"}
+    expect: {tier: routine_next_business_day, reasons: ["has questions for the care team"]}
+  - name: worried, in their own words
+    answers: {feeling_unwell: "yes", unwell_description: "a sore throat and I'm worried"}
+    expect: {tier: urgent_same_day, reasons_include: ["unwell before surgery", "expressed worry"]}
+
+# Schema only until step 2.
+display:
+  title: Pre-op readiness
+  facts: [operation_name, operation_date]
+  findings:
+    - {label: Arrival, from: arrival_confirmed}
+    - {label: Fasting, from: fasting_understood}
+    - {label: Ride home, from: ride_home}
+    - {label: Medicines to stop, from: stop_meds_instructions}
+    - {label: Feeling unwell, from: [feeling_unwell, unwell_description]}
+analytics:
+  measures: [arrival_confirmed, fasting_understood, ride_home, stop_meds_instructions, feeling_unwell]
+knowledge:
+  scope: pre_op
+  context: [operation_name, operation_date]
+
+custom_vocabulary: [fasting, anesthesia, procedure, ibuprofen, aspirin, blood thinner, insulin]

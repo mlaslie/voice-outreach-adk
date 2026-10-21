@@ -397,7 +397,13 @@ async def start_run(body: RunStart, request: Request):
         raise HTTPException(
             400, f"Too many patients for one run ({api.cfg.dialing.max_dials_per_run})."
         )
-    run = await enqueue_dials(api, [i for i, _ in entries], label="manual", explicit=explicit)
+    run = await enqueue_dials(
+        api,
+        [i for i, _ in entries],
+        label="manual",
+        explicit=explicit,
+        campaign_id=body.campaign_id,
+    )
     return _run_public(run)
 
 
@@ -527,6 +533,8 @@ async def create_run(body: CallRunInput, request: Request):
         "created_at": now,
         "updated_at": now,
     }
+    if body.campaign_id:
+        doc["campaign_id"] = body.campaign_id
     await api.store.set(CALL_RUNS, run_id, doc)
     return {"run_id": run_id, **doc}
 
@@ -558,6 +566,8 @@ async def patch_run(run_id: str, body: CallRunPatch, request: Request):
         await _require_hours(api, _parse_when(patch.get("scheduled_for") or run["scheduled_for"]))
     if body.label is not None:
         patch["label"] = body.label.strip() or None
+    if body.campaign_id is not None:
+        patch["campaign_id"] = body.campaign_id
     if added:
         await _requeue_members(api, added)
     await api.store.merge(CALL_RUNS, run_id, patch)

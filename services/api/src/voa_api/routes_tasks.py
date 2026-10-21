@@ -26,6 +26,7 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
+from pydantic import ValidationError
 from voa_core import compliance, lifecycle
 from voa_core.store import Where, new_id, now_iso
 
@@ -56,12 +57,14 @@ async def enqueue_dials(
     scheduled_run_id: str | None = None,
     explicit: bool = False,
     enforce_hours: bool = False,
+    campaign_id: str | None = None,
 ) -> dict[str, Any]:
     """Start a run: one named dial task per entry.
 
     ``explicit``: a nurse named these rows, so a completed or cancelled one may be
     dialled again. ``enforce_hours``: a scheduled or automatic run, which stops
-    at closing time (B-8)."""
+    at closing time (B-8). ``campaign_id``: the run's use case, for entries without
+    their own."""
     run_id, now = new_id(), now_iso(api.now())
     run = {
         "run_id": run_id,
@@ -85,6 +88,8 @@ async def enqueue_dials(
         "skipped": [],
         "deferred": [],
     }
+    if campaign_id:
+        run["campaign_id"] = campaign_id
     await api.store.set(LIST_RUNS, CURRENT_RUN, run)
     for entry_id in entry_ids:
         e = await api.store.get(CALL_LIST, entry_id) or {}
@@ -273,8 +278,17 @@ async def task_dial(payload: dict, request: Request):
             await _member_not_dialled(api, run_id, entry_id, "skipped")
             return {"skipped": f"entry {claimed.get('list_status')}"}
         return {"skipped": "already claimed"}
-    req = PlaceCallRequest.model_validate(claimed)
+    # The entry's own use case wins; else the run's; else the default (dialer).
+    campaign_id = claimed.get("campaign_id") or (run.get("campaign_id") if ours else None)
     try:
+        try:
+            req = PlaceCallRequest.model_validate(claimed)
+        except ValidationError as exc:
+            # The entry no longer validates, e.g. its use case's spec file was
+            # removed. Block it with the reason (permanent) instead of a 500 that
+            # Cloud Tasks would retry against a row left in "calling".
+            first = exc.errors()[0] if exc.errors() else {}
+            raise DialError(400, f"entry is not dialable: {first.get('msg', exc)}") from None
         call_id = await dial(
             api,
             req,
@@ -283,6 +297,7 @@ async def task_dial(payload: dict, request: Request):
             run_id=run_id,
             attempt=attempt,
             hours=hours,
+            campaign_id=campaign_id,
         )
     except OutsideCallingHours as exc:
         # Closing time passed between the check and the dial: back on the list.
@@ -580,6 +595,7 @@ async def _dispatch_due_call_run(api: Api) -> dict | None:
                 label=claimed.get("label") or "scheduled",
                 scheduled_run_id=run_id,
                 enforce_hours=True,
+                campaign_id=claimed.get("campaign_id"),
             )
         return {"started": bool(pending), "call_run_id": run_id, "dialled": len(pending)}
     return None

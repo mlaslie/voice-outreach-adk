@@ -51,7 +51,14 @@ from voa_core.config import resolve_secret
 from voa_core.copy import SiteCopy
 from voa_core.logging import mask_phone
 from voa_core.sms import states as st
-from voa_core.sms.conversation import ConversationPolicy, Decision, Effect, asked_questions
+from voa_core.sms.conversation import (
+    ConversationPolicy,
+    Decision,
+    Effect,
+    asked_questions,
+    campaign_of,
+    session_campaign_id,
+)
 from voa_core.store import Where, new_id, now_iso
 from voa_core.timeparse import SchedulingPolicy
 
@@ -964,7 +971,15 @@ def survey_snapshot(phone: str, session: dict, decision: Decision) -> dict | Non
     ctx = session.get("patient_context") or {}
     verified = bool(patch.get("dob_verified") or session.get("dob_verified"))
     call_id = session.get("call_sid")
+    # The use case the answers belong to (a session from before campaign ids has
+    # none, and files as the default).
+    use_case = {}
+    if cid := session_campaign_id(session):
+        use_case["campaign_id"] = cid
+        if session.get("spec_version"):
+            use_case["spec_version"] = session["spec_version"]
     return {
+        **use_case,
         "phone": phone,
         "call_id": call_id,
         "entry_id": session.get("origin_entry_id"),
@@ -984,6 +999,10 @@ def survey_snapshot(phone: str, session: dict, decision: Decision) -> dict | Non
     }
 
 
+def _snap_campaign(snap: dict):
+    return survey.campaign_for(snap.get("campaign_id"))
+
+
 def _report_payload(snap: dict) -> dict:
     answers = dict(snap.get("answers") or {})
     if snap.get("emergency"):
@@ -997,7 +1016,7 @@ def _report_payload(snap: dict) -> dict:
         reason = "Could not verify identity by text; no answers collected."
         reasons = []
     else:
-        t = survey.triage(answers)
+        t = survey.triage(answers, _snap_campaign(snap))
         follow_up, reason, reasons = t.follow_up, t.reason, t.reasons
         if t.triggers:
             answers["_triggers"] = list(t.triggers)
@@ -1015,6 +1034,9 @@ def _report_payload(snap: dict) -> dict:
     }
     if outcome:
         payload["outcome"] = outcome
+    for key in ("campaign_id", "spec_version"):
+        if snap.get(key):
+            payload[key] = snap[key]
     return payload
 
 
@@ -1072,7 +1094,12 @@ async def submit_survey(api: Api, snap: dict) -> dict:
                     },
                 )
             try:
-                await send_sms(api, phone, messages.survey_file_failed(), call_id=snap["call_id"])
+                await send_sms(
+                    api,
+                    phone,
+                    messages.survey_file_failed(_snap_campaign(snap)),
+                    call_id=snap["call_id"],
+                )
             except SendBlocked:
                 log.warning("filing-failed notice not sent", extra={"event": "sms.notice_blocked"})
             return {"error": "report rejected"}
@@ -1166,13 +1193,15 @@ async def submit_survey(api: Api, snap: dict) -> dict:
             )
         return {"filed": True}
 
-    # Every completed closing carries the medication-list reminder; one that
-    # recorded questions also says the care team will follow up on them.
+    # Every completed closing carries the spec's closing_extra (post-op: the
+    # medication-list reminder); one that recorded questions also says the care
+    # team will follow up on them.
     asked = asked_questions(snap.get("answers") or {})
+    spec = _snap_campaign(snap)
     closing = (
-        messages.survey_done_urgent(asked_questions=asked)
+        messages.survey_done_urgent(asked_questions=asked, campaign=spec)
         if follow_up in (survey.FOLLOW_UP_URGENT, survey.FOLLOW_UP_EMERGENCY)
-        else messages.survey_done_routine(asked_questions=asked)
+        else messages.survey_done_routine(asked_questions=asked, campaign=spec)
     )
     try:
         await send_sms(api, phone, closing, call_id=snap.get("call_id"))
@@ -1196,7 +1225,8 @@ async def file_abandoned_survey(api: Api, phone: str, session: dict) -> bool:
     if session.get("state") not in st.SURVEY_STATES or session.get("survey_submitted_at"):
         return False
     answers = session.get("survey_answers") or {}
-    if not survey.has_urgent_finding(answers):
+    spec = campaign_of(session)
+    if spec is None or not survey.has_urgent_finding(answers, spec):
         return False
     decision = Decision(
         effect=Effect.SUBMIT_SURVEY,
@@ -1237,6 +1267,10 @@ async def _patient_context(api: Api, call: dict) -> dict:
             ctx.setdefault("is_diabetic", entry.get("is_diabetic", False))
             if entry.get("care_setting"):
                 ctx.setdefault("care_setting", entry["care_setting"])
+    # The call's use case: the questionnaire, a booked callback and a recall dial
+    # all run on it (patient_context travels with each of them).
+    if call.get("campaign_id"):
+        ctx.setdefault("campaign_id", call["campaign_id"])
     return ctx
 
 
@@ -1350,6 +1384,11 @@ async def send_invite(api: Api, payload: dict) -> dict:
             "patient_context": ctx,
             "patient_name": ctx.get("patient_name") or "",
             "patient_id": ctx.get("patient_id") or "",
+            **(
+                {"campaign_id": ctx["campaign_id"], "spec_version": call.get("spec_version")}
+                if ctx.get("campaign_id")
+                else {}
+            ),
             "state": st.STATE_AWAITING_CHOICE,
             "retry_count": 0,
             "message_count": 0,  # per conversation, not per handset
@@ -1460,6 +1499,7 @@ async def _place(api: Api, phone: str, ctx: dict, *, placed_via: str, entry_id: 
                 "operation_date": ctx.get("operation_date") or None,
                 "is_diabetic": ctx.get("is_diabetic", False),
                 "care_setting": ctx.get("care_setting") or None,
+                "campaign_id": ctx.get("campaign_id") or None,
             }
         )
     except ValidationError:

@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from voa_core.campaign import validate_campaign_id
 from voa_core.compliance import coerce_bool
 
 E164 = re.compile(r"^\+[1-9]\d{6,14}$")
@@ -27,6 +28,14 @@ class PlaceCallRequest(_In):
     is_diabetic: bool = False
     # Knowledge agent (docs/KNOWLEDGE-PLAN.md): which guidelines apply to the patient.
     care_setting: Literal["inpatient", "outpatient"] | None = None
+    # The use case (docs/USE-CASES-PLAN.md): a spec under config/campaigns. None
+    # means the default (post-op); an unknown id is a 422.
+    campaign_id: str | None = None
+
+    @field_validator("campaign_id", mode="before")
+    @classmethod
+    def _campaign(cls, v):
+        return validate_campaign_id(v)
 
     @field_validator("care_setting", mode="before")
     @classmethod
@@ -129,7 +138,19 @@ class BatchDelete(_In):
     call_sids: list[str] = Field(max_length=100)
 
 
-class RunStart(_In):
+class _CampaignField(_In):
+    """An optional use case for a run: entries without their own campaign_id are
+    called with it (an entry's own campaign_id wins)."""
+
+    campaign_id: str | None = None
+
+    @field_validator("campaign_id", mode="before")
+    @classmethod
+    def _campaign(cls, v):
+        return validate_campaign_id(v)
+
+
+class RunStart(_CampaignField):
     entry_ids: list[str] | None = None
     due_only: bool = False
 
@@ -146,13 +167,13 @@ class Reschedule(_In):
     label: str | None = None
 
 
-class CallRunInput(_In):
+class CallRunInput(_CampaignField):
     scheduled_for: str
     entry_ids: list[str] = Field(default_factory=list)
     label: str | None = None
 
 
-class CallRunPatch(_In):
+class CallRunPatch(_CampaignField):
     scheduled_for: str | None = None
     entry_ids: list[str] | None = None
     label: str | None = None
@@ -168,7 +189,8 @@ class AllowlistAdd(_In):
         return PlaceCallRequest._phone(v)
 
 
-class TestCallRequest(_In):
-    """Browser test call: a softphone session with a fictional or listed patient."""
+class TestCallRequest(_CampaignField):
+    """Browser test call: a softphone session with a fictional or listed patient.
+    ``campaign_id``: the use case to test (default: the entry's, else post-op)."""
 
     entry_id: str | None = None

@@ -177,7 +177,10 @@ async def answer_from_knowledge(question: str, tool_context: ToolContext) -> dic
             )
     qs.append(entry)
     answers[survey.F_PATIENT_QUESTIONS] = qs
-    answers.setdefault(survey.Q_HAS_QUESTIONS, "yes")
+    from .tools import _campaign
+
+    for qid in _campaign(tool_context).open_question_ids:  # post-op: has_questions
+        answers.setdefault(qid, "yes")
     tool_context.state["answers"] = answers
     # Field names, the triage and the outcome only: the question itself is PHI-adjacent.
     _audit(

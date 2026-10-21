@@ -545,6 +545,7 @@ async def test_call(body: TestCallRequest, request: Request):
         raise HTTPException(404, "Test calls are disabled.")
     key = resolve_secret(api.cfg.softphone.token_secret, api.cfg.gcp.project_id)
     call_id = "browser_" + uuid.uuid4().hex[:16]
+    campaign_id = body.campaign_id
     if body.entry_id:
         from .routes_list import entry_or_404
 
@@ -558,6 +559,7 @@ async def test_call(body: TestCallRequest, request: Request):
             "dob": e.get("patient_dob"),
             "is_diabetic": e.get("is_diabetic", False),
         }
+        campaign_id = campaign_id or e.get("campaign_id")
     else:
         patient = {
             "first_name": "Jordan",
@@ -567,7 +569,15 @@ async def test_call(body: TestCallRequest, request: Request):
             "dob": "1950-03-15",
             "is_diabetic": False,
         }
-    await api.store.set(PENDING, call_id, patient)
+    from voa_core.campaign import DEFAULT_CAMPAIGN_ID, load_campaign
+
+    campaign_id = campaign_id or DEFAULT_CAMPAIGN_ID
+    try:
+        spec_version = load_campaign(campaign_id).version
+    except (OSError, ValueError):
+        raise HTTPException(422, f"Unknown use case {campaign_id!r}.") from None
+    use_case = {"campaign_id": campaign_id, "spec_version": spec_version}
+    await api.store.set(PENDING, call_id, {**patient, **use_case})
     now = now_iso(api.now())
     await api.store.set(
         CALLS,
@@ -583,6 +593,7 @@ async def test_call(body: TestCallRequest, request: Request):
             "placed_via": "test_call",
             "amd_requested": False,
             "channel": "voice",
+            **use_case,
         },
     )
     exp = str(int(time.time()) + 300)

@@ -10,7 +10,8 @@ from pathlib import Path
 import pytest
 from voa_core import copy as messages
 from voa_core import survey
-from voa_core.campaign import load_campaign
+from voa_core.campaign import DEFAULT_CAMPAIGN_ID, SHARED_RED_FLAGS, load_campaign
+from voa_core.campaign_lint import campaign_problems, sms_copy_problems
 
 CONFIG = Path(__file__).parents[3] / "config"
 VOICE_PLACEHOLDERS = {"org_name", "patient_first_name", "patient_last_name"}
@@ -18,7 +19,7 @@ VOICE_PLACEHOLDERS = {"org_name", "patient_first_name", "patient_last_name"}
 
 @pytest.fixture
 def c():
-    return load_campaign(survey.SMS_CAMPAIGN_ID, CONFIG)
+    return load_campaign(DEFAULT_CAMPAIGN_ID, CONFIG)
 
 
 def _with_question(c, qid, **update):
@@ -36,12 +37,12 @@ def _with_script(c, key, text):
 # --- the file as committed ------------------------------------------------------
 
 
-def test_every_question_can_be_parsed_and_triaged(c):
-    assert survey.plan_problems(c) == []
+def test_the_spec_has_no_problems(c):
+    assert campaign_problems(c) == []
 
 
 def test_all_sms_copy_is_present_and_sendable(c):
-    assert messages.sms_copy_problems(c) == []
+    assert sms_copy_problems(c) == []
 
 
 def test_voice_scripts_use_only_known_placeholders(c):
@@ -55,7 +56,13 @@ def test_voice_scripts_use_only_known_placeholders(c):
 
 
 def test_red_flags_are_listed(c):
-    assert c.red_flags and all(f.strip() for f in c.red_flags)
+    assert c.all_red_flags and all(f.strip() for f in c.all_red_flags)
+    assert set(SHARED_RED_FLAGS) <= set(c.all_red_flags)
+
+
+def test_a_spec_cannot_remove_a_shared_red_flag(c):
+    bad = c.model_copy(update={"red_flags": list(SHARED_RED_FLAGS[1:])})
+    assert any("shared red flag" in p for p in campaign_problems(bad))
 
 
 def test_the_runtime_reads_the_same_file(c):
@@ -67,40 +74,53 @@ def test_the_runtime_reads_the_same_file(c):
 
 def test_a_question_without_sms_copy_fails(c):
     bad = _with_question(c, "sleeping_well", sms="")
-    assert any("sleeping_well: missing `sms`" in p for p in messages.sms_copy_problems(bad))
+    assert any("sleeping_well: missing `sms`" in p for p in sms_copy_problems(bad))
     bad = _with_question(c, "pain_trend", sms="  ")  # a follow-up too
-    assert any("pain_trend: missing `sms`" in p for p in messages.sms_copy_problems(bad))
+    assert any("pain_trend: missing `sms`" in p for p in sms_copy_problems(bad))
 
 
-def test_an_unknown_question_id_fails(c):
+def test_a_new_question_needs_no_code(c):
+    # The engine parses by type: a new free-text question is valid as it is.
     extra = c.questions[0].model_copy(update={"id": "appetite"})
-    bad = c.model_copy(update={"questions": [*c.questions, extra]})
-    assert any("appetite: unknown question id" in p for p in survey.plan_problems(bad))
+    good = c.model_copy(update={"questions": [*c.questions, extra]})
+    assert campaign_problems(good) == []
 
 
-def test_a_removed_question_fails(c):
+def test_a_question_listed_twice_fails(c):
+    bad = c.model_copy(update={"questions": [*c.questions, c.questions[0]]})
+    assert any("overall_feeling: listed twice" in p for p in campaign_problems(bad))
+
+
+def test_a_removed_question_a_rule_needs_fails(c):
     bad = c.model_copy(update={"questions": [q for q in c.questions if q.id != "pain_trend"]})
-    assert any("pain_trend: missing" in p for p in survey.plan_problems(bad))
+    problems = campaign_problems(bad)
+    assert any("pain_trend" in p and "required_with" in p for p in problems), problems
+    assert any("rules[" in p and "pain_trend" in p for p in problems), problems
+
+
+def test_an_unknown_named_parser_fails(c):
+    bad = _with_question(c, "blood_sugar_status", parser="glucose")
+    assert any("unknown parser 'glucose'" in p for p in campaign_problems(bad))
 
 
 def test_a_when_on_an_unknown_id_fails(c):
     bad = _with_question(c, "pain_trend", when={"pain_presnt": "yes"})
-    assert any("unknown question 'pain_presnt'" in p for p in survey.plan_problems(bad))
+    assert any("unknown question 'pain_presnt'" in p for p in campaign_problems(bad))
 
 
 def test_a_when_on_a_later_question_fails(c):
     bad = _with_question(c, "pain_trend", when={"legs_swollen": "yes"})
-    assert any("not asked before it" in p for p in survey.plan_problems(bad))
+    assert any("not asked before it" in p for p in campaign_problems(bad))
 
 
 def test_a_follow_up_of_a_follow_up_fails(c):
     bad = _with_question(c, "pain_trend", when={"pain_severity": "yes"})
-    assert any("itself a follow-up" in p for p in survey.plan_problems(bad))
+    assert any("itself a follow-up" in p for p in campaign_problems(bad))
 
 
 def test_an_unknown_patient_flag_fails(c):
     bad = _with_question(c, "blood_sugar_status", when_patient={"is_diabetc": True})
-    assert any("unknown flag 'is_diabetc'" in p for p in survey.plan_problems(bad))
+    assert any("unknown flag 'is_diabetc'" in p for p in campaign_problems(bad))
 
 
 @pytest.mark.parametrize(
@@ -108,7 +128,8 @@ def test_an_unknown_patient_flag_fails(c):
     [
         ("preamble", "I'll send {count} questions.", "unknown placeholder {count}"),
         ("numbered_question", "({number}/{total})", "must keep the {question}"),
-        ("closing_routine", "Thanks. {questions_follow_up}Bye.", "{medication_reminder}"),
+        ("closing_routine", "Thanks. {questions_follow_up}Bye.", "{closing_extra}"),
+        ("closing_urgent", "Thanks. {closing_extra} Bye.", "{questions_follow_up}"),
         ("question_noted", 'Got it: "{question}". {other}', "unknown placeholder {other}"),
         ("ask_question", "What is your {question?", "bad braces"),
         ("another_question", "Any other questions…", "not plain GSM-7"),
@@ -116,29 +137,36 @@ def test_an_unknown_patient_flag_fails(c):
     ],
 )
 def test_bad_sms_scripts_fail(c, key, text, expect):
-    problems = messages.sms_copy_problems(_with_script(c, key, text))
+    problems = sms_copy_problems(_with_script(c, key, text))
     assert any(expect in p for p in problems), problems
 
 
 def test_an_unknown_sms_script_fails(c):
-    problems = messages.sms_copy_problems(_with_script(c, "closing_rutine", "Bye."))
+    problems = sms_copy_problems(_with_script(c, "closing_rutine", "Bye."))
     assert any("sms_scripts.closing_rutine: unknown line" in p for p in problems)
 
 
 def test_question_copy_placeholders_and_quotes_are_checked(c):
     bad = _with_question(c, "pain_location", sms_if_known="Pain at your {place}?")
-    assert any("unknown placeholder {place}" in p for p in messages.sms_copy_problems(bad))
+    assert any("unknown placeholder {place}" in p for p in sms_copy_problems(bad))
     bad = _with_question(c, "legs_swollen", sms="Are your legs swollen, {patient_first_name}?")
-    assert any("unknown placeholder" in p for p in messages.sms_copy_problems(bad))
+    assert any("unknown placeholder" in p for p in sms_copy_problems(bad))
     bad = _with_question(c, "sleeping_well", sms="Are you sleeping “well”?")
-    assert any("not plain GSM-7" in p for p in messages.sms_copy_problems(bad))
+    assert any("not plain GSM-7" in p for p in sms_copy_problems(bad))
+
+
+def test_a_variant_needs_its_reuse_helper(c):
+    bad = _with_question(c, "pain_location", reuse="")
+    assert any("`sms_if_known` is not used" in p for p in sms_copy_problems(bad))
+    bad = _with_question(c, "pain_location", reuse="pain_sight")
+    assert any("unknown reuse helper 'pain_sight'" in p for p in campaign_problems(bad))
 
 
 def test_a_variant_on_the_wrong_question_fails(c):
     bad = _with_question(c, "pain_trend", sms_if_known="You said {site}.")
-    assert any("not used for this question" in p for p in messages.sms_copy_problems(bad))
+    assert any("not used for this question" in p for p in sms_copy_problems(bad))
     bad = _with_question(c, "swelling_description", sms_if_side_known="")
-    assert any("missing `sms_if_side_known`" in p for p in messages.sms_copy_problems(bad))
+    assert any("missing `sms_if_side_known`" in p for p in sms_copy_problems(bad))
 
 
 # --- the plan follows the file ----------------------------------------------------

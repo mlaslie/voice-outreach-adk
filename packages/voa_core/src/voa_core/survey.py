@@ -1,42 +1,62 @@
-"""The post-op questionnaire, by text -- plan, parsers, and triage.
+"""The questionnaire by text -- plan, follow-ups, and the triage entry point.
 
-Pure logic, no clock, no model; the only I/O is reading the campaign file once
-(:func:`sms_campaign`, cached). Everything here is deterministic so
-that a clinical decision can be pointed at a line of code, which is the whole
-reason this path has no LLM in it.
-
-Three things live here:
+Pure logic, no clock, no model; the only I/O is reading a use-case spec once per
+id (:func:`campaign_for`, cached). Everything here is deterministic so that a
+clinical decision can be pointed at a line of code (or a rule in a spec), which
+is the whole reason this path has no LLM in it.
 
 * **The plan** (:func:`build_plan`) -- which questions this patient gets, fixed
-  before the first one is sent so ``(n/N)`` can never change mid-flow. The
-  order and the follow-ups come from ``config/campaigns/post_op.yaml`` (the
-  questions' order, ``when`` and ``when_patient``); the ids, parsers and triage
-  stay here, and :func:`plan_problems` rejects a campaign that names a question
-  this module cannot parse or triage.
-* **The parsers** -- what a handset actually sends, not what a form designer
-  wishes it sent.
-* **The triage** (:func:`triage`) -- ``<escalation_criteria>`` from
-  the voice agent's instructions, ported from prose to code.
+  before the first one is sent so ``(n/N)`` can never change mid-flow. The order
+  and the follow-ups come from the spec (questions' order, ``when`` and
+  ``when_patient``).
+* **The parsers** -- by question type, in ``voa_core.parsers`` (re-exported here).
+* **The triage** (:func:`triage`) -- the spec's ``rules``, evaluated by
+  ``voa_core.rules``; post-op's are the pre-engine ``<escalation_criteria>`` code
+  rewritten as rules and named checks, with identical output.
 
-The filing endpoint validates ``survey_responses`` independently and rejects
-several shapes that look reasonable here (notably ``pain_present="yes"``
-without severity, location AND trend), so change the plan with that in mind.
+The filing endpoint validates ``survey_responses`` against the same spec
+(``reports.validate_report``), so a follow-up a report requires
+(``required_with``) is strict here: an unreadable answer stays on the question.
 """
 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from collections.abc import Callable
 from functools import cache
-from pathlib import Path
+from typing import Any
 
-from .campaign import Campaign, Question, load_campaign, norm_answer
-from .config import ConfigError, find_config_dir
+from . import parsers
+from .campaign import DEFAULT_CAMPAIGN_ID, Campaign, Question, load_campaign, norm_answer
+from .checks import RAW_KEY, raw_answers, swelling_is_urgent  # noqa: F401 (re-exported)
+from .parsers import (  # noqa: F401 (re-exported: the pre-engine names)
+    _NO,
+    _YES,
+    MAX_FREE_TEXT,
+    SUGAR_HIGH_MGDL,
+    SUGAR_LOW_MGDL,
+    _negated_words,
+    _norm,
+    parse_free_text,
+    parse_scale,
+    parse_sugar,
+    parse_trend,
+    parse_yes_no,
+)
+from .rules import (  # noqa: F401 (re-exported)
+    FOLLOW_UP_EMERGENCY,
+    FOLLOW_UP_INFO,
+    FOLLOW_UP_NONE,
+    FOLLOW_UP_ROUTINE,
+    FOLLOW_UP_URGENT,
+    TIER_SHORT,
+    Triage,
+)
 
-# --- The plan -----------------------------------------------------------------
-
-# Field keys match the voice schema exactly, because the report they produce
-# has to be indistinguishable from a call's on the dashboard and in triage.
+# --- Post-op field ids ----------------------------------------------------------
+#
+# The engine does not depend on these: they name post-op's fields for callers and
+# tests that talk about post-op specifically.
 Q_OVERALL = "overall_feeling"
 Q_PAIN = "pain_present"
 Q_FEVER = "fever_reported"
@@ -45,49 +65,50 @@ Q_SUGAR = "blood_sugar_status"
 Q_SWELLING = "legs_swollen"
 Q_SLEEP = "sleeping_well"
 Q_HAS_QUESTIONS = "has_questions"
-
-# Conditional follow-ups. NOT numbered: the patient was already told there are
-# N questions, and these appear only for the people who trigger them. All four
-# are REQUIRED by the proxy when their parent answer is "yes", so they are not
-# optional extras -- without them the submission is rejected outright.
 F_PAIN_SEVERITY = "pain_severity"
 F_PAIN_LOCATION = "pain_location"
 F_PAIN_TREND = "pain_trend"
 F_INCISION_DESC = "incision_description"
 F_SWELLING_DESC = "swelling_description"
-# Not asked: written alongside other answers.
-#: The patient's own words for their blood sugars ("120 to 250"); the status is
-#: the parsed high/low/in_range, the reading is what a nurse wants to see.
+#: The patient's own words for their blood sugars ("120 to 250"): the blood_sugar
+#: parser's ``raw_field``.
 F_SUGAR_READING = "blood_sugar_reading"
 #: Questions the patient asked the care team: [{text, category, priority}]
-#: (``voa_core.patient_questions``). Asked last; a "yes" to Q_HAS_QUESTIONS
-#: collects one or more.
+#: (``voa_core.patient_questions``). Engine-wide: an ``open_questions`` question's
+#: "yes" collects one or more.
 F_PATIENT_QUESTIONS = "patient_questions"
 
-#: The by-text questionnaire is the post-op campaign.
-SMS_CAMPAIGN_ID = "post_op"
-#: Patient-context flags a question's ``when_patient`` may test.
-KNOWN_PATIENT_FLAGS = frozenset({"is_diabetic"})
+# How many times to re-ask a field the report requires as a typed value before
+# giving up and filing a partial. Looping forever strands the patient.
+MAX_STRICT_RETRIES = 3
+
+
+# --- The spec -------------------------------------------------------------------
 
 
 @cache
-def sms_campaign() -> Campaign:
-    """The campaign the SMS questionnaire is built from (read once per process).
+def campaign_for(campaign_id: str | None = None) -> Campaign:
+    """The spec a questionnaire runs on (read once per id per process).
 
-    Raises ValueError if it names a question this module cannot handle, so a
-    bad edit fails on the first text rather than mid-questionnaire.
+    Raises ValueError if the spec has problems (``campaign_lint``), so a bad edit
+    fails on the first text rather than mid-questionnaire.
     """
-    try:
-        cdir = find_config_dir()
-    except ConfigError:
-        # Running outside the repo root (and without VOA_CONFIG_DIR): look up
-        # from this file, which finds the workspace's config/ in development.
-        cdir = find_config_dir(Path(__file__).parent)
-    c = load_campaign(SMS_CAMPAIGN_ID, cdir)
-    problems = plan_problems(c)
+    from .campaign_lint import campaign_problems
+
+    c = load_campaign(campaign_id or DEFAULT_CAMPAIGN_ID)
+    problems = campaign_problems(c)
     if problems:
-        raise ValueError(f"campaign {c.id!r} cannot drive the SMS questionnaire: {problems}")
+        raise ValueError(f"campaign {c.id!r} cannot drive the questionnaire: {problems}")
     return c
+
+
+def sms_campaign() -> Campaign:
+    """The default (post-op) spec. Kept for callers that predate campaign ids."""
+    return campaign_for(DEFAULT_CAMPAIGN_ID)
+
+
+def _c(campaign: Campaign | None) -> Campaign:
+    return campaign or campaign_for(DEFAULT_CAMPAIGN_ID)
 
 
 def coerce_bool(value) -> bool:
@@ -123,7 +144,7 @@ def build_plan(patient_context: dict | None, campaign: Campaign | None = None) -
     The campaign's questions without a ``when`` (follow-ups are unnumbered),
     in campaign order, filtered by ``when_patient``.
     """
-    c = campaign or sms_campaign()
+    c = _c(campaign)
     ctx = patient_context or {}
     return [q.id for q in c.questions if not q.when and _patient_matches(q, ctx)]
 
@@ -133,527 +154,79 @@ def followups_for(field: str, answer: str, campaign: Campaign | None = None) -> 
 
     The campaign's questions whose ``when`` is this answer, in campaign order.
     """
-    c = campaign or sms_campaign()
+    c = _c(campaign)
     got = norm_answer(answer)
     return tuple(q.id for q in c.questions if field in q.when and norm_answer(q.when[field]) == got)
 
 
-def plan_problems(c: Campaign) -> list[str]:
-    """Why this campaign cannot drive the SMS questionnaire (empty if it can).
-
-    Every question id needs a parser and a triage meaning here; a ``when`` must
-    point at an earlier numbered question (the text flow has one level of
-    follow-ups); ``when_patient`` may only test flags the code knows.
-    """
-    out: list[str] = []
-    ids = [q.id for q in c.questions]
-    seen: dict[str, Question] = {}
-    for q in c.questions:
-        if q.id not in _PARSERS:
-            out.append(
-                f"{q.id}: unknown question id (a new question needs a parser and a "
-                "triage entry in voa_core/survey.py)"
-            )
-        if q.id in seen:
-            out.append(f"{q.id}: listed twice")
-        for key in q.when:
-            if key not in ids:
-                out.append(f"{q.id}: `when` refers to unknown question {key!r}")
-            elif key not in seen:
-                out.append(f"{q.id}: `when` refers to {key!r}, which is not asked before it")
-            elif seen[key].when:
-                out.append(
-                    f"{q.id}: `when` refers to {key!r}, which is itself a follow-up "
-                    "(the text flow has one level of follow-ups)"
-                )
-        if len(q.when) > 1:
-            out.append(f"{q.id}: `when` may test only one earlier answer")
-        if q.when and q.when_patient:
-            out.append(f"{q.id}: a follow-up cannot also have `when_patient`")
-        for key in q.when_patient:
-            if key not in KNOWN_PATIENT_FLAGS:
-                out.append(f"{q.id}: `when_patient` tests unknown flag {key!r}")
-        seen[q.id] = q
-    for field in _PARSERS:
-        if field not in ids:
-            out.append(
-                f"{field}: missing (removing a question needs a developer: the filed "
-                "report and triage expect it)"
-            )
-    return out
+# --- Parsing by type --------------------------------------------------------------
 
 
-# --- Parsers ------------------------------------------------------------------
-
-_YES = {
-    "y",
-    "yes",
-    "yeah",
-    "yep",
-    "yup",
-    "ya",
-    "sure",
-    "correct",
-    "true",
-    "affirmative",
-    "i do",
-    "i am",
-    "some",
-    "a little",
-    "a bit",
-    "a little bit",
-    "kind of",
-    "kinda",
-    "slightly",
-    "mild",
-    "mildly",
-    "somewhat",
-}
-_NO = {
-    "n",
-    "no",
-    "nope",
-    "nah",
-    "none",
-    "not really",
-    "no pain",
-    "negative",
-    "false",
-    "nothing",
-    "no thanks",
-    "all good",
-    "im fine",
-    "i'm fine",
-}
-
-# "a little" is a YES. The voice script is explicit: any hint of pain
-# ("just a little bit", "not bad", "mild") is "yes". Treating a hedged yes as
-# a no is the single easiest way to under-report pain in this whole feature.
-
-_NUMBER_WORDS = {
-    "zero": 0,
-    "one": 1,
-    "two": 2,
-    "three": 3,
-    "four": 4,
-    "five": 5,
-    "six": 6,
-    "seven": 7,
-    "eight": 8,
-    "nine": 9,
-    "ten": 10,
-}
-
-_TREND = {
-    "better": "better",
-    "b": "better",
-    "improving": "better",
-    "improved": "better",
-    "same": "same",
-    "s": "same",
-    "unchanged": "same",
-    "no change": "same",
-    "worse": "worse",
-    "w": "worse",
-    "worsening": "worse",
-    "getting worse": "worse",
-}
-
-# "range" / "ok" / "good" alone are NOT enough: "out of range" and "ok a bit
-# high" both contain one, and reading either as normal under-triages a
-# diabetic who just told us the opposite. High/low are checked first, and
-# "out of range" is matched explicitly.
-_SUGAR_IN_RANGE = {
-    "in range",
-    "in my usual range",
-    "normal",
-    "usual",
-    "fine",
-    "ok",
-    "okay",
-    "good",
-    "steady",
-    "stable",
-}
-_SUGAR_OUT = {"out of range", "out of my range", "outside my range", "not in range"}
-_SUGAR_HIGH = {"high", "up", "elevated", "higher", "too high"}
-_SUGAR_LOW = {"low", "down", "lower", "too low"}
+def strict_fields(campaign: Campaign | None = None) -> frozenset[str]:
+    """Follow-ups a report needs as a typed value once their parent is answered, so
+    "record unknown and move on" is not available for them -- an unparseable
+    answer has to stay on the question or the report cannot be filed at all."""
+    return frozenset(q.id for q in _c(campaign).questions if q.when and not q.optional)
 
 
-def _norm(body: str) -> str:
-    return re.sub(r"[^a-z0-9 ]+", " ", (body or "").lower()).strip()
+def unknownable(campaign: Campaign | None = None) -> frozenset[str]:
+    """Fields whose unreadable answer (after one re-ask) is recorded as "unknown"."""
+    return frozenset(q.id for q in _c(campaign).questions if parsers.sms_unknownable(q))
 
 
-def parse_yes_no(body: str) -> str | None:
-    """ "yes"/"no", or None if it cannot be read as either."""
-    t = _norm(body)
-    if not t:
-        return None
-    if t in _YES:
-        return "yes"
-    if t in _NO:
-        return "no"
-    # Fallback for a sentence rather than a bare word. Both sides are scanned
-    # and an answer containing BOTH signals is treated as unclear rather than
-    # resolved by scan order -- "no fever but some pain" is a real thing to
-    # send, and a first-match-wins loop reads it as whichever list ran first.
-    # On a clinical form, asking again beats guessing.
-    negated = _negated_words(body)
-
-    def _hits(vocab: set[str]) -> list[str]:
-        return [
-            p
-            for p in vocab
-            if p not in _YES_EXACT_ONLY
-            and re.search(rf"(?<![a-z]){re.escape(p)}(?![a-z])", t)
-            and p.split()[0] not in negated
-        ]
-
-    no_hits, yes_hits = _hits(_NO), _hits(_YES)
-    if no_hits and yes_hits:
-        return None
-    if no_hits:
-        return "no"
-    if yes_hits:
-        return "yes"
-    return None
+def parse_answer(field: str, body: str, campaign: Campaign | None = None):
+    q = _c(campaign).question(field)
+    if q is None:
+        raise KeyError(field)
+    return parsers.parse(q, body)
 
 
-# "3/10" and "3 out of 10" are how people write a pain score, and the scale
-# half must be removed BEFORE looking for numbers. Without this, normalising
-# "0/10" to "0 10" and taking the maximum reports every routine score as a 10
-# and escalates the entire cohort.
-_OUT_OF_TEN = re.compile(r"\s*(?:/|\bout of\b|\bof\b)\s*10\b")
-
-# Answers to "how bad is it" that mean zero. Exact matches only.
-_NO_PAIN = frozenset({"no", "none", "no pain", "zero", "nothing", "not any", "n"})
-
-
-def parse_scale(body: str) -> int | None:
-    """A 0-10 pain score.
-
-    Handles what people actually send: ``8``, ``eight``, ``3/10``,
-    ``about a 4``, ``4-5``, ``4 or 5``, ``none``. A range takes the HIGHER
-    end, matching the voice script -- under-reporting pain is the more
-    dangerous error, and over-reporting only costs a phone call.
-    """
-    raw = (body or "").lower()
-    t = _norm(_OUT_OF_TEN.sub(" ", raw))
-    if not t:
-        return None
-    # "none" / "no pain" is a real answer to "how bad is it", and it means 0.
-    # Deliberately an exact whitelist rather than parse_yes_no: "no idea"
-    # also reads as a no, and it means the opposite of zero.
-    if t in _NO_PAIN:
-        return 0
-    # Only short digit runs can be a 0-10 score. Checking the length BEFORE
-    # int() matters: int() on a multi-thousand-digit string raises ValueError
-    # (Python's int-string limit), and in a webhook that is a 500 the carrier
-    # retries in a loop (review finding S-10).
-    nums = [int(n) for n in re.findall(r"\d+", t) if len(n.lstrip("0")) <= 2 and int(n) <= 10]
-    if nums:
-        return max(nums)
-    for word, val in _NUMBER_WORDS.items():
-        if re.search(rf"\b{word}\b", t):
-            return val
-    return None
-
-
-# "not worse" and "no better" invert what follows them. A plain substring
-# scan reads both as the word itself, which is the wrong direction on the one
-# field that escalates on its own.
-#
-# The negation reaches the next few words of the SAME clause: "not getting
-# worse" negates "worse" (the first version negated only "getting", and
-# "worse" escalated as urgent), while "no pain but getting worse" is two
-# clauses and the second one stands. Clauses split on punctuation and "but",
-# on the RAW text, because _norm strips the punctuation that marks them.
-_NEGATORS = frozenset(
-    {
-        "not",
-        "no",
-        "never",
-        "without",
-        "isn",
-        "aren",
-        "wasn",
-        "hasn",
-        "don",
-        "doesn",
-        "didn",
-        "cant",
-        "cannot",
+def __getattr__(name: str):
+    # The pre-engine module constants, now derived from the post-op spec.
+    lazy: dict[str, Callable[[], Any]] = {
+        "STRICT_FIELDS": strict_fields,
+        "UNKNOWNABLE": unknownable,
     }
-)
-_NEGATION_REACH = 3
-_CLAUSE_SPLIT = re.compile(r"[,;.!?]|\bbut\b|\bhowever\b|\bthough\b")
-
-
-def _negated_words(body: str) -> set[str]:
-    out: set[str] = set()
-    for clause in _CLAUSE_SPLIT.split((body or "").lower()):
-        toks = _norm(clause).split()
-        for i, tok in enumerate(toks):
-            if tok in _NEGATORS:
-                out.update(toks[i + 1 : i + 1 + _NEGATION_REACH])
-    return out
-
-
-# Entries that only mean "yes" as a WHOLE answer. Inside a sentence they are
-# ordinary words: "not sure" and "I am not sure" both scanned as yes, which on
-# the pain question fabricated a pain report and three follow-ups.
-_YES_EXACT_ONLY = frozenset({"sure", "i am", "i do"})
-
-
-def parse_trend(body: str) -> str | None:
-    t = _norm(body)
-    if not t:
-        return None
-    if t in _TREND:
-        return _TREND[t]
-    negated = _negated_words(body)
-    for phrase in sorted(_TREND, key=len, reverse=True):
-        if len(phrase) > 1 and phrase in t:
-            if phrase in negated or any(w in negated for w in phrase.split()):
-                # "not worse" says what it is NOT. Skip it: "not better,
-                # worse" still has an answer in it, and a bare "not worse"
-                # falls through to None, i.e. ask again rather than record
-                # the opposite of what they said.
-                continue
-            return _TREND[phrase]
-    return None
-
-
-# A typed meter reading, in mg/dL (review finding S-10: "250" used to be
-# unparseable and the question was re-asked). The thresholds are the
-# conventional ones -- below 70 is hypoglycaemia, above 180 is above the usual
-# target -- and the plausibility bounds are roughly what a home meter can
-# display; anything outside them (or a decimal, which is likely mmol/L) is not
-# read as a reading at all. Over-triaging is the chosen direction: an abnormal
-# number wins over reassuring words ("fine, 250" is high), and abnormal words
-# win over an in-range number ("130, a bit high for me" is high).
-SUGAR_LOW_MGDL = 70
-SUGAR_HIGH_MGDL = 180
-_SUGAR_MIN_READING = 20
-_SUGAR_MAX_READING = 600
-_SUGAR_READING_RE = re.compile(r"(?<![\d.])(\d{2,3})(?![\d.]|\s*%)")
-
-
-def _sugar_from_reading(body: str) -> str | None:
-    """ "high"/"low"/"in_range" from typed numbers, None if there are none.
-
-    Several readings resolve to the most abnormal one ("120 then 250" is
-    high). A high AND a low ("65 this morning, 250 at night") returns
-    "unclear": that patient needs a person, but recording one direction
-    would misstate what they said, so the question is asked again.
-    """
-    values = {
-        "low" if n < SUGAR_LOW_MGDL else "high" if n > SUGAR_HIGH_MGDL else "in_range"
-        for n in (int(x) for x in _SUGAR_READING_RE.findall(body or ""))
-        if _SUGAR_MIN_READING <= n <= _SUGAR_MAX_READING
-    }
-    if "high" in values and "low" in values:
-        return "unclear"
-    for value in ("high", "low", "in_range"):
-        if value in values:
-            return value
-    return None
-
-
-def _sugar_from_words(body: str) -> tuple[bool, str | None]:
-    """(matched, value). matched=False means no sugar vocabulary at all."""
-    t = _norm(body)
-    if not t:
-        return False, None
-    negated = _negated_words(body)
-    # "Out of range" says abnormal without saying which way. Unclear is the
-    # honest answer -- re-asking beats recording "normal".
-    for phrase in _SUGAR_OUT:
-        if phrase in t:
-            return True, None
-    # High/low first: "ok a bit high" must not resolve on "ok".
-    for vocab, value in (
-        (_SUGAR_HIGH, "high"),
-        (_SUGAR_LOW, "low"),
-        (_SUGAR_IN_RANGE, "in_range"),
-    ):
-        for phrase in sorted(vocab, key=len, reverse=True):
-            if phrase in t:
-                if phrase in negated or any(w in negated for w in phrase.split()):
-                    return True, None
-                return True, value
-    return False, None
-
-
-def parse_sugar(body: str) -> str | None:
-    """ "high"/"low"/"in_range", or None to ask again."""
-    reading = _sugar_from_reading(body)
-    if reading == "unclear":
-        return None
-    if reading in ("high", "low"):
-        return reading
-    matched, value = _sugar_from_words(body)
-    if matched:
-        return value
-    return reading  # "in_range" from a number alone, or None
-
-
-MAX_FREE_TEXT = 500
-
-# How many times to re-ask a field the proxy requires as a typed value before
-# giving up and filing a partial. Looping forever strands the patient.
-MAX_STRICT_RETRIES = 3
-
-
-def parse_free_text(body: str) -> str | None:
-    t = (body or "").strip()
-    return t[:MAX_FREE_TEXT] if t else None
-
-
-_PARSERS = {
-    Q_OVERALL: parse_free_text,
-    Q_PAIN: parse_yes_no,
-    Q_FEVER: parse_yes_no,
-    Q_INCISION: parse_yes_no,
-    Q_SUGAR: parse_sugar,
-    Q_SWELLING: parse_yes_no,
-    Q_SLEEP: parse_yes_no,
-    Q_HAS_QUESTIONS: parse_yes_no,
-    F_SWELLING_DESC: parse_free_text,
-    F_PAIN_SEVERITY: parse_scale,
-    F_PAIN_LOCATION: parse_free_text,
-    F_PAIN_TREND: parse_trend,
-    F_INCISION_DESC: parse_free_text,
-}
-
-# Fields the proxy requires as a typed value once their parent is "yes", so
-# "record unknown and move on" is not available for them -- an unparseable
-# answer has to stay on the question or the report cannot be filed at all.
-STRICT_FIELDS = frozenset(
-    {F_PAIN_SEVERITY, F_PAIN_LOCATION, F_PAIN_TREND, F_INCISION_DESC, F_SWELLING_DESC}
-)
-
-# Fields whose schema has a real "unknown" value.
-UNKNOWNABLE = frozenset({Q_FEVER, Q_INCISION, Q_SUGAR, Q_PAIN, Q_SWELLING, Q_SLEEP})
-
-
-def parse_answer(field: str, body: str):
-    return _PARSERS[field](body)
+    if name in lazy:
+        return lazy[name]()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # --- Triage -------------------------------------------------------------------
 
-# Ported from the voice agent's <escalation_criteria>. The vocabulary must
-# match the dashboard's triage colouring so the two agree about what counts
-# as severe.
-_SEVERE_LANGUAGE = re.compile(
-    r"\b(terrible|awful|unbearable|excruciating|worst|severe|really bad|very bad)\b",
-    re.I,
-)
-_WANTS_HUMAN = re.compile(
-    r"\b(nurse|doctor|physician|call me|speak (to|with) (someone|a )|"
-    r"talk to (someone|a )|real person|human)\b",
-    re.I,
-)
-_WORRIED = re.compile(
-    r"\b(worried|worry|scared|frightened|anxious|nervous|concerned|"
-    r"don'?t understand|confused)\b",
-    re.I,
-)
 
-FOLLOW_UP_EMERGENCY = "emergency"
-FOLLOW_UP_URGENT = "urgent_same_day"
-FOLLOW_UP_ROUTINE = "routine_next_business_day"
-FOLLOW_UP_INFO = "informational"
-FOLLOW_UP_NONE = "none"
+def triage(answers: dict, campaign: Campaign | None = None, patient: dict | None = None) -> Triage:
+    """Decide follow_up and its reasons, from the answers alone (the spec's rules).
 
+    Every finding is kept with its own tier (``Triage.findings``), so a call with a
+    same-day medication question AND poor sleep records both. ``follow_up`` is the
+    most urgent tier found; ``reason`` names that tier's findings first, then the
+    lower ones ("Also noted: ...").
 
-@dataclass(frozen=True)
-class Triage:
-    follow_up: str
-    reason: str
-    # The answer fields that caused the escalation. Computed here rather than
-    # re-derived in the dashboard: which answer made a nurse necessary is a
-    # clinical judgement, and having two implementations of it -- one that
-    # decides and one that colours the screen -- is how they drift apart.
-    triggers: tuple[str, ...] = ()
-    # Every finding, most urgent first: {tier, text, fields, source}. Stored on the
-    # report and call doc as ``follow_up_reasons``.
-    findings: tuple[dict, ...] = ()
-
-    @property
-    def reasons(self) -> list[dict]:
-        return [dict(f) for f in self.findings]
-
-
-# Every raw reply, kept verbatim alongside the parsed answers. A patient who
-# writes "No, but I'm really scared, please have a doctor call me" to a yes/no
-# question has their whole sentence collapsed to "no" by the parser -- so
-# scanning only the parsed answers loses the request for a human entirely and
-# files them as needing nothing.
-RAW_KEY = "_raw"
-
-
-def raw_answers(answers: dict) -> dict:
-    """field -> exactly what the patient typed. Empty if not recorded."""
-    raw = answers.get(RAW_KEY)
-    if isinstance(raw, dict):
-        return raw
-    # Legacy shape: a flat list, with no field attribution. Still usable for
-    # scanning prose, just not for pointing at a specific message.
-    return {}
-
-
-def _free_text_blob(answers: dict) -> str:
-    """Everything the patient actually wrote, parsed fields included."""
-    # Patient questions are NOT scanned here: "when will I see my doctor?" is a
-    # question for the care team, not a request to speak to someone today.
-    # patient_questions.classify() triages them instead.
-    parts = [
-        str(answers.get(f) or "")
-        for f in (Q_OVERALL, F_PAIN_LOCATION, F_INCISION_DESC, F_SWELLING_DESC)
-    ]
-    raw = answers.get(RAW_KEY)
-    if isinstance(raw, dict):
-        parts.extend(str(v) for k, v in raw.items() if k != Q_HAS_QUESTIONS)
-    elif isinstance(raw, (list, tuple)):
-        parts.extend(str(x) for x in raw)
-    return " ".join(parts)
-
-
-def _prose_field(answers: dict, pattern: re.Pattern) -> str | None:
-    """Which answer the matching prose actually came from.
-
-    A request for a nurse can be typed into any answer, including a yes/no
-    one where the parser throws the sentence away. Scanning the raw text
-    per field is the only way to point at the message it was in.
+    ``follow_up_reason`` may reference ONLY what the patient reported in this
+    conversation -- never the procedure, the date, the DOB, or diabetic
+    status. That is an explicit rule in <escalation_criteria>.
     """
-    for field, text in raw_answers(answers).items():
-        if field != Q_HAS_QUESTIONS and pattern.search(str(text)):
-            return field
-    for field in (Q_OVERALL, F_PAIN_LOCATION, F_INCISION_DESC, F_SWELLING_DESC):
-        if pattern.search(str(answers.get(field) or "")):
-            return field
-    return None
+    from .rules import evaluate
+
+    return evaluate(_c(campaign), answers, patient)
 
 
-# Swelling in one leg, or swelling that is getting worse or comes with pain,
-# redness, warmth or breathlessness, can mean a clot: same day. (Calf swelling
-# WITH pain is also a red flag the voice agent acts on as an emergency.)
-_SWELLING_URGENT = re.compile(
-    r"\b(one (leg|foot|side|ankle|calf)|just (the |my )?(left|right)|only (the |my |on )?"
-    r"(left|right|one)|(left|right) (leg|foot|side|ankle|calf|knee|shin)|single|"
-    r"worse|worsening|getting bigger|bigger|increas|spreading|"
-    r"pain|painful|hurts?|tender|red|warm|hot|short of breath|breath)",
-    re.I,
-)
+def has_urgent_finding(answers: dict, campaign: Campaign | None = None) -> bool:
+    """Whether an abandoned survey is already worth filing.
+
+    Losing a collected "fever: yes" because the patient stopped answering the
+    next question is a clinical loss, not a demo compromise.
+    """
+    return triage(answers, campaign).follow_up in (FOLLOW_UP_EMERGENCY, FOLLOW_UP_URGENT)
 
 
 # --- Follow-ups that use what the patient already said -------------------------
 #
 # The text questionnaire is a fixed script, so it would ask "where is the pain?"
-# right after "it hurts around my incision". These read the earlier replies and
-# either rephrase the follow-up ("anywhere else?") or skip it when it is answered.
+# right after "it hurts around my incision". A follow-up with ``reuse: <helper>``
+# reads the earlier replies and either rephrases itself ("anywhere else?") or is
+# skipped when already answered. The helpers are reviewed code, named here.
 
 _PAIN_SITE = re.compile(
     r"\b(incision|wound|scar|stitches|knee|hip|back|lower back|shoulder|abdomen|stomach|belly|"
@@ -682,7 +255,8 @@ def _raw(answers: dict, field: str) -> str:
 
 
 def known_pain_site(answers: dict) -> str | None:
-    """Where the patient already said it hurts ("incision"), from their own words."""
+    """Where the patient already said it hurts ("incision"), from their own words.
+    Reads post-op's pain_present, pain_severity and overall_feeling replies."""
     for field in _PAIN_SOURCES:
         text = _raw(answers, field) or (str(answers.get(field) or "") if field == Q_OVERALL else "")
         if field == Q_OVERALL and not _PAIN_WORD.search(text):
@@ -694,31 +268,55 @@ def known_pain_site(answers: dict) -> str | None:
     return None
 
 
-def swelling_known(answers: dict) -> tuple[bool, bool]:
+def swelling_known(answers: dict, parent: str = Q_SWELLING) -> tuple[bool, bool]:
     """(side said, trend said) in the patient's reply to the swelling question."""
-    text = _raw(answers, Q_SWELLING)
+    text = _raw(answers, parent)
     return bool(_SWELL_SIDE.search(text)), bool(_SWELL_TREND.search(text))
 
 
-def followup_already_answered(field: str, answers: dict) -> str | None:
+#: reuse helper -> the SMS variant fields it sends, and their placeholders.
+FOLLOWUP_REUSE: dict[str, dict[str, frozenset[str]]] = {
+    # pain_location: they already named a site -> "anywhere else?" ({site}).
+    "pain_site": {"sms_if_known": frozenset({"site"})},
+    # swelling_description: the parent reply said the side, or the trend.
+    "swelling_parts": {
+        "sms_if_side_known": frozenset(),
+        "sms_if_trend_known": frozenset(),
+    },
+}
+
+
+def _reuse(field: str, campaign: Campaign | None) -> tuple[str, str]:
+    """(helper name, parent question id) for a follow-up; ("", "") for none."""
+    q = _c(campaign).question(field)
+    if q is None or not q.reuse:
+        return "", ""
+    return q.reuse, next(iter(q.when), "")
+
+
+def followup_already_answered(
+    field: str, answers: dict, campaign: Campaign | None = None
+) -> str | None:
     """The value to record without asking, when the earlier reply fully answers it."""
-    if field == F_SWELLING_DESC:
-        side, trend = swelling_known(answers)
+    helper, parent = _reuse(field, campaign)
+    if helper == "swelling_parts":
+        side, trend = swelling_known(answers, parent)
         if side and trend:
-            return _raw(answers, Q_SWELLING).strip()[:MAX_FREE_TEXT]
+            return _raw(answers, parent).strip()[:MAX_FREE_TEXT]
     return None
 
 
-def followup_value(field: str, answers: dict, reply_value):
+def followup_value(field: str, answers: dict, reply_value, campaign: Campaign | None = None):
     """Join a rephrased follow-up's reply with what the patient said before it."""
-    if field == F_PAIN_LOCATION and (site := known_pain_site(answers)):
+    helper, parent = _reuse(field, campaign)
+    if helper == "pain_site" and (site := known_pain_site(answers)):
         reply = str(reply_value or "").strip()
         if not reply or parse_yes_no(reply) == "no":
             return site
         return f"{site}; also: {reply}"[:MAX_FREE_TEXT]
-    if field == F_SWELLING_DESC:
-        before = _raw(answers, Q_SWELLING).strip()
-        side, trend = swelling_known(answers)
+    if helper == "swelling_parts":
+        before = _raw(answers, parent).strip()
+        side, trend = swelling_known(answers, parent)
         reply = str(reply_value or "").strip()
         if before and side and not trend:
             # Asked only "is it getting worse? YES/NO".
@@ -730,146 +328,16 @@ def followup_value(field: str, answers: dict, reply_value):
     return reply_value
 
 
-def swelling_is_urgent(description: str) -> bool:
-    """One leg, worsening, or painful/red/warm swelling: same day. A negated word
-    ("not painful", "no redness") does not count. Shared with the nurse agent so
-    its colouring cannot drift from this rule."""
-    negated = _negated_words(description)
-    for m in _SWELLING_URGENT.finditer(description or ""):
-        words = m.group(0).lower().split()
-        # The pattern matches stems ("red", "pain"); the negated word is whole ("redness").
-        if not any(n.startswith(w) for w in words for n in negated):
-            return True
-    return False
-
-
-def _questions(answers: dict) -> list[dict]:
-    from . import patient_questions
-
-    qs = answers.get(F_PATIENT_QUESTIONS)
-    return [q for q in qs if patient_questions.valid_entry(q)] if isinstance(qs, list) else []
-
-
-def triage(answers: dict) -> Triage:
-    """Decide follow_up and its reasons, from the answers alone.
-
-    Every finding is kept with its own tier (``Triage.findings``), so a call with a
-    same-day medication question AND poor sleep records both. ``follow_up`` is the
-    most urgent tier found; ``reason`` names that tier's findings first, then the
-    lower ones ("Also noted: ...").
-
-    ``follow_up_reason`` may reference ONLY what the patient reported in this
-    conversation -- never the procedure, the date, the DOB, or diabetic
-    status. That is an explicit rule in <escalation_criteria> and this is the
-    easiest place in the codebase to break it.
-    """
-    prose = _free_text_blob(answers)
-    sev = answers.get(F_PAIN_SEVERITY)
-    sev = sev if isinstance(sev, int) else None
-    found: list[tuple[str, str, tuple[str, ...]]] = []  # (tier, text, fields)
-
-    def add(tier: str, text: str, *fields: str) -> None:
-        found.append((tier, text, fields))
-
-    U, R, I = FOLLOW_UP_URGENT, FOLLOW_UP_ROUTINE, FOLLOW_UP_INFO  # noqa: N806, E741
-
-    # --- same day
-    if sev is not None and sev >= 8:
-        add(U, f"pain {sev}/10", F_PAIN_SEVERITY)
-    if answers.get(F_PAIN_TREND) == "worse":
-        add(U, "pain worsening", F_PAIN_TREND)
-    if answers.get(Q_FEVER) == "yes":
-        add(U, "fever reported", Q_FEVER)
-    if answers.get(Q_INCISION) == "yes":
-        # Voice escalates on a CONCERNING description, not on the bare yes.
-        if str(answers.get(F_INCISION_DESC) or "").strip():
-            add(U, "incision concern described", F_INCISION_DESC, Q_INCISION)
-        else:
-            add(U, "incision concern reported", Q_INCISION)
-    if answers.get(Q_SUGAR) in ("high", "low"):
-        add(U, f"blood sugar {answers[Q_SUGAR]}", Q_SUGAR)
-    swelling_desc = str(answers.get(F_SWELLING_DESC) or "")
-    swelling_urgent = answers.get(Q_SWELLING) == "yes" and swelling_is_urgent(swelling_desc)
-    if swelling_urgent:
-        add(
-            U, "leg or foot swelling (one side, worsening, or painful)", Q_SWELLING, F_SWELLING_DESC
-        )
-    questions = _questions(answers)
-    from . import patient_questions as pq
-
-    q_now, q_next = pq.summary(questions)
-    for text in q_now:
-        add(U, text, F_PATIENT_QUESTIONS)
-    if answers.get(Q_PAIN) == "yes" and sev is None and _SEVERE_LANGUAGE.search(prose):
-        add(
-            U,
-            "severe pain described without a number",
-            _prose_field(answers, _SEVERE_LANGUAGE) or Q_PAIN,
-        )
-    if _WANTS_HUMAN.search(prose):
-        add(U, "asked to speak to someone", _prose_field(answers, _WANTS_HUMAN) or Q_OVERALL)
-    if _WORRIED.search(prose):
-        add(U, "expressed worry", _prose_field(answers, _WORRIED) or Q_OVERALL)
-
-    # --- next business day
-    if sev is not None and 4 <= sev <= 7:
-        add(R, f"pain {sev}/10", F_PAIN_SEVERITY)
-    # Pain confirmed but no number obtained: voice's "uncertain but not
-    # distressed". v1 of this design let it fall through to "none".
-    if answers.get(Q_PAIN) == "yes" and sev is None:
-        add(R, "pain reported, no severity given", Q_PAIN)
-    if answers.get(Q_SWELLING) == "yes" and not swelling_urgent:
-        add(R, "leg or foot swelling", Q_SWELLING)
-    for text in q_next:
-        add(R, text, F_PATIENT_QUESTIONS)
-    if answers.get(Q_HAS_QUESTIONS) == "yes" and not questions:
-        # Said yes but no question was captured: a nurse still needs to call.
-        add(R, "has questions for the care team", Q_HAS_QUESTIONS)
-    unknowns = [
-        f for f in (Q_PAIN, Q_FEVER, Q_INCISION, Q_SUGAR, Q_SWELLING) if answers.get(f) == "unknown"
-    ]
-    if unknowns:
-        add(R, "some answers unclear", *unknowns)
-
-    # --- noted only
-    if sev is not None and 1 <= sev <= 3:
-        add(I, f"mild pain {sev}/10", F_PAIN_SEVERITY)
-    if answers.get(Q_SLEEP) == "no":
-        add(I, "not sleeping well", Q_SLEEP)
-
-    if not found:
-        return Triage(FOLLOW_UP_NONE, "No concerning symptoms reported.")
-    top = next(tier for tier in (U, R, I) if any(f[0] == tier for f in found))
-    top_texts = [text for tier, text, _ in found if tier == top]
-    reason = "Patient reports " + ", ".join(top_texts) + "."
-    lower = [(tier, text) for tier, text, _ in found if tier != top]
-    if lower:
-        reason += " Also noted: " + "; ".join(
-            f"{text} ({TIER_SHORT[tier]})" for tier, text in lower
-        )
-        reason += "."
-    triggers = tuple(dict.fromkeys(f for tier, _, fields in found if tier == top for f in fields))
-    findings = tuple(
-        {"tier": tier, "text": text, "fields": list(fields), "source": "triage"}
-        for tier, text, fields in found
-    )
-    return Triage(top, reason, triggers, findings)
-
-
-#: How a lower tier reads inside a reason sentence.
-TIER_SHORT = {
-    FOLLOW_UP_EMERGENCY: "emergency",
-    FOLLOW_UP_URGENT: "same day",
-    FOLLOW_UP_ROUTINE: "next business day",
-    FOLLOW_UP_INFO: "noted",
-    FOLLOW_UP_NONE: "none",
-}
-
-
-def has_urgent_finding(answers: dict) -> bool:
-    """Whether an abandoned survey is already worth filing.
-
-    Losing a collected "fever: yes" because the patient stopped answering the
-    next question is a clinical loss, not a demo compromise.
-    """
-    return triage(answers).follow_up in (FOLLOW_UP_EMERGENCY, FOLLOW_UP_URGENT)
+def followup_variant(field: str, answers: dict, campaign: Campaign | None = None):
+    """Which reworded SMS variant to send for a follow-up: (variant field, values),
+    or None for the default ``sms`` text."""
+    helper, parent = _reuse(field, campaign)
+    if helper == "pain_site" and (site := known_pain_site(answers)):
+        return "sms_if_known", {"site": site}
+    if helper == "swelling_parts":
+        side, trend = swelling_known(answers, parent)
+        if side and not trend:
+            return "sms_if_side_known", {}
+        if trend and not side:
+            return "sms_if_trend_known", {}
+    return None

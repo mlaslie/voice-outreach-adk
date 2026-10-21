@@ -1,6 +1,6 @@
 # New use cases (pre-op, and the next ten): plan
 
-**Status:** proposal (21 Oct 2026). Nothing is built.
+**Status:** step 1 built (21 Oct 2026): the generic engine with post-op parity, `campaign_id`/`spec_version` end to end, and a draft pre-op example. Steps 2-5 are proposals.
 
 **Goal:** a new outreach scenario takes **days, not a development project**:
 - A clinical lead builds it in the admin UI.

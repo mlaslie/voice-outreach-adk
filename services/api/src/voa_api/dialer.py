@@ -10,6 +10,7 @@ import logging
 from typing import Any
 
 from voa_core import budget, compliance, lifecycle
+from voa_core.campaign import DEFAULT_CAMPAIGN_ID, load_campaign
 from voa_core.logging import mask_phone
 from voa_core.store import now_iso
 from voa_providers.base import AmdOptions, PlaceCallRequest, ProviderRejected
@@ -97,15 +98,24 @@ async def dial(
     run_id: str | None = None,
     attempt: int | None = None,
     hours: compliance.RecallSettings | None = None,
-    campaign_id: str = "post_op",
+    campaign_id: str | None = None,
 ) -> str:
     """Place one call. Returns the call id. Raises DialError.
 
     ``hours``: the calling hours a scheduled or automatic dial must respect,
     checked here at dial time (not only when the run was created). ``attempt``:
     the call-list attempt this call belongs to, so a late result for an older
-    attempt never resets the row a newer one is calling on."""
+    attempt never resets the row a newer one is calling on.
+
+    ``campaign_id``: the use case, else the request's own ``campaign_id``, else
+    post-op. The staging doc and the call doc record it with the spec's version,
+    which is what the gateway and the SMS follow-up then run."""
     check_calling_hours(api, hours)
+    campaign_id = campaign_id or getattr(req, "campaign_id", None) or DEFAULT_CAMPAIGN_ID
+    try:
+        spec_version = load_campaign(campaign_id).version
+    except (OSError, ValueError):
+        raise DialError(400, f"Unknown use case {campaign_id!r}.") from None
     await check_allowed(api, req.phone)
     if api.voice is None:
         raise DialError(503, "Telephony is not configured (provider secrets missing).")
@@ -145,7 +155,11 @@ async def dial(
 
     patient = patient_from(req)
     # PHI (DOB) goes only to the read-once staging doc; the call doc never holds it (C-2).
-    await api.store.set(PENDING, placed.call_id, patient)
+    await api.store.set(
+        PENDING,
+        placed.call_id,
+        {**patient, "campaign_id": campaign_id, "spec_version": spec_version},
+    )
     now = now_iso(api.now())
     await api.store.set(
         CALLS,
@@ -164,6 +178,7 @@ async def dial(
             "placed_via": placed_via,
             "amd_requested": amd.enabled,
             "campaign_id": campaign_id,
+            "spec_version": spec_version,
             "entry_id": entry_id,
             "entry_attempt": attempt,
             "run_id": run_id,

@@ -397,3 +397,27 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
   - **Don't put the drafter on flash-lite.** It answered "when can I drive again?" for a hip replacement with the general "two weeks" guideline instead of the hip one (six weeks). Grounding may well pass such an answer, because the cited text does say it, only for other patients.
   - The settings are in `models.knowledge_*` in `config/app.yaml`. The grounding scores on correct answers were 0.97–0.99.
 - **Live demo settings:** allowed topics are activity, diet and recovery, saved earlier in the admin console. So parking and appointment questions defer as "category not allowed", which is not a bug. All sample content (fictional) is approved, and the mode is **shadow**.
+
+## 21 Oct: use-case engine, step 1 (not deployed)
+
+**What changed.** A use case is now a versioned spec (`config/campaigns/<id>.yaml`, schema v2) and the code is a generic engine (`docs/USE-CASES-PLAN.md` step 1). Post-op is rewritten as a spec and behaves identically; `pre_op.yaml` is a draft example reachable only through the API's `campaign_id`.
+- Parsing by question **type** (`voa_core/parsers.py`), with named parsers `trend` and `blood_sugar`; voice "re-ask / unknown / keep" and SMS strict / unknown rules come from the type, not from id lists.
+- Triage is the spec's `rules` (`voa_core/rules.py`: a hand-written expression parser, no eval) plus named checks (`voa_core/checks.py`: free-text scans, swelling, patient questions). `survey.triage(answers)` keeps its signature.
+- Report completeness, voice closing (`scripts.closing_extra`), the questions loop and the SMS closings' required placeholders all come from the spec. One validator: `voa_core/campaign_lint.campaign_problems` (absorbs `plan_problems` and `sms_copy_problems`; also runs each spec's `tests`).
+- `campaign_id` (and `spec_version`) flow: entry / run / ingest tranche or call / place-call / test-call -> dialer -> `pending_calls` and the call doc -> gateway (`CallSession._resolve_campaign`; voicemail per use case; every report stamped) and SMS (session, snapshot, report, closings, recall dial).
+
+**How it was proved.** `packages/voa_core/tests/parity/` captured the pre-engine outputs BEFORE any engine code was written: triage over ~4,000 synthetic answer sets plus every input the existing tests fed it, report validation, the voice instruction, tool declarations, every SMS text, 34 scripted SMS conversations and ~400 replayed `decide()` calls, `applicable()`/`missing()` sequences, and scripted voice-tool sessions. The goldens were never regenerated after the refactor; they pass unchanged.
+
+**What bit us.**
+- Stamping `campaign_id` into the report the voice tool or `_report_payload` builds would have changed the parity goldens (and let the model set it). The filing layer stamps it instead: `CallSession._save_report` and the SMS snapshot (only when the session carries a use case, so in-flight sessions file exactly as before).
+- One golden case (a report payload that already carried `campaign_id`) encoded the old "unknown keys are dropped" behaviour that step 1 deliberately changes. It was removed from the generator before the refactor started, not regenerated after.
+- The ingest batch fingerprint hashes the whole body; a new optional field would have changed it for every re-sent batch. Absent `campaign` keys are left out of the hash.
+
+**Not byte-identical, on purpose.** A voice tool context with no `campaign_id` (tests and spikes only: the gateway always sets it) now uses the post-op spec's `missing()` order instead of the old hard-coded list. Call docs gain `spec_version`; entries gain `campaign_id: null`; SMS sessions gain `campaign_id` / `spec_version`; reports from new calls carry both.
+
+**Next (step 2).** The nurse UI, nurse agent and analytics still read post-op's field names; a pre-op call shows its answers only in the drawer's generic list. Before pre-op is used for real: clinical sign-off on its rules, an A2P check of its SMS copy, live persona evals.
+- **Verification of step 1 (added by the reviewing session):**
+  - **Goldens:** regenerated independently from the pre-refactor commit in a separate worktree. All 13 files were byte-identical, so they really capture the old behaviour, and the new engine passes them unchanged.
+  - **Live persona eval:** see `docs/evals/voice-personas-20261021.md`. dob_retry 6/7 and patient_questions 11/13 on the new engine, all other personas 3/3. An A/B of patient_questions gave 6/6 on both new and old code, so the misses are model variation.
+  - **Added fix:** an entry whose use case no longer exists is now *blocked*, with the reason, instead of a 500 that Cloud Tasks retried with the row stuck in "calling" (`routes_tasks.task_dial`, tested).
+  - **Deploy order:** deploy gateway and API together, so both know the same specs.

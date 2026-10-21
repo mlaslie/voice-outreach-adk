@@ -23,9 +23,9 @@ from enum import StrEnum
 from voa_core import copy as messages
 from voa_core import dob as dobcheck
 from voa_core import intent as intent_mod
+from voa_core import parsers, timeparse
 from voa_core import patient_questions as pq
 from voa_core import survey as survey_mod
-from voa_core import timeparse
 from voa_core.copy import SiteCopy
 from voa_core.sms import states as store
 from voa_core.timeparse import DEFAULT_SCHEDULING, SchedulingPolicy
@@ -135,8 +135,35 @@ def _unclear(session: dict, *, first: str, final: str, closing_state: str) -> De
 # --- The questionnaire -----------------------------------------------------------
 
 
+def session_campaign_id(session: dict | None) -> str | None:
+    """The use case a conversation runs on: stored on the session when it was
+    created (from the call), or in its patient context. None: the default."""
+    s = session or {}
+    return s.get("campaign_id") or (s.get("patient_context") or {}).get("campaign_id") or None
+
+
+def campaign_of(session: dict | None):
+    """The session's spec, or None if it cannot be loaded (then nothing clinical
+    is sent: the caller stops the questions)."""
+    try:
+        return survey_mod.campaign_for(session_campaign_id(session))
+    except (OSError, ValueError):
+        return None
+
+
+def _no_campaign() -> Decision:
+    # The session names a use case this process cannot load. Asking another use
+    # case's questions would be wrong; stop and let the care team follow up.
+    return Decision(
+        reply=messages.survey_cut_short(),
+        state=store.STATE_CLOSED,
+        retry=0,
+        note="survey-unknown-campaign",
+    )
+
+
 def _next_prompt(
-    plan: list[str], pending: list[str], index: int, answers: dict | None = None
+    plan: list[str], pending: list[str], index: int, answers: dict | None = None, c=None
 ) -> tuple[str, bool]:
     """The text for the next thing to ask, and whether it is numbered.
 
@@ -146,30 +173,26 @@ def _next_prompt(
     """
     if pending:
         if pending[0] == survey_mod.F_PATIENT_QUESTIONS and _questions_so_far(answers or {}):
-            return messages.another_question(), False
-        return _followup_text(pending[0], answers or {}), False
+            return messages.another_question(c), False
+        return _followup_text(pending[0], answers or {}, c), False
     field = plan[index]
-    return messages.question(index + 1, len(plan), messages.question_text(field)), True
+    return messages.question(index + 1, len(plan), messages.question_text(field, c), c), True
 
 
-def _followup_text(field: str, answers: dict) -> str:
-    """The follow-up, reworded when the patient already answered part of it."""
-    if field == survey_mod.F_PAIN_LOCATION and (site := survey_mod.known_pain_site(answers)):
-        return messages.pain_elsewhere(site)
-    if field == survey_mod.F_SWELLING_DESC:
-        side, trend = survey_mod.swelling_known(answers)
-        if side and not trend:
-            return messages.swelling_trend_only()
-        if trend and not side:
-            return messages.swelling_side_only()
-    return messages.followup_text(field)
+def _followup_text(field: str, answers: dict, c=None) -> str:
+    """The follow-up, reworded when the patient already answered part of it (the
+    question's ``reuse`` helper)."""
+    variant = survey_mod.followup_variant(field, answers, c)
+    if variant is not None:
+        return messages.followup_variant_text(field, variant[0], variant[1], c)
+    return messages.followup_text(field, c)
 
 
-def _drop_answered(pending: list[str], answers: dict) -> list[str]:
+def _drop_answered(pending: list[str], answers: dict, c=None) -> list[str]:
     """Record follow-ups the patient already answered, and do not ask them."""
     left = []
     for f in pending:
-        known = survey_mod.followup_already_answered(f, answers)
+        known = survey_mod.followup_already_answered(f, answers, c)
         if known:
             answers[f] = known
         else:
@@ -185,6 +208,7 @@ def _advance(
     index: int,
     *,
     said: str | None = None,
+    c=None,
 ) -> Decision:
     """Emit the next prompt, or finish.
 
@@ -193,7 +217,7 @@ def _advance(
     is sent as-is: it is an acknowledgement, not the closing.
     """
     if not pending and index >= len(plan):
-        t = survey_mod.triage(answers)
+        t = survey_mod.triage(answers, c, session.get("patient_context") or {})
         return Decision(
             # The closing is NOT sent here: it goes out only after the proxy
             # confirms the report was filed. Telling a patient their care
@@ -212,7 +236,7 @@ def _advance(
             },
             note="survey-complete",
         )
-    text = said or _next_prompt(plan, pending, index, answers)[0]
+    text = said or _next_prompt(plan, pending, index, answers, c)[0]
     return Decision(
         reply=text,
         state=store.STATE_SURVEY,
@@ -299,10 +323,13 @@ def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
         )
 
     if dobcheck.matches(parsed, ctx.get("patient_dob")):
-        plan = survey_mod.build_plan(ctx)
-        first = messages.question(1, len(plan), messages.question_text(plan[0]))
+        camp = campaign_of(session)
+        if camp is None:
+            return _no_campaign()
+        plan = survey_mod.build_plan(ctx, camp)
+        first = messages.question(1, len(plan), messages.question_text(plan[0], camp), camp)
         return Decision(
-            reply=messages.survey_preamble(len(plan)),
+            reply=messages.survey_preamble(len(plan), camp),
             extra_replies=(first,),
             state=store.STATE_SURVEY,
             effect=Effect.START_SURVEY,
@@ -444,14 +471,20 @@ def _read_questions_reply(body: str) -> tuple[str | None, str]:
 
 
 def _record_question(
-    session: dict, answers: dict, plan: list[str], pending: list[str], index: int, text: str
+    session: dict,
+    answers: dict,
+    plan: list[str],
+    pending: list[str],
+    index: int,
+    text: str,
+    c=None,
 ) -> Decision:
     qs = [*_questions_so_far(answers), pq.record(text)]
     answers[survey_mod.F_PATIENT_QUESTIONS] = qs
     if len(qs) >= pq.MAX_QUESTIONS:
         rest = [p for p in pending if p != survey_mod.F_PATIENT_QUESTIONS]
         return _advance(
-            session, answers, plan, rest, index, said=messages.question_noted_last(text)
+            session, answers, plan, rest, index, said=messages.question_noted_last(text, c), c=c
         )
     loop = (
         pending
@@ -461,21 +494,27 @@ def _record_question(
             *pending,
         ]
     )
-    return _advance(session, answers, plan, loop, index, said=messages.question_noted(text))
+    return _advance(session, answers, plan, loop, index, said=messages.question_noted(text, c), c=c)
 
 
 def _handle_question_loop(
-    session: dict, body: str, answers: dict, plan: list[str], pending: list[str], index: int
+    session: dict,
+    body: str,
+    answers: dict,
+    plan: list[str],
+    pending: list[str],
+    index: int,
+    c=None,
 ) -> Decision:
     kind, text = _read_questions_reply(body)
     have = _questions_so_far(answers)
     if kind is None and have and " ".join((body or "").lower().split()).strip(" .!") in _SIGN_OFF:
         kind = "no"
     if kind == "no":
-        return _advance(session, answers, plan, pending[1:], index)
+        return _advance(session, answers, plan, pending[1:], index, c=c)
     if kind == "yes":
         return Decision(
-            reply=messages.followup_text(survey_mod.F_PATIENT_QUESTIONS),
+            reply=messages.followup_text(survey_mod.F_PATIENT_QUESTIONS, c),
             state=store.STATE_SURVEY,
             retry=0,
             note="survey-question-prompt",
@@ -485,11 +524,11 @@ def _handle_question_loop(
     text = text or (body or "").strip()
     if not text:
         return Decision(
-            reply=_next_prompt(plan, pending, index, answers)[0],
+            reply=_next_prompt(plan, pending, index, answers, c)[0],
             retry=0,
             note="survey-question-empty",
         )
-    return _record_question(session, answers, plan, pending, index, text)
+    return _record_question(session, answers, plan, pending, index, text, c)
 
 
 def _keep_raw(answers: dict, field: str, body: str) -> None:
@@ -509,11 +548,15 @@ def _handle_survey(session: dict, body: str) -> Decision:
     index = int(session.get("survey_index") or 0)
     answers = dict(session.get("survey_answers") or {})
 
+    c = campaign_of(session)
+    if c is None:
+        return _no_campaign()
+
     if not plan:
         # Should be unreachable: the plan is written before this state is
         # entered. Silence would leave the patient with no idea what happened.
         return Decision(
-            reply=messages.survey_cut_short(),
+            reply=messages.survey_cut_short(c),
             state=store.STATE_CLOSED,
             retry=0,
             note="survey-no-plan",
@@ -533,7 +576,9 @@ def _handle_survey(session: dict, body: str) -> Decision:
         return Decision(
             reply=messages.survey_stopped(),
             state=store.STATE_CLOSED,
-            effect=Effect.SUBMIT_SURVEY if survey_mod.has_urgent_finding(answers) else Effect.NONE,
+            effect=Effect.SUBMIT_SURVEY
+            if survey_mod.has_urgent_finding(answers, c)
+            else Effect.NONE,
             retry=0,
             session_patch={"survey_answers": answers, "survey_complete": False},
             note="survey-stopped",
@@ -541,9 +586,10 @@ def _handle_survey(session: dict, body: str) -> Decision:
 
     field = pending[0] if pending else plan[index]
     if field == survey_mod.F_PATIENT_QUESTIONS:
-        return _handle_question_loop(session, body, answers, plan, pending, index)
+        return _handle_question_loop(session, body, answers, plan, pending, index, c)
 
-    if field == survey_mod.Q_HAS_QUESTIONS:
+    q = c.question(field)
+    if q is not None and q.kind == "open_questions":
         kind, text = _read_questions_reply(body)
         if kind is not None or int(session.get("retry_count") or 0) >= 1:
             # A second unreadable reply is taken as a yes: the loop then asks
@@ -552,22 +598,22 @@ def _handle_survey(session: dict, body: str) -> Decision:
             answers[field] = "no" if kind == "no" else "yes"
             _keep_raw(answers, field, body)
             if kind == "question":
-                return _record_question(session, answers, plan, [], index + 1, text)
+                return _record_question(session, answers, plan, [], index + 1, text, c)
             loop = [] if kind == "no" else [survey_mod.F_PATIENT_QUESTIONS]
-            return _advance(session, answers, plan, loop, index + 1)
+            return _advance(session, answers, plan, loop, index + 1, c=c)
 
-    value = survey_mod.parse_answer(field, body)
+    value = survey_mod.parse_answer(field, body, c)
 
     if value is None:
         retries = int(session.get("retry_count") or 0)
         if retries < 1:
-            text, _ = _next_prompt(plan, pending, index, answers)
+            text, _ = _next_prompt(plan, pending, index, answers, c)
             return Decision(
-                reply=messages.unclear_answer(text),
+                reply=messages.unclear_answer(text, c),
                 retry=1,
                 note="survey-reask",
             )
-        if field in survey_mod.STRICT_FIELDS:
+        if field in survey_mod.strict_fields(c):
             # The proxy requires these as typed values once their parent is
             # "yes", so "unknown and continue" is not available -- the report
             # would be unfileable. Stay on the question, but NOT forever:
@@ -575,37 +621,37 @@ def _handle_survey(session: dict, body: str) -> Decision:
             # cannot give a pain number still told us they are in pain, and
             # looping until the message cap strands them mid-form.
             if retries < survey_mod.MAX_STRICT_RETRIES:
-                text, _ = _next_prompt(plan, pending, index, answers)
+                text, _ = _next_prompt(plan, pending, index, answers, c)
                 return Decision(
-                    reply=messages.unclear_answer(text),
+                    reply=messages.unclear_answer(text, c),
                     retry=retries + 1,
                     note="survey-strict-reask",
                 )
             return Decision(
-                reply=messages.survey_cut_short(),
+                reply=messages.survey_cut_short(c),
                 state=store.STATE_CLOSED,
                 effect=Effect.SUBMIT_SURVEY,
                 retry=0,
                 session_patch={"survey_answers": answers, "survey_complete": False},
                 note="survey-strict-exhausted",
             )
-        value = "unknown" if field in survey_mod.UNKNOWNABLE else ""
+        value = "unknown" if field in survey_mod.unknownable(c) else ""
 
     if pending and value not in (None, ""):
         # A reworded follow-up ("anywhere else?") is joined with what was said before.
-        value = survey_mod.followup_value(field, answers, value)
+        value = survey_mod.followup_value(field, answers, value, c)
     answers[field] = value
     _keep_raw(answers, field, body)
-    if field == survey_mod.Q_SUGAR and (body or "").strip():
-        # The parsed status triages; the patient's own numbers are what a
-        # nurse wants to read ("120 to 250").
-        answers[survey_mod.F_SUGAR_READING] = (body or "").strip()[: survey_mod.MAX_FREE_TEXT]
+    if q is not None and (rf := parsers.raw_field(q)) and (body or "").strip():
+        # The parsed status triages; the patient's own words are what a nurse
+        # wants to read (post-op: blood sugars, "120 to 250").
+        answers[rf] = (body or "").strip()[: survey_mod.MAX_FREE_TEXT]
     if pending:
         pending = pending[1:]
     else:
-        pending = _drop_answered(list(survey_mod.followups_for(field, value)), answers)
+        pending = _drop_answered(list(survey_mod.followups_for(field, value, c)), answers, c)
         index += 1
-    return _advance(session, answers, plan, pending, index)
+    return _advance(session, answers, plan, pending, index, c=c)
 
 
 def decide(
