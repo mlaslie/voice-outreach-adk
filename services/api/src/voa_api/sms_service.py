@@ -105,7 +105,9 @@ MAX_INBOUND_CHARS = 1600
 DOB_REDACTED = "[date of birth reply - not stored]"
 _REQUIRED_DIAL_CONTEXT = ("patient_name", "patient_id", "patient_dob")
 _TASK_NAME_OK = re.compile(r"[^A-Za-z0-9_-]")
-# The dry-run simulator (sms_simulator.py): consent source and patient-context flag.
+# The simulator (sms_simulator.py): consent source and patient-context flag. Its
+# conversations run on sms_simulator.simulator_api (dry-run forced on, DryRunSms,
+# its own store namespace), never on the real Api.
 SIMULATOR_SOURCE = "sms_simulator"
 SIMULATOR_FLAG = "sms_simulator"
 
@@ -571,7 +573,9 @@ def budget_units(body: str) -> int:
 
 def simulator_may_use_drafts(api: Api, session: dict | None) -> bool:
     """A draft pack's wording may be "sent" only into the dry-run simulator's own
-    conversation, while SMS is in dry-run and the provider is the dry-run one."""
+    conversation, while SMS is in dry-run and the provider is the dry-run one
+    (always true on ``sms_simulator.simulator_api``; never on the real Api of a
+    service that sends real texts)."""
     ctx = (session or {}).get("patient_context") or {}
     prov = provider(api)
     return bool(

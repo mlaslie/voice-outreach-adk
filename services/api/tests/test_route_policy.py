@@ -89,6 +89,12 @@ def client(monkeypatch):
         (NURSE_UI, "GET", "/api/admin/knowledge/items", False),
         (AGENT, "PUT", "/api/admin/knowledge/settings", False),
         (NURSE_UI, "POST", "/api/admin/knowledge/try", False),
+        # the SMS simulator ("Test by text"): the admin console only
+        (ADMIN_UI, "POST", "/api/sms/test/start", True),
+        (NURSE_UI, "POST", "/api/sms/test/start", False),
+        (AGENT, "POST", "/api/sms/test/start", False),
+        (NURSE_UI, "POST", "/api/sms/test/reply", False),
+        (AGENT, "POST", "/api/sms/test/reply", False),
     ],
 )
 def test_roles_are_enforced(client, who, method, path, allowed):

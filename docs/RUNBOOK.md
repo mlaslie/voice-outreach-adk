@@ -74,6 +74,7 @@ While the verdict is pending, the agent cannot take any exit except the emergenc
 | Stop scheduled dialling | `gcloud scheduler jobs pause voa-dispatch-due --location <region>` |
 | Stop all dialling now | Set `VOA__DIALING__MAX_DIALS_PER_HOUR=0` is NOT a stop (0 = unlimited). Instead remove numbers from the allowlist, or pause the `voa-dial` queue: `gcloud tasks queues pause voa-dial --location <region>` |
 | Stop SMS sends | `gcloud tasks queues pause voa-sms --location <region>`, or set `VOA__SMS__DRY_RUN=true` and redeploy the API |
+| "Test by text" while texts are live | Nothing to do: the simulator always runs simulated (dry-run provider, no queue) in its own `simulator__*` collections, whatever `VOA__SMS__DRY_RUN` says. It stops only with `VOA__SMS__ENABLED=false`. Its collections hold fictional test data only and can be deleted at any time |
 | Cancel a manual run | Dashboard → Cancel run (sets `cancel_requested`; queued dial tasks then skip) |
 
 ## Check the number's webhooks

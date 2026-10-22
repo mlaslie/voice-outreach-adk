@@ -11,8 +11,8 @@ Dashboard (UI service account, like every other ``/api`` route; shapes match
   POST   /api/sms/consent                       {phone, granted}
   GET    /api/sms/settings                      {settings, defaults}
   POST   /api/sms/settings                      {settings}
-  POST   /api/sms/test/start   {phone, diabetic?}  dry-run simulator (sms_simulator.py)
-  POST   /api/sms/test/reply   {phone, body}       409 unless sms.dry_run
+  POST   /api/sms/test/start   {phone, diabetic?, language?}  simulator (sms_simulator.py)
+  POST   /api/sms/test/reply   {phone, body}       always dry-run, in its own namespace
 
 Cloud Tasks / Scheduler (tasks-invoker only; 503 = retry, 2xx = done):
 
@@ -200,8 +200,10 @@ async def set_setting(body: SettingInput, request: Request):
 
 @dashboard.post("/test/start")
 async def simulator_start(body: SimStartInput, request: Request):
-    """Dry-run simulator: stage a missed call for the fictional test patient and
-    send the invite into the thread. Never sends a text (409 unless dry-run)."""
+    """Simulator: stage a missed call for the fictional test patient and send the
+    invite into the thread. Always dry-run, whatever ``sms.dry_run`` says, in the
+    simulator's own store namespace (sms_simulator.py); 409 if SMS is disabled.
+    Admin only, audited like every admin write (``api_of``)."""
     api: Api = request.app.state.api
     try:
         return await sms_simulator.start(
@@ -217,7 +219,8 @@ async def simulator_start(body: SimStartInput, request: Request):
 
 @dashboard.post("/test/reply")
 async def simulator_reply(body: SimReplyInput, request: Request):
-    """Dry-run simulator: one patient message through the real inbound handler."""
+    """Simulator: one patient message through the real inbound handler, on the
+    simulator's own conversation only."""
     api: Api = request.app.state.api
     try:
         return await sms_simulator.reply(api, body.phone, body.body)

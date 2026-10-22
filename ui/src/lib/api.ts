@@ -35,7 +35,7 @@ import type {
   KnowledgeTryResult,
 } from "./knowledge";
 
-/** Dry-run SMS simulator (POST /api/sms/test/*). Never sends a real text. */
+/** SMS simulator (POST /api/sms/test/*). Always simulated: never sends a text. */
 export interface SmsTestPatient {
   patient_name: string;
   patient_id: string;
@@ -73,6 +73,12 @@ export interface SmsTestReplyResponse {
   result: { note?: string; effect?: string; replies?: number };
   state: string | null;
   report_id: string | null;
+  /** The filed report (simulator only: it never reaches the console). */
+  report?: {
+    report_id: string;
+    follow_up: string | null;
+    follow_up_reason: string | null;
+  } | null;
   new_messages: SmsMessage[];
   messages: SmsMessage[];
 }
@@ -298,11 +304,13 @@ export const api = {
     });
   },
 
-  // ---- Dry-run SMS simulator ---------------------------------------------
+  // ---- SMS simulator ------------------------------------------------------
   //
-  // The backend refuses both (409) unless SMS is in dry-run mode, and only for
-  // numbers on the outbound allowlist. Read the thread with fetchMessages
-  // (lib/followups.ts) scoped to the returned call_sid.
+  // Always simulated: the backend runs the conversation on the dry-run
+  // provider in its own store namespace, whatever the service's SMS setting,
+  // and only for numbers on the outbound allowlist (409 if SMS is disabled).
+  // The thread comes back in each response; the real message list
+  // (fetchMessages) never holds a simulator conversation.
 
   startSmsTest(
     phone: string,

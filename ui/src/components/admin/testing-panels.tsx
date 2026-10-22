@@ -93,7 +93,7 @@ export function TestByTextPanel({ live }: { live: boolean }) {
         <div className="min-w-0 flex-1">
           <h3 className="font-display text-[15px] font-semibold text-ink">Test by text</h3>
           <p className="text-[12px] text-ink-muted">
-            Play the patient in the text follow-up, end to end. Dry run: nothing is sent to a phone.
+            Play the patient in the text follow-up, end to end. Simulated: nothing is sent to the phone.
           </p>
         </div>
         <button type="button" onClick={start} className={BUTTON}>

@@ -145,7 +145,7 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
 - **SMS sending turned on (19 Oct, owner's go-ahead).**
   - `sms_dry_run = false`, and `VOA__TELEPHONY__SMS_PROVIDER = "twilio"`. With the old default (`fake` from app.yaml), turning dry-run off would have sent nothing, silently.
   - Real texts are still limited to allowlisted numbers with SMS consent.
-  - The "Test by text" simulator refuses to run while dry-run is off.
+  - The "Test by text" simulator refuses to run while dry-run is off. (Changed 22 Oct: it now always runs simulated, in its own namespace; see "22 Oct: simulator runs on live services".)
 - **"No text after a voicemail" (19 Oct).**
   - The follow-up texts were refused for lack of SMS consent: the calls went to a number with no consent recorded. The sending path worked as designed, but nothing on screen said why.
   - Calls now carry `sms_follow_up: {status: sent | not_sent | deferred, reason, at}`.
@@ -647,10 +647,10 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
 - **The conversation's language** is fixed when it opens: `send_invite` stamps `sms_language` on the session from `languages.text_language(language, campaign, call_in_english)` (the patient's language when it is not English, not on "Call in English", and available for texts). `conversation.session_copy(session)` picks the shared texts; `conversation.campaign_of(session)` returns the spec with the pack's SMS wording (`language_packs.localize_sms`: `sms_scripts` and question `sms*` only; ids, rules and triage stay English). The by-text closing reads the language from the filing snapshot (`sms_language`). Booked times are written in the language (`when_format`, "mié 4 mar, 3:00 PM"), also in `scheduled_for_text`. English sessions have no `sms_language` and take exactly today's path (the parity goldens, including `sms_texts.json` and both `sms_conversations_*`, pass unchanged).
 - **Inbound** is step 3's path, unchanged: STOP/HELP and red flags on the original, then translation to English, then the state machine. One addition: "C" is never sent to the translator (like digits), so it works in every language. A recorded patient question is now echoed back in the patient's own words, not our English translation (this also applies to a non-English question on an English session).
 - **Availability:** `SMS_PACKS_ENABLED` is gone. `languages.available(campaign, channel="sms")` counts approved packs that pass `pack_problems` **and** `sms_problems`. The missed-call text, the menu and the questionnaire go out in Spanish only when Spanish is available for texts and the patient is not on "Call in English" (then English, as before).
-- **Real texts never use a draft** (`sms_service.send_sms`, new step 4b `wording_block`): every send to a session with `sms_language` re-checks that the pack is approved and SMS-complete. A draft passes only for the simulator's own session, while `sms.dry_run` is on and the provider is `DryRunSms`. A pack withdrawn mid-conversation therefore stops the texts ("No approved Spanish (US) text wording."); nothing goes out in English instead. Tests: `test_a_draft_pack_is_never_used_for_a_real_text`, `test_a_draft_flag_on_a_real_session_does_not_unlock_drafts`, `test_the_draft_wording_never_leaves_through_a_real_provider`.
+- **Real texts never use a draft** (`sms_service.send_sms`, new step 4b `wording_block`): every send to a session with `sms_language` re-checks that the pack is approved and SMS-complete. A draft passes only for the simulator's own session, while `sms.dry_run` is on and the provider is `DryRunSms` (since 22 Oct the simulator's own `Api` always is, and a real service's never is). A pack withdrawn mid-conversation therefore stops the texts ("No approved Spanish (US) text wording."); nothing goes out in English instead. Tests: `test_a_draft_pack_is_never_used_for_a_real_text`, `test_a_draft_flag_on_a_real_session_does_not_unlock_drafts`, `test_the_draft_wording_never_leaves_through_a_real_provider`.
 - **Lint** (`language_packs.sms_problems`, `sms_warnings`, `sms_segment_report`): every `sms_copy` key, `sms_scripts` key and question `sms*` present; the English placeholders; **911**, **tel:911**, **STOP** and the reply letter **C** kept wherever the English has them; the menu lines start with 1/2/3; `ask_dob` and `dob_unreadable` ask for DD/MM (non-English dates are read day first); 7 weekdays and 12 months; then every text is rendered as sent with long fictional values (org "Northgate Regional Health", first name "Maximiliano", a caller ID, the longest booked-time shape, a 60-character question echo) and its encoding and segments counted (`sms_copy.segments`: GSM-7 160/153, extension characters count two; UCS-2 70/67, astral characters count two). **Thresholds: warn above 2 segments, fail above 3** (201 UCS-2 characters). Three is the most a single text may cost: the closings carry the clinic's medication reminder and cannot be shorter than three Spanish segments, and anything longer is billed per segment and arrives less reliably. The English rule is unchanged (plain GSM-7; English texts are not segment-limited). The SMS lint never affects voice: a pack with a bad text stays available for calls.
 - **Budget:** `rate_limits/sms_sends` counted messages. It now counts **segments for UCS-2 texts** (`budget.consume(..., units=)`, `sms_service.budget_units`); a GSM-7 text still costs one unit, so English texting is counted exactly as before (a long GSM-7 English text was always one unit; changing that would change English behaviour, and the English texts are fixed and short). Released units match reserved ones.
-- **Simulator** (Admin → Testing → "Test by text"): a **Patient language** picker with the 24 languages, English by default. A language whose pack has complete text wording is selectable (a draft is marked "(draft wording)"); the others say "(no text wording yet)" and are disabled (the API answers 409). With a draft the dialog says **"Draft wording, not approved"** before and during the test. The API: `POST /api/sms/test/start {phone, diabetic, language}` stamps `sms_language`, `sms_draft_wording` and the patient's language on the simulator's session and call, and returns `wording: {language, name, status, approved, label}`. Replies go through `handle_inbound`, so Spanish replies are translated by Gemini (deployed) and the safety checks run as for a real text. STOP words in any language are refused by the simulator (they would opt the number out for real). The DOB hint shows 15/03/1950 for a non-English test. **Not checked in a browser** (types, unit tests and both builds pass).
+- **Simulator** (Admin → Testing → "Test by text"): a **Patient language** picker with the 24 languages, English by default. A language whose pack has complete text wording is selectable (a draft is marked "(draft wording)"); the others say "(no text wording yet)" and are disabled (the API answers 409). With a draft the dialog says **"Draft wording, not approved"** before and during the test. The API: `POST /api/sms/test/start {phone, diabetic, language}` stamps `sms_language`, `sms_draft_wording` and the patient's language on the simulator's session and call, and returns `wording: {language, name, status, approved, label}`. Replies go through `handle_inbound`, so Spanish replies are translated by Gemini (deployed) and the safety checks run as for a real text. STOP words in any language were refused by the simulator (they would have opted the number out for real); since 22 Oct they are simulated, inside the simulator's namespace only. The DOB hint shows 15/03/1950 for a non-English test. **Not checked in a browser** (types, unit tests and both builds pass).
 - **Wording:** `post_op.es-US.yaml` now has `sms_copy`, `sms_scripts` and every question's `sms*` (draft, formal "usted", digits, "Responda SÍ o NO", DOB "DD/MM/AAAA", examples "mañana 3pm"; the invite ends "Responda STOP para cancelar."). `notes` lists what the reviewer should check. `pre_op.es-US.yaml` has no text wording (optional; pre_op stays voice-only in Spanish).
 
 **Encoding and segments per Spanish text** (rendered with the long sample values; numbered questions include "(n/9) "):
@@ -700,6 +700,62 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
 5. To withdraw: `status: retired` and redeploy; open Spanish conversations stop receiving texts (never English).
 
 **Parity:** the goldens and tool declarations are unchanged; full suite **2174 passed, 12 skipped**; UI tsc, vitest (647), both builds pass. Not deployed.
-- **Deployed 22 Oct** (0 destroyed, all services healthy). **Not verifiable on demo yet:** Admin → Testing → "Test by text" returns 409 on demo ("only runs while SMS is in dry-run mode"). Demo has sent real texts since 19 Oct, so the Spanish simulator path can't be tried there.
-  - **Proven instead:** offline tests, plus a local run with the real Gemini translator.
-  - **Proposed:** let the simulator always use the dry-run provider for its own sessions, whatever the global setting. Before doing so, make sure simulator and real sessions on the same phone can't cross: a real inbound text must never be answered by a simulator session, and simulator text must never reach Twilio.
+- **Deployed 22 Oct** (0 destroyed, all services healthy). On that deploy, Admin → Testing → "Test by text" still answered 409 on demo ("only runs while SMS is in dry-run mode"), because demo has sent real texts since 19 Oct; the Spanish path was proven by offline tests and a local run with the real Gemini translator.
+  - **Fixed in code (not deployed yet):** the simulator now always runs simulated, on any service, in its own store namespace. See "22 Oct: simulator runs on live services". After the next API + UI deploy, the translator can play the Spanish draft on demo.
+
+## 22 Oct: simulator runs on live services (code; not deployed)
+
+**Why.** "Test by text" refused unless the whole service was in SMS dry-run (`_require_dry_run`). Demo sends real texts, so admins could not use it there, e.g. to play the draft Spanish wording (step 5).
+
+**Session keying found.** A conversation is the doc `sms_sessions/{phone}`: one per handset. `handle_inbound` (the Twilio webhook, via the `/tasks/sms-inbound` task) loads it by the sender's phone. Messages (`sms_messages`, field `phone`), consents (`phone`), opt-outs (`sms_optouts/{phone}`), callbacks (`phone`), filings and the budget are keyed the same way. So the old simulator's session WAS the real session for that number. A real text from that phone would have been answered by the simulator conversation, and the old guard ("a real questionnaire is in progress") only covered the start.
+
+**Isolation design** (`services/api/src/voa_api/sms_simulator.py`). A simulator conversation never runs on the real `Api`. It runs on `simulator_api(api)`, a copy built once per `Api`:
+- **Config:** `sms.dry_run` forced on (the rest unchanged), and the provider set to `DryRunSms`. Start and reply re-check this and refuse (500) if it ever is not.
+- **Store:** `SimulatorStore`, the real store seen through the `simulator__` prefix. Every collection the SMS code touches is renamed: `simulator__sms_sessions`, `simulator__sms_messages`, `simulator__sms_consents`, `simulator__sms_optouts`, `simulator__scheduled_callbacks`, `simulator__sms_filings`, `simulator__sms_inbound_seen`, `simulator__rate_limits`, `simulator__calls`, `simulator__reports`, `simulator__ehr_outbox`, `simulator__call_list`, and so on.
+  - The only exceptions are three configuration collections it READS from the real store and can never write (`SimulatorWriteRefused`): `outbound_allowlist`, `call_settings` (the company name) and `sms_settings`.
+- **Tasks:** `DroppedTasks` drops everything. That covers the recall dial, the booked callback, the survey safety net, translation and knowledge jobs. The filing itself runs inline.
+- **Voice:** no voice provider (`voice=None`). The `SIMULATOR_FLAG` refusal in `_place` stays.
+
+**Why a namespace and not a flag.** The SMS code reads and writes about a dozen collections by phone in ~40 places. A `simulator` flag would have to be threaded through every lookup, and one missed spot would cross the streams. The namespace sits at the one seam everything already goes through (`api.store`, `api.tasks`, `api.sms`), so the real code runs unchanged. Real code paths take the real `Api`, so they cannot see simulator data, and the simulator cannot see theirs. `sms_service.py` only changed in comments.
+
+**What this means:**
+- A real inbound text, or a real missed-call invite, on a number with an open test takes the real path as if no simulator existed.
+- `/api/sms/test/reply` can only address a simulator conversation.
+- STOP/ALTO are now simulated. They opt the number out inside the namespace only, and the attempt to remove the number from the real allowlist is refused and logged. A new test clears the simulator's opt-out.
+- A really opted-out number is still refused.
+- The allowlist is still required. The phone only labels the test, but it keeps admins from typing an arbitrary (possibly a patient's) number, and the simulator's sends pass the real `send_sms` checks, which read the real allowlist.
+- The language rules and "drafts only in the simulator" are unchanged.
+- `sms.enabled = false` still refuses (409).
+- Every start (and reply) is audited by the route dependency (admin-only routes).
+
+**What changed for the user:**
+- The test call and its report now live in `simulator__calls` / `simulator__reports`. The console, the follow-up lists, analytics and the EHR outbox never see them.
+  - The old dialog said the report "appears on the test call in the console"; that is no longer true.
+  - The reply now returns `report: {report_id, follow_up, follow_up_reason}`, and the dialog shows it.
+  - The call keeps `placed_via: sms_simulator` and `test: true`, which analytics' `is_test` already flags, in case one ever leaks.
+- The dialog says "Simulated: nothing is sent to the phone", keeps "Draft wording, not approved", and no longer polls `/api/sms/messages`: nothing is queued, so every message comes back in the reply's response.
+
+**What bit us.**
+- **The old simulator was not as isolated as it looked.** Its "call me now" and "survey safety net" tasks went to the REAL queue. The real handlers then ran with the real `Api`, keyed by phone, so on a live service they could have met a real conversation on the same number. Recall was saved by the `recall_id` check, and filing by the call id. They are now dropped at the source.
+- **Translation and knowledge jobs for a test report** also went to the real queue, where they read the real store. They were harmless only because the translation job filters a phone's thread by call id. Now they are not queued at all.
+- **The old test report sat in the real console** next to real calls. A nurse could sign it off and put a fictional patient into `ehr_outbox`.
+- **The company-name cache** is keyed by `id(store)`, so the simulator `Api` is built once per `Api`, not per request (a new wrapper per request would grow the cache forever).
+
+**Tests** (`services/api/tests/test_sms_simulator.py`, run with `sms.dry_run` OFF and a live provider that fails the test if called):
+- `test_full_text_run_files_a_report_and_nothing_reaches_twilio_or_real_records` (dry-run on and off): after a full run, the only real collection written is `audit_log`; there is nothing on the real queue and no dial; the console 404s the test call.
+- `test_a_real_inbound_text_during_a_simulator_session_takes_the_real_path`
+- `test_a_real_inbound_text_with_only_a_simulator_session_is_not_answered_by_it`
+- `test_a_real_missed_call_invite_during_a_simulator_session` (the simulator's consent does not count for the real invite)
+- `test_reply_never_reaches_a_real_conversation`, `test_a_real_session_does_not_block_a_test_and_is_left_alone`
+- `test_call_me_now_never_rings`, `test_a_booked_time_is_never_dialled`
+- `test_an_opt_out_in_the_simulator_never_opts_the_real_number_out` (STOP, ALTO)
+- `test_start_is_audited`; the admin-only policy is in `test_route_policy.py`
+- the store and `Api` unit tests
+- the step-5 language tests, now on a live service
+
+Two mutations were checked: sending the invite through the real `Api`, and removing the prefix. Each fails the suite.
+
+**Left open:**
+- `simulator__*` collections have no Firestore TTL (`simulator__sms_inbound_seen` included). Test data accumulates slowly and is fictional. It is safe to delete at any time; a TTL can be added in `infra/envs/demo/services.tf` if it grows.
+- A filing that fails inline is not retried (its safety-net task is dropped). The dialog then shows no report; start a new test.
+- Not checked in a browser or on demo. Deploy API + UI together.

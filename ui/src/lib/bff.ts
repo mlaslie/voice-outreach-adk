@@ -111,7 +111,7 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["POST", /^sms\/consent$/, "admin"],
   ["GET", /^sms\/settings$/, "both"],
   ["POST", /^sms\/settings$/, "admin"],
-  // Dry-run simulator (the backend refuses unless SMS is in dry-run mode)
+  // SMS simulator: always dry-run, in its own namespace (whatever sms.dry_run says)
   ["POST", /^sms\/test\/start$/, "admin"],
   ["POST", /^sms\/test\/reply$/, "admin"],
 

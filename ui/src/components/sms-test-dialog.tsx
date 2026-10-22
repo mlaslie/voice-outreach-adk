@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageSquareText, RotateCcw, Send, ShieldAlert } from "lucide-react";
 
-import { api, ApiError, type SmsTestStartResponse } from "@/lib/api";
-import { fetchMessages, type SmsMessage } from "@/lib/followups";
+import { api, ApiError, type SmsTestReplyResponse, type SmsTestStartResponse } from "@/lib/api";
+import type { SmsMessage } from "@/lib/followups";
 import { formatTime } from "@/lib/format";
 import {
   DEFAULT_LANGUAGE,
@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/select";
 
 const E164 = /^\+[1-9][0-9]{6,14}$/;
-const POLL_MS = 4000;
 
 function errorText(e: unknown, fallback: string): string {
   return e instanceof ApiError || e instanceof Error ? e.message : fallback;
@@ -54,8 +53,11 @@ function typedDate(iso: string, dayFirst = false): string {
  *
  * The backend stages a missed call for the fictional test patient and runs
  * every reply through the real inbound handler, so the menu, the birthdate
- * check, the questionnaire, triage and the filed report are all the real
- * thing. It refuses unless SMS is in dry-run mode: nothing leaves the system.
+ * check, the questionnaire and triage are all the real thing. It is always
+ * simulated, even on a service that sends real texts: the conversation runs on
+ * the dry-run provider in its own namespace, so nothing is sent to the phone
+ * and nothing it files reaches the console, the EHR outbox or a real patient's
+ * conversation.
  */
 export function SmsTestDialog({
   open,
@@ -73,7 +75,7 @@ export function SmsTestDialog({
   const [session, setSession] = useState<SmsTestStartResponse | null>(null);
   const [messages, setMessages] = useState<SmsMessage[]>([]);
   const [state, setState] = useState<string | null>(null);
-  const [reportId, setReportId] = useState<string | null>(null);
+  const [report, setReport] = useState<SmsTestReplyResponse["report"]>(null);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,23 +122,8 @@ export function SmsTestDialog({
     };
   }, [open]);
 
-  const refresh = useCallback(async () => {
-    if (!session) return;
-    try {
-      const r = await fetchMessages(session.phone, session.call_sid);
-      setMessages(r.messages ?? []);
-    } catch {
-      // keep what we have; the next poll tries again
-    }
-  }, [session]);
-
-  // Follow-on messages can arrive after a reply (a queued filing, a "cannot
-  // call back" notice), so poll the thread while a test is running.
-  useEffect(() => {
-    if (!open || !session) return;
-    const t = window.setInterval(refresh, POLL_MS);
-    return () => window.clearInterval(t);
-  }, [open, session, refresh]);
+  // No polling: a simulated conversation queues nothing, so every message it
+  // produces comes back in the reply's response.
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
@@ -146,7 +133,7 @@ export function SmsTestDialog({
     setSession(null);
     setMessages([]);
     setState(null);
-    setReportId(null);
+    setReport(null);
     setDraft("");
     setError(null);
   }
@@ -168,7 +155,7 @@ export function SmsTestDialog({
       setSession(r);
       setMessages(r.messages);
       setState(r.state);
-      setReportId(null);
+      setReport(null);
     } catch (e) {
       setError(errorText(e, "Could not start the test."));
     } finally {
@@ -187,7 +174,7 @@ export function SmsTestDialog({
       setDraft("");
       setMessages(r.messages);
       setState(r.state);
-      setReportId(r.report_id);
+      setReport(r.report ?? null);
     } catch (err) {
       setError(errorText(err, "Could not send the reply."));
     } finally {
@@ -211,7 +198,8 @@ export function SmsTestDialog({
           </DialogTitle>
           <DialogDescription>
             Play the patient in the missed-call text follow-up. Replies run through the real
-            follow-up, and a finished questionnaire is filed like any other report.
+            follow-up and a finished questionnaire is triaged, but the test stays here: it never
+            reaches the console or a real patient&apos;s conversation.
           </DialogDescription>
         </DialogHeader>
 
@@ -220,7 +208,7 @@ export function SmsTestDialog({
           className="flex items-start gap-2 rounded-lg border border-brand-orange bg-brand-orange/15 px-3 py-2 text-sm font-medium text-ink"
         >
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          Dry run — nothing is sent to a phone.
+          Simulated: nothing is sent to the phone.
         </div>
 
         {!session ? (
@@ -374,9 +362,12 @@ export function SmsTestDialog({
                 </button>
               </form>
             </div>
-            {reportId ? (
+            {report ? (
               <p className="text-xs text-ink-soft">
-                Report filed. It appears on the test call ({session.call_sid}) in the console.
+                Report filed in the simulator
+                {report.follow_up ? ` (${report.follow_up.replace(/_/g, " ")})` : ""}
+                {report.follow_up_reason ? `: ${report.follow_up_reason}` : "."} Test reports stay
+                out of the console.
               </p>
             ) : null}
           </div>
