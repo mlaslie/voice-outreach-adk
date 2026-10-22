@@ -169,6 +169,40 @@ sequenceDiagram
    - A nurse may change the tier, then signs off. Sign-off writes the FHIR-shaped record to `ehr_outbox`.
    - The Gemini Enterprise assistant offers the same actions in chat.
 
+### How a scheduled run is executed (Cloud Tasks and Cloud Scheduler)
+
+**Example:** 10 patients are scheduled for 9:00 on 3 November.
+
+1. **Scheduling stores a plan. No tasks are created yet.** The EHR scheduling API, or an admin under Schedules, writes one `call_runs` document: `scheduled_for: 2026-11-03T09:00`, the use case, and the 10 patients' call-list entry ids. The patients are entries in `call_list`.
+2. **A clock checks every minute.** Cloud Scheduler calls `POST /cron/dispatch-due` on the API every minute (job `<prefix>-dispatch-due`). That handler:
+   - checks the clinic's calling hours (outside them, due runs move to the next opening);
+   - checks that no other run is in progress (one run at a time);
+   - claims the first due run.
+3. **At 9:00 the run starts, and only now are tasks created.** `enqueue_dials` creates a live run record (`list_runs/current`) and puts **10 tasks** on the `voa-dial` queue, one per patient.
+   - Each task is a small HTTP request that Cloud Tasks will deliver to `POST /tasks/dial` on the API, signed with an OIDC token for the tasks-invoker service account.
+   - The body holds only ids, never patient details:
+     ```json
+     {"entry_id": "<call-list entry id>", "run_id": "<run id>", "attempt": 1, "explicit": false}
+     ```
+   - The task name is `dial-<run>-<entry>-<attempt>`. Cloud Tasks refuses a duplicate name, so a retried start can't dial anyone twice.
+4. **Cloud Tasks delivers the tasks at the queue's pace,** and the API decides each one. `/tasks/dial` reads the entry by id from Firestore, then:
+   - **Skips** a patient who was cancelled, completed or held for their language, recording why on the run.
+   - **Answers 503** ("call slot busy") when the maximum number of calls is already in progress (`dialing.max_concurrent_calls`). Cloud Tasks retries it later with backoff, so the queue is the waiting line and nothing polls.
+   - **Otherwise claims the entry and dials.** It checks the allowlist and the hourly budget, stores the patient for the gateway, and asks the provider to place the call.
+5. **When each call ends,** the gateway's status webhook queues `POST /tasks/call-terminal` on the `voa-events` queue. That task:
+   - updates the patient's entry and the run's counters;
+   - decides on an automatic retry: it puts the patient back on the list with a due time, and the same per-minute check dials them later;
+   - for no answer, busy or voicemail, queues `POST /tasks/sms-missed-call` on the `voa-sms` queue.
+6. **Inbound texts** arrive at the gateway, which queues `POST /tasks/sms-inbound`. Menu choices become `POST /tasks/sms-action`.
+7. **After a call is saved,** further `voa-events` tasks translate the transcript and, for non-English calls, run the safety re-check (`/tasks/transcript-translate`). With the knowledge base in shadow mode, they also draft answers (`/tasks/knowledge-shadow`).
+
+**Why tasks rather than one long request:**
+- Each step is small and retried independently: 5 attempts, backoff from 5 s to 5 min.
+- Pacing comes from the queue.
+- An API restart loses nothing.
+- Every step is authenticated as a known identity.
+- Cancelling a run doesn't need to stop tasks: each task re-reads the patient's current state when it runs and skips anyone no longer due.
+
 ## 3. Security model
 
 **Who can reach what**

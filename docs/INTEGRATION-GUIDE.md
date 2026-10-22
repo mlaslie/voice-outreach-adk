@@ -155,6 +155,42 @@ for item in out["items"]:
 - **Language.** A patient whose language isn't available yet (no approved language pack) is **held**: accepted, but not dialled until the language is approved or an admin chooses "Call in English" for them.
 - **Demo environments only dial authorized numbers.** Production deployments replace that allowlist with a policy; see [ADMIN-PLAN.md §3](ADMIN-PLAN.md).
 
+### Without code: importing a CSV in the admin console
+
+For a pilot, or when no feed exists yet, an administrator can load patients from a spreadsheet:
+1. Open **Admin console → Patients**.
+2. Click **Example CSV** to download a template with the right header and four fictional rows.
+3. Click **Import CSV** to load your file.
+
+**How the import works:**
+- The file is read **in the browser**. You see every row with its problems before anything is sent.
+- The valid rows go to the API as JSON, in chunks of 200 (`POST /api/call-list/bulk`). The file itself is never stored.
+- The import adds patients to the call list; **it doesn't start calling.** Start or schedule a run under **Schedules**.
+
+| Column | Required | Format | Example |
+|---|---|---|---|
+| `phone` | yes | E.164 | `+12025550123` |
+| `patient_name` | yes | text (quote it if it contains a comma) | `"Ruiz, Maria"` |
+| `patient_id` | yes | letters, digits, `_`, `.`, `-`; unique; your MRN or a stable id | `P-1001` |
+| `patient_dob` | yes | `YYYY-MM-DD`, a real date, not in the future | `1950-03-15` |
+| `operation_name` | no | text | `Total knee replacement` |
+| `operation_date` | no | `YYYY-MM-DD` | `2026-11-01` |
+| `is_diabetic` | no | `true`, `yes`, `y` or `1` means diabetic; anything else, including blank, means not | `false` |
+| `care_setting` | no | `inpatient`, `outpatient`, `in`, `out` or blank | `outpatient` |
+| `language` | no | one of the 24 supported languages, as a code or English name; blank is English (US) | `es-US` or `Spanish` |
+| `call_in_english` | no | `yes`, `no` or blank: call in English while the patient's language isn't available yet | `yes` |
+
+**Rules:**
+- The header row must contain the four required columns. Extra columns are ignored.
+- A row is refused, with the reason shown, if:
+  - a required value is missing;
+  - the format is wrong;
+  - the phone number or `patient_id` appears twice in the file;
+  - the `patient_id` is already on the list.
+
+  The other rows still import.
+- **Use case:** the CSV has no column for it, so every row uses the post-op check-in. Use the scheduling API (`campaign`) for other use cases.
+
 ### Withdraw a batch
 
 ```python
