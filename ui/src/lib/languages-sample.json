@@ -1,0 +1,160 @@
+{
+  "campaign_id": "post_op",
+  "default": "en-US",
+  "languages": [
+    {
+      "code": "ar-EG",
+      "name": "Arabic (Egyptian)",
+      "native": "العربية (مصر)",
+      "available": false
+    },
+    {
+      "code": "bn-BD",
+      "name": "Bengali (Bangladesh)",
+      "native": "বাংলা",
+      "available": false
+    },
+    {
+      "code": "nl-NL",
+      "name": "Dutch",
+      "native": "Nederlands",
+      "available": false
+    },
+    {
+      "code": "en-IN",
+      "name": "English (India)",
+      "native": "English (India)",
+      "available": true
+    },
+    {
+      "code": "en-US",
+      "name": "English (US)",
+      "native": "English (US)",
+      "available": true
+    },
+    {
+      "code": "fr-FR",
+      "name": "French (France)",
+      "native": "Français",
+      "available": false
+    },
+    {
+      "code": "de-DE",
+      "name": "German",
+      "native": "Deutsch",
+      "available": false
+    },
+    {
+      "code": "hi-IN",
+      "name": "Hindi",
+      "native": "हिन्दी",
+      "available": false
+    },
+    {
+      "code": "id-ID",
+      "name": "Indonesian",
+      "native": "Bahasa Indonesia",
+      "available": false
+    },
+    {
+      "code": "it-IT",
+      "name": "Italian",
+      "native": "Italiano",
+      "available": false
+    },
+    {
+      "code": "ja-JP",
+      "name": "Japanese",
+      "native": "日本語",
+      "available": false
+    },
+    {
+      "code": "ko-KR",
+      "name": "Korean",
+      "native": "한국어",
+      "available": false
+    },
+    {
+      "code": "mr-IN",
+      "name": "Marathi",
+      "native": "मराठी",
+      "available": false
+    },
+    {
+      "code": "pl-PL",
+      "name": "Polish",
+      "native": "Polski",
+      "available": false
+    },
+    {
+      "code": "pt-BR",
+      "name": "Portuguese (Brazil)",
+      "native": "Português (Brasil)",
+      "available": false
+    },
+    {
+      "code": "ro-RO",
+      "name": "Romanian",
+      "native": "Română",
+      "available": false
+    },
+    {
+      "code": "ru-RU",
+      "name": "Russian",
+      "native": "Русский",
+      "available": false
+    },
+    {
+      "code": "es-US",
+      "name": "Spanish (US)",
+      "native": "Español",
+      "available": false
+    },
+    {
+      "code": "ta-IN",
+      "name": "Tamil",
+      "native": "தமிழ்",
+      "available": false
+    },
+    {
+      "code": "te-IN",
+      "name": "Telugu",
+      "native": "తెలుగు",
+      "available": false
+    },
+    {
+      "code": "th-TH",
+      "name": "Thai",
+      "native": "ไทย",
+      "available": false
+    },
+    {
+      "code": "tr-TR",
+      "name": "Turkish",
+      "native": "Türkçe",
+      "available": false
+    },
+    {
+      "code": "uk-UA",
+      "name": "Ukrainian",
+      "native": "Українська",
+      "available": false
+    },
+    {
+      "code": "vi-VN",
+      "name": "Vietnamese",
+      "native": "Tiếng Việt",
+      "available": false
+    }
+  ],
+  "available_by_campaign": {
+    "post_op": [
+      "en-IN",
+      "en-US"
+    ],
+    "pre_op": [
+      "en-IN",
+      "en-US"
+    ]
+  }
+}

@@ -372,3 +372,24 @@ describe("cancelled queued calls", () => {
     expect(scheduleItems([entry({ entry_id: "e1", list_status: "canceled" })], [run], [], [], [], NOW)).toHaveLength(0);
   });
 });
+
+describe("languages on the queue (docs/LANGUAGES-PLAN.md)", () => {
+  it("a held patient shows as held, cannot be mistaken for upcoming, and keeps its language", async () => {
+    const { holdReason } = await import("../languages");
+    const sample = (await import("../languages-sample.json")).default;
+    const d = demoData(NOW);
+    const items = scheduleItems(d.entries, d.runs, d.callbacks, d.sessions, d.calls, NOW, (e) => holdReason(e, sample));
+    const lucia = items.find((i) => i.patientName === "Lucía Herrera")!;
+    expect(lucia.state).toBe("held");
+    expect(lucia.held).toBe("Waiting for Spanish (US) support");
+    expect(lucia.language).toBe("es-US");
+    const minh = items.find((i) => i.patientName === "Nguyen Van Minh")!;
+    expect(minh.state).not.toBe("held"); // Call in English is on
+    expect(minh.language).toBe("vi-VN");
+  });
+
+  it("without a hold check nothing is held", () => {
+    const d = demoData(NOW);
+    expect(scheduleItems(d.entries, d.runs, d.callbacks, d.sessions, d.calls, NOW).some((i) => i.state === "held")).toBe(false);
+  });
+});

@@ -308,6 +308,7 @@ def flatten_call(
             survey.get("blood_sugar_status") if survey.get("blood_sugar_status") in SUGAR else None
         ),
         **timeline_metrics(events_doc),
+        "language": _language(doc.get("language") or ctx.get("language")),
     }
 
     reasons: list[Row] = []
@@ -323,6 +324,14 @@ def flatten_call(
         {"call_id": cid, "day": day, "category": cat, "priority": pri} for cat, pri in questions
     ]
     return row, reasons, qrows
+
+
+def _language(value: Any) -> str:
+    """One of the 24 supported codes; anything else (or nothing) is en-US, the
+    default every call before languages were recorded was made in."""
+    from voa_core import languages
+
+    return languages.normalize(value) or languages.DEFAULT
 
 
 def flatten(

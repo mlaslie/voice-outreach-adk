@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { FlaskConical, ShieldAlert } from "lucide-react";
+import { FlaskConical, Languages, ShieldAlert } from "lucide-react";
+import { ApiError } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,8 @@ export function NewCallDialog({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  // A 409 from the API: the patient's language is not available yet (held).
+  const [held, setHeld] = useState(false);
 
   const validate = (f: PatientFormState) => {
     const e = validatePatientForm(f);
@@ -87,6 +90,7 @@ export function NewCallDialog({
     }
     setSubmitting(true);
     setServerError(null);
+    setHeld(false);
     try {
       const body = patientFormToRequest(form);
       const sid = await actions.placeCall(body);
@@ -94,6 +98,7 @@ export function NewCallDialog({
       close(false);
     } catch (err) {
       setServerError(err instanceof Error ? err.message : "Could not place the call.");
+      setHeld(err instanceof ApiError && err.status === 409);
     } finally {
       setSubmitting(false);
     }
@@ -120,7 +125,12 @@ export function NewCallDialog({
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
             The agent dials this number as soon as you press Call. Only authorized numbers can be called.
           </p>
-          {serverError ? <p className="rounded-xl bg-brand-red/10 p-2 text-sm text-brand-red-dark">{serverError}</p> : null}
+          {serverError && held ? (
+            <p role="alert" className="flex items-start gap-2 rounded-xl bg-brand-yellow/30 p-2.5 text-sm text-ink ring-1 ring-brand-yellow/60">
+              <Languages className="mt-0.5 h-4 w-4 shrink-0" />
+              <span><span className="font-semibold">Not called.</span> {serverError}</span>
+            </p>
+          ) : serverError ? <p className="rounded-xl bg-brand-red/10 p-2 text-sm text-brand-red-dark">{serverError}</p> : null}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={() => close(false)}>Cancel</Button>
             <Button type="submit" disabled={submitting}>{submitting ? "Dialling…" : "Call"}</Button>

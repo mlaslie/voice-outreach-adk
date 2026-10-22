@@ -36,6 +36,7 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", "call-settings"],
     ["PUT", "call-settings/recall"],
     ["PUT", "call-settings/display"],
+    ["GET", "languages"],
     ["GET", "allowlist"],
     ["POST", "allowlist"],
     ["DELETE", "allowlist/%2B12025550123"],
@@ -224,6 +225,7 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["GET", "call-list/run"],
     ["GET", "call-runs"],
     ["GET", "call-settings"],
+    ["GET", "languages"], // patient languages (docs/LANGUAGES-PLAN.md)
     ["GET", "allowlist"],
     ["GET", "sms/sessions"],
     ["GET", "sms/callbacks"],

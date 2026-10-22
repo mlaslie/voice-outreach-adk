@@ -284,6 +284,8 @@ async def propose_place_call(
     operation_name: str | None = None,
     operation_date: str | None = None,
     is_diabetic: bool = False,
+    language: str | None = None,
+    call_in_english: bool = False,
 ):
     """Prepare a follow-up call to one patient now. Shows a confirmation card; nothing
     is dialled until the user confirms.
@@ -296,6 +298,8 @@ async def propose_place_call(
         operation_name: The procedure, if known.
         operation_date: YYYY-MM-DD, if known.
         is_diabetic: Adds the blood glucose questions.
+        language: The patient's preferred language, e.g. "es-US" or "Spanish"; omit for English.
+        call_in_english: True to call in English although their language is not available yet.
     """
     card, data = await actions.propose_place_call(
         phone=phone,
@@ -305,6 +309,8 @@ async def propose_place_call(
         operation_name=operation_name,
         operation_date=operation_date,
         is_diabetic=is_diabetic,
+        language=language,
+        call_in_english=call_in_english,
     )
     return card, data
 
@@ -318,6 +324,8 @@ async def show_place_call_form(
     operation_name: str | None = None,
     operation_date: str | None = None,
     is_diabetic: bool = False,
+    language: str | None = None,
+    call_in_english: bool = False,
 ):
     """Show a form for calling a patient, pre-filled with any known details. The user
     fills it in and presses Review, which leads to a confirmation card.
@@ -330,6 +338,8 @@ async def show_place_call_form(
         operation_name: If known.
         operation_date: YYYY-MM-DD, if known.
         is_diabetic: If known.
+        language: The patient's preferred language, if known (e.g. "es-US" or "Spanish").
+        call_in_english: True to call in English although their language is not available yet.
     """
     if not turn.current().renders_cards:
         return None, {
@@ -344,24 +354,30 @@ async def show_place_call_form(
         "operation_name": operation_name,
         "operation_date": operation_date,
         "is_diabetic": is_diabetic,
+        "language": language,
+        "call_in_english": call_in_english,
     }
     return await actions.show_form(prefill)
 
 
 @card_tool
-async def propose_redial(call_sid: str | None = None, patient: str | None = None):
-    """Prepare to call a patient back, reusing the details from their earlier call.
+async def propose_redial(
+    call_sid: str | None = None, patient: str | None = None, call_in_english: bool = False
+):
+    """Prepare to call a patient back, reusing the details from their earlier call
+    (including their preferred language).
 
     Args:
         call_sid: A specific call id, when known.
         patient: Patient name, MRN or phone; the latest call is used.
+        call_in_english: True to call in English although their language is not available yet.
     """
     c, choices = await actions.resolve(call_sid, patient)
     if choices:
         return actions.which_patient(patient or "", choices, "propose_redial")
     if not c:
         return None, {"error": f"no call found for {patient or call_sid}"}
-    return await actions.propose_redial(c["doc_id"])
+    return await actions.propose_redial(c["doc_id"], call_in_english=call_in_english)
 
 
 @card_tool
@@ -372,7 +388,8 @@ async def propose_add_to_call_list(entries: list[dict]):
     Args:
         entries: One object per patient with phone (E.164), patient_name, patient_id
             (MRN), patient_dob (YYYY-MM-DD), and optionally operation_name,
-            operation_date (YYYY-MM-DD) and is_diabetic (boolean).
+            operation_date (YYYY-MM-DD), is_diabetic (boolean), language (e.g.
+            "es-US" or "Spanish"; default English) and call_in_english (boolean).
     """
     return await actions.propose_add_entries(entries)
 

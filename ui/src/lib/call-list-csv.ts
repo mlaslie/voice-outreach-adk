@@ -1,4 +1,5 @@
 import { CallListEntryInput, CareSetting } from "./types";
+import { LanguageInfo, normalizeLanguage, parseYesNo } from "./languages";
 
 /** Column order of the example CSV — also the canonical header set. */
 export const CSV_COLUMNS = [
@@ -10,15 +11,20 @@ export const CSV_COLUMNS = [
   "operation_date",
   "is_diabetic",
   "care_setting",
+  // Optional: a code or English name ("es-US", "Spanish"); blank is English (US).
+  "language",
+  // Optional: yes to call in English while the language is not available yet.
+  "call_in_english",
 ] as const;
 
 const REQUIRED = ["phone", "patient_name", "patient_id", "patient_dob"] as const;
 
 export const EXAMPLE_CSV = [
   CSV_COLUMNS.join(","),
-  "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false,inpatient",
-  "+12025550145,John Smith,P-1002,1962-11-04,Hip arthroplasty,2026-07-24,true,inpatient",
-  '+12025550111,"Ruiz, Maria",P-1003,1978-06-30,Rotator cuff repair,2026-07-25,false,outpatient',
+  "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false,inpatient,,",
+  "+12025550145,John Smith,P-1002,1962-11-04,Hip arthroplasty,2026-07-24,true,inpatient,en-US,no",
+  '+12025550111,"Ruiz, Maria",P-1003,1978-06-30,Rotator cuff repair,2026-07-25,false,outpatient,Spanish,yes',
+  "+12025550112,Nguyen An,P-1004,1955-01-09,Cataract surgery,2026-07-26,false,outpatient,vi-VN,",
 ].join("\n");
 
 export class CsvError extends Error {}
@@ -138,7 +144,12 @@ function isRealDate(v: string): boolean {
  * repeats one is rejected, like a patient ID repeated within the file, so an
  * import can never put the same patient on the list (and the queue) twice.
  */
-export function previewCallListCsv(text: string, existingPatientIds: Iterable<string> = []): CsvPreview {
+export function previewCallListCsv(
+  text: string,
+  existingPatientIds: Iterable<string> = [],
+  /** GET /api/languages' list, to read the language column; null = not loaded. */
+  languages: LanguageInfo[] | null = null,
+): CsvPreview {
   // Excel and Google Sheets prefix UTF-8 exports with a BOM, which would
   // otherwise make the first header read "\ufeffphone" and fail the
   // required-column check on a file that looks perfectly correct.
@@ -216,6 +227,17 @@ export function previewCallListCsv(text: string, existingPatientIds: Iterable<st
     if (careSetting === undefined) {
       errors.push(`care_setting must be inpatient, outpatient, in, out or blank (got "${get("care_setting")}").`);
     }
+    const rawLanguage = get("language");
+    const language = rawLanguage ? normalizeLanguage(rawLanguage, languages ?? []) : null;
+    if (rawLanguage && !languages) {
+      errors.push("The language list could not be loaded, so the language column cannot be checked. Reload and try again.");
+    } else if (rawLanguage && !language) {
+      errors.push(`language must be one of the 24 supported languages, as a code or English name, e.g. es-US or Spanish (got "${rawLanguage}").`);
+    }
+    const callInEnglish = parseYesNo(get("call_in_english"));
+    if (callInEnglish === undefined) {
+      errors.push(`call_in_english must be yes, no or blank (got "${get("call_in_english")}").`);
+    }
 
     out.push({
       row: rowNo,
@@ -232,6 +254,8 @@ export function previewCallListCsv(text: string, existingPatientIds: Iterable<st
             operation_date: opDate || undefined,
             is_diabetic: parseBool(get("is_diabetic")),
             ...(careSetting ? { care_setting: careSetting } : {}),
+            ...(language ? { language } : {}),
+            ...(callInEnglish ? { call_in_english: true } : {}),
           },
     });
   }
@@ -248,8 +272,8 @@ export function previewCallListCsv(text: string, existingPatientIds: Iterable<st
  * message on the first problem, so the user gets a fixable error rather
  * than a silently-truncated import.
  */
-export function parseCallListCsv(text: string): CallListEntryInput[] {
-  const preview = previewCallListCsv(text);
+export function parseCallListCsv(text: string, languages: LanguageInfo[] | null = null): CallListEntryInput[] {
+  const preview = previewCallListCsv(text, [], languages);
   const bad = preview.rows.find((r) => r.errors.length);
   if (bad) throw new CsvError(`Row ${bad.row}: ${bad.errors[0]}`);
   return preview.valid;

@@ -19,6 +19,7 @@ import {
   validatePatientForm,
 } from "@/components/patient-fields";
 import { CallListEntry } from "@/lib/types";
+import { DEFAULT_LANGUAGE } from "@/lib/languages";
 import { AdminActions } from "@/lib/nurse/actions";
 import { DEFAULT_CLINIC_TZ, isoToZonedInput, zonedInputToIso } from "@/lib/nurse/window";
 
@@ -59,6 +60,9 @@ export function EntryDialog({
             operation_date: entry.operation_date ?? "",
             is_diabetic: !!entry.is_diabetic,
             care_setting: entry.care_setting === "inpatient" || entry.care_setting === "outpatient" ? entry.care_setting : "",
+            language: entry.language || DEFAULT_LANGUAGE,
+            call_in_english: !!entry.call_in_english,
+            campaign_id: entry.campaign_id ?? "",
             scheduled_for: isoToZonedInput(entry.scheduled_for, tz),
           }
         : INITIAL_PATIENT_FORM,

@@ -1,5 +1,6 @@
 "use client";
 
+import { LanguagesProvider } from "@/components/languages-provider";
 import { useMounted } from "@/hooks/use-mounted";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -40,7 +41,12 @@ function Router({ adminConsoleUrl }: { adminConsoleUrl: string | null }) {
   const sample = useSearchParams().get("data") === "demo";
   const mounted = useMounted();
   if (sample && !mounted) return null; // sample data is built in the browser only
-  return sample ? <Sample adminConsoleUrl={adminConsoleUrl} /> : <Live adminConsoleUrl={adminConsoleUrl} />;
+  // Patient languages (GET /api/languages) for every form, list and chip below.
+  return (
+    <LanguagesProvider mode={sample ? "demo" : "live"}>
+      {sample ? <Sample adminConsoleUrl={adminConsoleUrl} /> : <Live adminConsoleUrl={adminConsoleUrl} />}
+    </LanguagesProvider>
+  );
 }
 
 function Sample({ adminConsoleUrl }: { adminConsoleUrl: string | null }) {

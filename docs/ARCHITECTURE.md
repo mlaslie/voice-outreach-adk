@@ -133,6 +133,8 @@ sequenceDiagram
    - the EHR ingest API (`PUT /api/v1/call-batches/...`);
    - a nurse's "New call".
 
+   Each entry carries the patient, the use case (`campaign_id`), and the preferred `language` (one of 24, default `en-US`) with `call_in_english`; a patient whose language is not callable yet is held, not dialled (`voa_core/languages.py`).
+
    A run, started now or scheduled with Cloud Scheduler checking every minute, creates one Cloud Task per patient (`routes_tasks.enqueue_dials`).
 2. **Dial.** The task runs `dialer.dial`, which:
    - checks calling hours, the use case, the allowlist and the budget;

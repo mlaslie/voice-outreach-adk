@@ -317,3 +317,100 @@ async def test_failed_link_gives_a_plain_card(t):
     check(card)
     text = card.as_text()
     assert "Could not get the recording right now." in text and "503" not in text
+
+
+# --- patient languages (docs/LANGUAGES-PLAN.md, step 1) ------------------------------
+
+
+async def test_a_held_language_is_said_on_the_card_before_confirming(t):
+    card, data = await actions.propose_place_call(**PATIENT, language="Spanish")
+    text = card.as_text()
+    assert "Language: Español (Spanish US)" in text
+    assert "Calls in Spanish (US) aren't available yet" in text
+    (p,) = await t.proposals.pending()
+    assert p.params["body"]["language"] == "es-US" and "call_in_english" not in p.params["body"]
+    check(card)
+
+
+async def test_call_in_english_is_sent_and_said(t):
+    card, _ = await actions.propose_place_call(**PATIENT, language="vi", call_in_english=True)
+    assert "Tiếng Việt (Vietnamese) · will be called in English" in card.as_text()
+    assert "aren't available" not in card.as_text()
+    (p,) = await t.proposals.pending()
+    assert p.params["body"]["call_in_english"] is True
+    await actions.execute(p.id)
+    assert t.backend.writes[-1][1]["language"] == "vi-VN"
+
+
+async def test_english_patients_cards_are_unchanged(t):
+    card, _ = await actions.propose_place_call(**PATIENT)
+    assert "Language" not in card.as_text()
+    (p,) = await t.proposals.pending()
+    assert "language" not in p.params["body"]
+
+
+async def test_an_unsupported_language_is_a_problem_before_confirmation(t):
+    card, data = await actions.propose_place_call(**PATIENT, language="Tagalog")
+    assert card is None and "not one the caller speaks" in data["problems"][0]
+
+
+async def test_the_api_409_is_a_clear_card(t):
+    from voa_nurse.backend import BackendError
+
+    msg = (
+        "Jordan Rivera's language is Spanish (US). Calls in Spanish (US) aren't available "
+        "yet. Turn on 'Call in English' to call in English."
+    )
+
+    async def refuse(body):
+        raise BackendError(f"409: {msg}", 409)
+
+    t.backend.place_call = refuse
+    await actions.propose_place_call(**PATIENT, language="es-US")
+    (p,) = await t.proposals.pending()
+    out = await actions.execute(p.id)
+    assert out.as_text().startswith("Not called: Jordan Rivera")
+    assert msg in out.as_text() and "409" not in out.as_text()
+
+
+async def test_redial_keeps_the_calls_language():
+    with turn.active(make_turn()) as t:
+        naomi = next(c for c in t.backend.state["calls"] if c["patient_name"] == "Naomi Castillo")
+        naomi["patient_context"] = {**(naomi.get("patient_context") or {}), "language": "es-US"}
+        card, data = await actions.propose_redial(naomi["doc_id"], call_in_english=True)
+        (p,) = await t.proposals.pending()
+        assert p.params["body"]["language"] == "es-US"
+        assert p.params["body"]["call_in_english"] is True
+
+
+async def test_add_entries_carry_language_and_flag_held_patients(t):
+    card, data = await actions.propose_add_entries([{**PATIENT, "language": "es"}])
+    text = card.as_text()
+    assert "Language: Español (Spanish US)" in text and "Held until their language" in text
+    (p,) = await t.proposals.pending()
+    assert p.params["entries"][0]["language"] == "es-US"
+
+
+def test_csv_import_reads_the_optional_language_columns():
+    raw = (
+        b"phone,patient_name,patient_id,patient_dob,language,call_in_english\n"
+        b"+12025550103,Maria Lopez,P-1004,1978-06-30,Spanish,yes\n"
+    )
+    (row,) = actions.parse_call_list_csv(raw)
+    assert row["language"] == "Spanish" and row["call_in_english"] is True
+
+
+def test_the_call_detail_card_shows_the_language():
+    from voa_nurse import cards
+
+    configure_cards()
+    c = {
+        "doc_id": "CA1",
+        "to": "+12025550101",
+        "patient_name": "Maria Lopez",
+        "patient_id": "P-1",
+        "language": "es-US",
+        "patient_context": {"is_diabetic": False},
+    }
+    assert "Language: Español (Spanish US)" in cards.call_detail_card(c).as_text()
+    assert "Language" not in cards.call_detail_card({**c, "language": "en-US"}).as_text()

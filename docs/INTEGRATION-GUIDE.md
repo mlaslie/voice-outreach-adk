@@ -145,12 +145,12 @@ There are no API keys. The API accepts only Google-signed identity tokens and ch
 
 ### Other ways in
 
-- **Admin console → Patients:** add one patient, or import a CSV (columns `phone, patient_name, patient_id, patient_dob, operation_name, operation_date, is_diabetic, care_setting`). Then start or schedule a run under Schedules.
+- **Admin console → Patients:** add one patient, or import a CSV (columns `phone, patient_name, patient_id, patient_dob, operation_name, operation_date, is_diabetic, care_setting`, plus optional `language` (a code or English name) and `call_in_english` (yes/no)). Then start or schedule a run under Schedules.
 - **Nurse console → New call:** one patient, dialled now.
 - **`/api/call-list` REST routes:** these belong to the consoles' identities, not to integrations. Use the ingest API.
 
 ### Known gaps
-- `language` is accepted on ingest calls but not stored or used yet.
+- ~~`language` is accepted on ingest calls but not stored or used yet.~~ Fixed 21 Oct: `language` is validated (one of 24), stored on the entry and call, and shown to nurses. Calls are still English only: a patient in another language is held until their language is supported, or an admin chooses "Call in English" (`docs/LANGUAGES-PLAN.md`).
 - The CSV import has no use-case (`campaign_id`) column.
 
 ---

@@ -445,3 +445,23 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
   - Workload Identity Federation is not in Terraform;
   - `language` is not stored;
   - the CSV import has no use-case column.
+
+## 21 Oct: patient language (step 1; not deployed)
+
+**What changed** (`docs/LANGUAGES-PLAN.md` step 1). Each patient has `language`, one of the 24 live-model languages (default `en-US`), and `call_in_english` (an admin's override). Calls and texts are unchanged: still English only.
+- `voa_core/languages.py`: the 24 codes with English and native names, `normalize` ("es", "Spanish" → `es-US`; "zh" → None), `available(campaign_id)` (English plus approved packs, read from `config/campaigns/i18n/<id>.<lang>.yaml` with `status: approved`; none exist), `hold_reason`.
+- API: the models validate it (422 lists the 24). Ingest rejects an unsupported language per item and keeps it in the feed fields, not `call_in_english`. The entry PATCH changes either only when sent. New `GET /api/languages` (READ).
+- **The hold:** `task_dial` never dials an entry whose language is not available, named by a nurse or not. It is re-checked inside the claim transaction, and `dialer.dial` checks again (`LanguageHeld`, 409). The run records the member under `held`. The entry stays `pending`, so a later run dials it once the language is available or the override is on. The per-minute due pass leaves held entries out. `POST /api/place-call` gives 409 with "…Turn on 'Call in English'…". The SMS recall carries the original call's language and override.
+- The call doc (top level and `patient_context`) and `pending_calls` carry `language` and `call_in_english`. The gateway strips both before `state["patient"]`, so the instruction, tools and voice are untouched.
+- UI (both builds): the language select ("not available yet" marks) with a "Call in English" checkbox, CSV `language` / `call_in_english` columns, a language chip (hidden for en-US) on the queue, Call status, follow-ups, the drawer and the admin patients list, "Held: waiting for … support" on the queue, and a clear 409 in New call. Sample data has a held Spanish patient and a Vietnamese one called in English.
+- Nurse agent: place-call, the form, redial and add take `language` / `call_in_english`; cards show "Language: Español (Spanish US)"; a 409 is a "Not called" card.
+- Analytics: `fact_calls.language` (default en-US). The loader adds a new NULLABLE column to an existing table with an explicit schema update before the load.
+
+**What bit us / watch out.**
+- A full-replace PATCH from an older client would have reset a Spanish patient to English, which makes them callable in English. The PATCH now keeps `language` and `call_in_english` unless they are sent.
+- A held patient with a planned time stays "due" forever, because it is never claimed. Without the filter, the due pass would start a run every minute.
+- A recall reached through the SMS form would have dropped the language, because the nurse form card had no language field. Both fields were added to the form.
+- BigQuery refuses `schema_update_options` on a WRITE_TRUNCATE of a whole table, and the empty-table path never loads at all. So the new column is added with `update_table` instead.
+- The UI's sample mode has no backend, so it uses `ui/src/lib/languages-sample.json`, a copy of the API's answer. `test_ui_sample_languages_match_the_endpoint` fails if it drifts.
+
+**Parity:** the goldens and tool declarations are unchanged; the suite passes as is.

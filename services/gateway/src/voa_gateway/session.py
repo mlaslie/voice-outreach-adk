@@ -205,6 +205,11 @@ class CallSession:
             # patient context, so it never reaches state["patient"].
             patient = dict(patient)
             use_case = {k: patient.pop(k) for k in ("campaign_id", "spec_version") if k in patient}
+            # The patient's language (docs/LANGUAGES-PLAN.md) is recorded but not
+            # used by calls yet (step 1): kept out of state["patient"], so the
+            # instruction, tools and voice are exactly as before.
+            for k in ("language", "call_in_english"):
+                patient.pop(k, None)
             await self._resolve_campaign(use_case)
             from voa_core import organization
 

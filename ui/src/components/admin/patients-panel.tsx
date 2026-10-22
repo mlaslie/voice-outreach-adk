@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { toast } from "sonner";
-import { CalendarClock, Download, FileUp, Pencil, Plus, RotateCcw, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
+import { CalendarClock, Download, FileUp, Languages, Pencil, Plus, RotateCcw, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
 import { AllowlistResponse, CallListEntry, CallRun, CallSettingsResponse } from "@/lib/types";
 import { AdminActions } from "@/lib/nurse/actions";
 import { isAllowed } from "@/lib/nurse/allowlist";
@@ -13,6 +13,9 @@ import { fmtDateTime } from "@/lib/time";
 import { EntryDialog } from "@/components/nurse/entry-dialog";
 import { CsvError, CsvPreview, downloadExampleCsv, previewCallListCsv } from "@/lib/call-list-csv";
 import { ImportDialog } from "./import-dialog";
+import { useLanguages } from "@/components/languages-provider";
+import { LanguageChip } from "@/components/language-chip";
+import { holdReason } from "@/lib/languages";
 
 /**
  * Admin → Patients: the call list (add, edit, delete, reset completed), with
@@ -39,6 +42,7 @@ export function PatientsPanel({
   const [dialog, setDialog] = useState<{ open: boolean; entry: CallListEntry | null }>({ open: false, entry: null });
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const langs = useLanguages();
   const [imported, setImported] = useState<{ name: string; preview: CsvPreview } | null>(null);
 
   // Read and check the whole file in the browser; nothing is sent until the
@@ -48,7 +52,7 @@ export function PatientsPanel({
     ev.target.value = ""; // so picking the same file again fires onChange
     if (!file) return;
     try {
-      const preview = previewCallListCsv(await file.text(), entries.map((e) => e.patient_id));
+      const preview = previewCallListCsv(await file.text(), entries.map((e) => e.patient_id), langs?.languages ?? null);
       setImported({ name: file.name, preview });
     } catch (err) {
       toast.error(err instanceof CsvError ? err.message : "Could not read that file.");
@@ -147,7 +151,10 @@ export function PatientsPanel({
               {sorted.map((e) => (
                 <tr key={e.entry_id} className={cn(busy === e.entry_id && "opacity-50")}>
                   <td className="px-5 py-3">
-                    <div className="font-display font-semibold text-ink">{e.patient_name}</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-display font-semibold text-ink">{e.patient_name}</span>
+                      <LanguageChip code={e.language} />
+                    </div>
                     <div className="text-[12px] text-ink-muted">
                       {e.patient_id} · <span className="tabular-nums">{formatPhone(e.phone)}</span>
                       {e.is_diabetic ? " · diabetic" : ""}
@@ -168,7 +175,7 @@ export function PatientsPanel({
                       <span className="text-ink-muted" title="Not in a scheduled run. Add them to one under Schedules, or a nurse can call them from the queue.">Not in a run</span>
                     )}
                   </td>
-                  <td className="px-3 py-3"><StatusPill entry={e} allowed={isAllowed(e.phone, allowlist)} /></td>
+                  <td className="px-3 py-3"><StatusPill entry={e} allowed={isAllowed(e.phone, allowlist)} held={e.list_status === "pending" ? holdReason(e, langs) : null} /></td>
                   <td className="px-3 py-3">
                     <div className="flex justify-end gap-1">
                       <button
@@ -247,12 +254,17 @@ const STATUS: Record<CallListEntry["list_status"], { label: string; tone: Tone }
   canceled: { label: "Cancelled", tone: "warn" },
 };
 
-function StatusPill({ entry, allowed }: { entry: CallListEntry; allowed?: boolean }) {
+function StatusPill({ entry, allowed, held }: { entry: CallListEntry; allowed?: boolean; held?: string | null }) {
   const s = STATUS[entry.list_status] ?? { label: entry.list_status, tone: "muted" as Tone };
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <Pill tone={s.tone} pulse={entry.list_status === "calling"}>{s.label}</Pill>
       {allowed === false ? <Pill tone="warn" icon={ShieldAlert}>Not an approved number</Pill> : null}
+      {held ? (
+        <span title="Not called until the language is available. Edit the patient and tick Call in English to call them in English now.">
+          <Pill tone="warn" icon={Languages}>Held: {held.charAt(0).toLowerCase() + held.slice(1)}</Pill>
+        </span>
+      ) : entry.call_in_english ? <span className="text-[11px] text-ink-muted">calls in English</span> : null}
       {entry.attempts > 0 ? <span className="text-[11px] text-ink-muted">{entry.attempts} {entry.attempts === 1 ? "attempt" : "attempts"}{entry.last_call_status ? ` · ${entry.last_call_status}` : ""}</span> : null}
       {entry.last_error ? <span className="text-[11px] text-brand-coral-dark">{entry.last_error}</span> : null}
     </div>

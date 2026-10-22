@@ -103,6 +103,7 @@ ROUTE_POLICY: dict[str, frozenset[str]] = {
     "PATCH /api/call-runs/{run_id}": ADMIN,
     "DELETE /api/call-runs/{run_id}": ADMIN,
     "GET /api/call-settings": READ,
+    "GET /api/languages": READ,  # patient languages and which are available
     "PUT /api/call-settings/recall": ADMIN,
     "PUT /api/call-settings/display": ADMIN,
     "PUT /api/call-settings/organization": ADMIN,

@@ -23,7 +23,7 @@ import asyncio
 import time
 from datetime import datetime, timedelta
 
-from voa_core import timefmt
+from voa_core import languages, timefmt
 
 from . import cards, triage
 from .actions import backend, match_patients, propose, resolve, which_patient
@@ -180,6 +180,7 @@ def _meta(c: dict) -> str:
         for x in (
             f"MRN {c['patient_id']}" if c.get("patient_id") else None,
             ctx.get("operation_name") or None,
+            cards.language_line(cards.call_language(c)),
             phone(c.get("to")),
         )
         if x
@@ -509,9 +510,12 @@ async def view_queue():
             meta = [
                 f"MRN {e.get('patient_id')}",
                 e.get("operation_name") or None,
+                cards.language_line(e.get("language")),
                 phone(e.get("phone")),
                 attempt,
             ]
+            if held := languages.entry_hold_reason(e):
+                meta.append(f"Held: {held}")
             btns = (
                 []
                 if x["calling"]
@@ -1311,6 +1315,7 @@ async def view_history(call_sid: str | None = None, patient: str | None = None):
                 f"MRN {pid}" if pid else None,
                 ctx.get("operation_name"),
                 f"on {us_date(ctx.get('operation_date'))}" if ctx.get("operation_date") else None,
+                cards.language_line(cards.call_language(anchor)),
                 phone(ph),
             )
             if x

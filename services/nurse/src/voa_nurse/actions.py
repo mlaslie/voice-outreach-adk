@@ -17,6 +17,8 @@ import logging
 import re
 from datetime import datetime, timedelta
 
+from voa_core import languages
+from voa_core.compliance import coerce_bool
 from voa_core.logging import safe_extra
 
 from . import cards, triage, turn
@@ -399,6 +401,12 @@ def patient_problems(p: dict) -> list[str]:
         problems.append("MRN is required (letters, digits, dot, dash or underscore)")
     if not ISO_DATE.match(p.get("patient_dob") or ""):
         problems.append("DOB is required as a full date")
+    lang = p.get("language")
+    if lang and str(lang).strip() and languages.normalize(lang) is None:
+        problems.append(
+            f"language {lang!r} is not one the caller speaks; use one of "
+            + ", ".join(f"{x.name} ({x.code})" for x in languages.SUPPORTED)
+        )
     return problems
 
 
@@ -415,7 +423,28 @@ def patient_body(p: dict) -> dict:
     for k in ("operation_name", "operation_date", "campaign_id"):
         if p.get(k) and str(p[k]).strip():
             body[k] = str(p[k]).strip()
+    # The patient's language (normalised; patient_problems refused anything
+    # unsupported) and the "call in English" override.
+    lang = languages.normalize(p.get("language"))
+    if lang:
+        body["language"] = lang
+    if _yes(p.get("call_in_english")):
+        body["call_in_english"] = True
     return body
+
+
+def _yes(v) -> bool:
+    return v is True or (isinstance(v, str) and v.strip().lower() in ("true", "yes", "y", "1"))
+
+
+def hold_lines(b: dict) -> list[str]:
+    """A held language, said on the confirmation card before anyone confirms."""
+    reason = languages.hold_reason(
+        b.get("language"), b.get("campaign_id"), coerce_bool(b.get("call_in_english"))
+    )
+    if not reason:
+        return []
+    return [f"(!) {languages.held_message(b['patient_name'], b.get('language'))}"]
 
 
 def _patient_lines(b: dict) -> list[str]:
@@ -429,7 +458,16 @@ def _patient_lines(b: dict) -> list[str]:
         f"Phone {cards.phone(b['phone'])}",
         proc,
         "DM: Yes (blood glucose questions included)" if b["is_diabetic"] else "DM: No",
-    ]
+    ] + _language_lines(b)
+
+
+def _language_lines(b: dict) -> list[str]:
+    line = cards.language_line(b.get("language"))
+    if not line:
+        return []
+    if b.get("call_in_english"):
+        line += " · will be called in English"
+    return [line]
 
 
 def allowlisted(phone: str, entries: list[str]) -> bool:
@@ -457,7 +495,7 @@ async def propose_place_call(**p):
     if problems := patient_problems(p):
         return None, {"status": "invalid", "problems": problems}
     body = patient_body(p)
-    lines = _patient_lines(body) + await allowlist_warning([body["phone"]])
+    lines = _patient_lines(body) + hold_lines(body) + await allowlist_warning([body["phone"]])
     return await propose(
         "place_call",
         {"body": body},
@@ -472,6 +510,7 @@ async def submit_call_form(values: dict):
     """Submit on the form card: re-show the form with what was wrong, or confirm."""
     p = {f: values.get(f) for f in cards.CALL_FORM_FIELDS}
     p["is_diabetic"] = p["is_diabetic"] is True or str(p["is_diabetic"]).lower() == "true"
+    p["call_in_english"] = _yes(p.get("call_in_english"))
     p = {k: v.strip() if isinstance(v, str) else v for k, v in p.items()}
     card, data = await propose_place_call(**p)
     if card is None:
@@ -483,7 +522,7 @@ async def show_form(prefill: dict | None = None):
     return cards.place_call_form_card(prefill), {"status": "form_shown"}
 
 
-async def propose_redial(call_sid: str):
+async def propose_redial(call_sid: str, call_in_english: bool = False):
     """Call a patient back from an earlier call. The call record never holds the DOB
     (it is PHI kept off call docs), so it comes from the patient's worklist entry;
     without one, the form opens pre-filled and asks for it."""
@@ -498,6 +537,10 @@ async def propose_redial(call_sid: str):
         "operation_date": ctx.get("operation_date"),
         "is_diabetic": bool(ctx.get("is_diabetic", False)),
         "campaign_id": c.get("campaign_id"),
+        "language": c.get("language") or ctx.get("language"),
+        "call_in_english": bool(
+            call_in_english or c.get("call_in_english") or ctx.get("call_in_english")
+        ),
     }
     if p["patient_id"]:
         try:
@@ -547,8 +590,20 @@ async def propose_add_entries(entries: list[dict], source: str = "chat"):
             "Too many patients", ["Add at most 200 patients at a time."], ok=False
         ), {"status": "too_many"}
     lines = [
-        f"{b['patient_name']} ({b['patient_id']}), {cards.phone(b['phone'])}" for b in bodies[:10]
+        f"{b['patient_name']} ({b['patient_id']}), {cards.phone(b['phone'])}"
+        + (
+            f" · {cards.language_line(b.get('language'))}"
+            if cards.language_line(b.get("language"))
+            else ""
+        )
+        for b in bodies[:10]
     ]
+    held = [b["patient_name"] for b in bodies if languages.entry_hold_reason(b)]
+    if held:
+        lines.append(
+            f"(!) Held until their language is available: {', '.join(held[:10])}. "
+            "An admin can turn on 'Call in English' for a patient."
+        )
     if len(bodies) > 10:
         lines.append(f"…and {len(bodies) - 10} more")
     lines += await allowlist_warning([b["phone"] for b in bodies])
@@ -671,7 +726,16 @@ async def execute(proposal_id: str):
     b = t.backend
     try:
         if k == "place_call":
-            r = await b.place_call(a["body"])
+            try:
+                r = await b.place_call(a["body"])
+            except BackendError as e:
+                if e.status != 409:
+                    raise
+                # A held language (or another conflict): the API's own words.
+                detail = str(e).split(": ", 1)[-1]
+                return cards.result_card(
+                    f"Not called: {a['body']['patient_name']}", [detail], ok=False
+                )
             return cards.result_card(
                 f"Follow-up call placed to {a['body']['patient_name']}",
                 [f"Call status: {r.get('status')}. Results appear when the call ends."],
@@ -739,7 +803,10 @@ CSV_COLUMNS = (
     "operation_name",
     "operation_date",
     "is_diabetic",
+    "language",
+    "call_in_english",
 )
+OPTIONAL_CSV_COLUMNS = ("language", "call_in_english")
 CSV_MAX_BYTES = 1_000_000
 
 
@@ -756,7 +823,13 @@ def parse_call_list_csv(raw: bytes) -> list[dict]:
         if not any(r.values()):
             continue
         r["is_diabetic"] = r.get("is_diabetic", "").lower() in ("true", "yes", "y", "1")
-        out.append({k: r.get(k) for k in CSV_COLUMNS})
+        row = {k: r.get(k) for k in CSV_COLUMNS if k not in OPTIONAL_CSV_COLUMNS}
+        # The optional language columns, only when the file has them.
+        if r.get("language"):
+            row["language"] = r["language"]
+        if r.get("call_in_english"):
+            row["call_in_english"] = _yes(r["call_in_english"])
+        out.append(row)
     return out
 
 

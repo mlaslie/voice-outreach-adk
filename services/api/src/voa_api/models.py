@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from voa_core import languages
 from voa_core.campaign import validate_campaign_id
 from voa_core.compliance import coerce_bool
 
@@ -31,11 +32,32 @@ class PlaceCallRequest(_In):
     # The use case (docs/USE-CASES-PLAN.md): a spec under config/campaigns. None
     # means the default (post-op); an unknown id is a 422.
     campaign_id: str | None = None
+    # The patient's preferred language (docs/LANGUAGES-PLAN.md): one of the 24
+    # live-model languages, normalised ("es", "Spanish" -> "es-US"); anything else
+    # is a 422. A language without an approved pack is held (never dialled) unless
+    # call_in_english is on (an admin's per-patient override).
+    language: str = languages.DEFAULT
+    call_in_english: bool = False
 
     @field_validator("campaign_id", mode="before")
     @classmethod
     def _campaign(cls, v):
         return validate_campaign_id(v)
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def _language(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return languages.DEFAULT
+        code = languages.normalize(v)
+        if code is None:
+            raise ValueError(languages.unsupported_message(v))
+        return code
+
+    @field_validator("call_in_english", mode="before")
+    @classmethod
+    def _english(cls, v):
+        return coerce_bool(v)
 
     @field_validator("care_setting", mode="before")
     @classmethod

@@ -13,6 +13,11 @@ Two rules from the old proxy's backlog are enforced here, at dial time:
 * B-2: a nurse's cancel stops the dial. A dial task re-checks its entry inside
   the claim transaction and skips a cancelled (or completed, or blocked) row
   unless a nurse named it; a cancelled run skips its remaining tasks.
+* Languages (docs/LANGUAGES-PLAN.md §3.2): a patient whose language has no
+  approved language pack is HELD: never dialled, by any run, named or not,
+  unless an admin turned on "Call in English". The row stays "pending" (the
+  hold is computed, not stored), so it dials on a later run once the language
+  becomes available or the override is set; the run records it as "held".
 * B-8: a scheduled or automatic run only dials inside calling hours (site
   timezone). Outside them due runs move to the next opening, and the members a
   run had not reached by closing time are carried into a new run there. A
@@ -27,12 +32,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import ValidationError
-from voa_core import compliance, lifecycle
+from voa_core import compliance, languages, lifecycle
 from voa_core.store import Where, new_id, now_iso
 
 from .auth import require_caller, task_callers
 from .context import CALL_LIST, CALL_RUNS, CALLS, LIST_RUNS, Api
-from .dialer import DialError, OutsideCallingHours, dial
+from .dialer import DialError, LanguageHeld, OutsideCallingHours, dial
 from .models import PlaceCallRequest
 
 log = logging.getLogger(__name__)
@@ -83,10 +88,12 @@ async def enqueue_dials(
         "scheduled_run_id": scheduled_run_id,
         "explicit": explicit,
         "enforce_hours": enforce_hours,
-        # Members not dialled: cancelled/finished since the run started (B-2), or
-        # left at closing time (B-8). Ids, so a redelivered task counts once.
+        # Members not dialled: cancelled/finished since the run started (B-2),
+        # left at closing time (B-8), or held for their language. Ids, so a
+        # redelivered task counts once.
         "skipped": [],
         "deferred": [],
+        "held": [],
     }
     if campaign_id:
         run["campaign_id"] = campaign_id
@@ -123,6 +130,7 @@ def _done(run: dict) -> int:
         + int(run.get("failed") or 0)
         + len(run.get("skipped") or [])
         + len(run.get("deferred") or [])
+        + len(run.get("held") or [])
     )
 
 
@@ -224,11 +232,16 @@ async def carry_over(
     return rid
 
 
+#: How a run records a member it did not dial.
+NOT_DIALLED_KINDS = ("skipped", "deferred", "held")
+
+
 async def _member_not_dialled(api: Api, run_id: str, entry_id: str, kind: str) -> None:
-    """Count a run member that will not be dialled (``skipped`` or ``deferred``)."""
+    """Count a run member that will not be dialled (``skipped``, ``deferred``, or
+    ``held`` for its language)."""
 
     def mark(r):
-        if entry_id not in (r.get("skipped") or []) and entry_id not in (r.get("deferred") or []):
+        if not any(entry_id in (r.get(k) or []) for k in NOT_DIALLED_KINDS):
             r[kind] = [*(r.get(kind) or []), entry_id]
         return r
 
@@ -256,6 +269,13 @@ async def task_dial(payload: dict, request: Request):
     if entry.get("list_status") in compliance.NOT_AUTO_DIALLED and not explicit:
         await _member_not_dialled(api, run_id, entry_id, "skipped")
         return {"skipped": f"entry {entry.get('list_status')}"}
+    # The entry's own use case wins; else the run's; else the default (dialer).
+    campaign_id = entry.get("campaign_id") or (run.get("campaign_id") if ours else None)
+    # Languages: held even when a nurse named the row. Not a terminal status: the
+    # row stays pending and is checked again on every later run.
+    if languages.entry_hold_reason(entry, campaign_id):
+        await _member_not_dialled(api, run_id, entry_id, "held")
+        return {"skipped": "held for language"}
     hours = await recall_settings(api) if ours and run.get("enforce_hours") else None
     if hours is not None and not compliance.in_calling_window(
         api.now(), hours, api.cfg.site.timezone
@@ -267,18 +287,23 @@ async def task_dial(payload: dict, request: Request):
         # in-memory semaphore + wait loop).
         return Response(status_code=503, content="call slot busy")
 
-    claimed = await api.store.transact(
-        CALL_LIST,
-        entry_id,
-        lambda cur: compliance.claim_entry(cur, attempt, now=api.now(), explicit=explicit),
-    )
+    def claim(cur):
+        # Re-checked inside the claim: an edit to the language since the check
+        # above must not slip a held patient through.
+        if cur is not None and languages.entry_hold_reason(cur, campaign_id):
+            return None
+        return compliance.claim_entry(cur, attempt, now=api.now(), explicit=explicit)
+
+    claimed = await api.store.transact(CALL_LIST, entry_id, claim)
     if not claimed or claimed.get("attempts") != attempt or claimed.get("list_status") != "calling":
+        if claimed and languages.entry_hold_reason(claimed, campaign_id):
+            await _member_not_dialled(api, run_id, entry_id, "held")
+            return {"skipped": "held for language"}
         if claimed and claimed.get("list_status") in compliance.NOT_AUTO_DIALLED:
             # Cancelled between the check above and the claim.
             await _member_not_dialled(api, run_id, entry_id, "skipped")
             return {"skipped": f"entry {claimed.get('list_status')}"}
         return {"skipped": "already claimed"}
-    # The entry's own use case wins; else the run's; else the default (dialer).
     campaign_id = claimed.get("campaign_id") or (run.get("campaign_id") if ours else None)
     try:
         try:
@@ -299,6 +324,15 @@ async def task_dial(payload: dict, request: Request):
             hours=hours,
             campaign_id=campaign_id,
         )
+    except LanguageHeld as exc:
+        # Defence in depth (dialer.check_language): back to pending, not blocked.
+        await api.store.merge(
+            CALL_LIST,
+            entry_id,
+            {"list_status": "pending", "last_error": exc.detail, "updated_at": now_iso(api.now())},
+        )
+        await _member_not_dialled(api, run_id, entry_id, "held")
+        return {"skipped": "held for language"}
     except OutsideCallingHours as exc:
         # Closing time passed between the check and the dial: back on the list.
         await api.store.merge(
@@ -679,10 +713,12 @@ async def cron_dispatch_due(request: Request):
     if started is not None:
         return started
     # Entries with their own planned time and no run.
+    # A held patient is left out: it would never be claimed, so it would stay
+    # "due" and start a run every minute. It becomes due again once callable.
     due = [
         i
         for i, e in await api.store.query(CALL_LIST, [Where("list_status", "==", "pending")])
-        if compliance.is_due(e, now)
+        if compliance.is_due(e, now) and not languages.entry_hold_reason(e)
     ]
     if due:
         await enqueue_dials(

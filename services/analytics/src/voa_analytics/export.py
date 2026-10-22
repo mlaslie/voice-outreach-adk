@@ -64,9 +64,33 @@ class BigQueryLoader:
             for c in table.columns
         ]
 
+    def _add_new_columns(self, ref: str, table: schema.Table) -> list[str]:
+        """Add columns the code has and the existing table lacks (e.g. fact_calls
+        ``language``), as an explicit schema update before the load. A WRITE_TRUNCATE
+        load of a whole table may not carry schema_update_options, and the
+        empty-table path below never loads at all, so neither would add them.
+        Only NULLABLE columns can be added; returns the names added."""
+        from google.api_core.exceptions import NotFound
+
+        try:
+            existing = self.client.get_table(ref)
+        except NotFound:
+            return []  # created by this load, with the full schema
+        have = {f.name for f in existing.schema}
+        new = [f for f in self._schema(table) if f.name not in have and f.mode == "NULLABLE"]
+        if new:
+            existing.schema = [*existing.schema, *new]
+            self.client.update_table(existing, ["schema"])
+            log.info(
+                "analytics columns added",
+                extra={"event": "analytics.columns_added", "table": table.name, "n": len(new)},
+            )
+        return [f.name for f in new]
+
     def load(self, table: schema.Table, rows: Sequence[Mapping[str, Any]]) -> None:
         bq = self._bq
         ref = f"{self.project_id}.{self.dataset}.{table.name}"
+        self._add_new_columns(ref, table)
         config = bq.LoadJobConfig(
             schema=self._schema(table),
             write_disposition=bq.WriteDisposition.WRITE_TRUNCATE,

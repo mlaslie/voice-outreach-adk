@@ -2,18 +2,24 @@ import { describe, expect, it } from "vitest";
 import {
   BULK_LIMIT, CsvError, EXAMPLE_CSV, importInChunks, parseCallListCsv, parseCareSetting, previewCallListCsv,
 } from "./call-list-csv";
+import { LanguagesResponse } from "./languages";
+import sample from "./languages-sample.json";
+
+const LANGS = (sample as LanguagesResponse).languages;
 
 const HEADER = "phone,patient_name,patient_id,patient_dob,operation_name,operation_date,is_diabetic";
 const ROW = "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false";
 
 describe("parseCallListCsv", () => {
   it("parses the example CSV we hand users", () => {
-    const rows = parseCallListCsv(EXAMPLE_CSV);
-    expect(rows).toHaveLength(3);
+    const rows = parseCallListCsv(EXAMPLE_CSV, LANGS);
+    expect(rows).toHaveLength(4);
     expect(rows[2].patient_name).toBe("Ruiz, Maria"); // quoted comma survives
     expect(rows[1].is_diabetic).toBe(true);
     expect(rows[0].is_diabetic).toBe(false);
-    expect(rows.map((r) => r.care_setting)).toEqual(["inpatient", "inpatient", "outpatient"]);
+    expect(rows.map((r) => r.care_setting)).toEqual(["inpatient", "inpatient", "outpatient", "outpatient"]);
+    expect(rows.map((r) => r.language)).toEqual([undefined, "en-US", "es-US", "vi-VN"]);
+    expect(rows.map((r) => r.call_in_english)).toEqual([undefined, undefined, true, undefined]);
   });
 
   it("accepts CRLF line endings", () => {
@@ -212,5 +218,46 @@ describe("care_setting", () => {
 
   it("is optional: a file without the column imports as before", () => {
     expect(parseCallListCsv(`${HEADER}\n${ROW}`)[0]).not.toHaveProperty("care_setting");
+  });
+});
+
+describe("the language columns", () => {
+  const H = "phone,patient_name,patient_id,patient_dob,language,call_in_english";
+  const row = (lang: string, eng = "") => `+12025550123,Ana Ruiz,P-1,1950-03-15,${lang},${eng}`;
+
+  it("accepts codes and English names, any case, and normalises them", () => {
+    for (const [cell, code] of [["es-US", "es-US"], ["ES-us", "es-US"], ["es", "es-US"], ["Spanish", "es-US"],
+      ["spanish (us)", "es-US"], ["Vietnamese", "vi-VN"], ["en", "en-US"], ["en-IN", "en-IN"]] as const) {
+      const p = previewCallListCsv(`${H}\n${row(cell)}`, [], LANGS);
+      expect(p.rows[0].errors).toEqual([]);
+      expect(p.valid[0].language).toBe(code);
+    }
+  });
+
+  it("a blank language is English (US), sent as nothing", () => {
+    const p = previewCallListCsv(`${H}\n${row("")}`, [], LANGS);
+    expect(p.valid[0].language).toBeUndefined();
+  });
+
+  it("an unsupported language or a bad yes/no is a row error", () => {
+    const second = "+12025550124,Ben Cho,P-2,1950-03-15,es,maybe";
+    const p = previewCallListCsv(`${H}\n${row("zh")}\n${second}`, [], LANGS);
+    expect(p.rows[1].errors).toHaveLength(1);
+    expect(p.rows[0].errors.join()).toMatch(/language must be one of the 24/);
+    expect(p.rows[1].errors.join()).toMatch(/call_in_english must be yes, no or blank/);
+    expect(p.invalid).toBe(2);
+  });
+
+  it("call_in_english yes is sent; no is not", () => {
+    const yes = previewCallListCsv(`${H}\n${row("es", "yes")}`, [], LANGS);
+    expect(yes.valid[0].call_in_english).toBe(true);
+    const no = previewCallListCsv(`${H}\n${row("es", "No")}`, [], LANGS);
+    expect(no.valid[0].call_in_english).toBeUndefined();
+  });
+
+  it("a language cell without the list loaded is a row error, never sent unchecked", () => {
+    const p = previewCallListCsv(`${H}\n${row("es")}`, [], null);
+    expect(p.rows[0].errors.join()).toMatch(/could not be loaded/);
+    expect(previewCallListCsv(`${H}\n${row("")}`, [], null).invalid).toBe(0);
   });
 });

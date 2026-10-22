@@ -14,6 +14,7 @@
 import { CallDoc, CallListEntry, CallRun, CancelEvent } from "../types";
 import { FollowUpSession, ScheduledCallback } from "../followups";
 import { followUpCalls, isActive, latestAssessedCallPerPatient, needsFollowUp, patientKey } from "../status";
+import { callLanguage } from "../languages";
 
 // ---------------------------------------------------------------------------
 // Schedule
@@ -38,7 +39,8 @@ export type ScheduleState =
   | "queued"     // in a run that is being dialled now, waiting for its turn; can still be cancelled
   | "attempted"  // dialled by the run; not reached — the text follow-up takes over
   | "done"       // dialled by the run and the questionnaire was completed
-  | "blocked";   // the proxy refused the number (not on the approved list)
+  | "blocked"    // the proxy refused the number (not on the approved list)
+  | "held";      // the patient's language is not available yet: not called (docs/LANGUAGES-PLAN.md)
 
 export interface ScheduleItem {
   id: string;
@@ -62,7 +64,14 @@ export interface ScheduleItem {
   lastCallStatus?: string;
   /** The call that led to this booking, if any. */
   sourceCallSid?: string | null;
+  /** The patient's preferred language (absent = English (US)). */
+  language?: string;
+  /** Why the patient is held for their language, when state is "held". */
+  held?: string;
 }
+
+/** Why a call-list patient is held for their language, or null (lib/languages holdReason). */
+export type HoldOf = (e: PlannedEntry) => string | null;
 
 export type PlannedEntry = CallListEntry;
 
@@ -86,6 +95,7 @@ export function scheduleItems(
   sessions: FollowUpSession[],
   calls: CallDoc[],
   now: Date = new Date(),
+  holdOf: HoldOf = () => null,
 ): ScheduleItem[] {
   const out: ScheduleItem[] = [];
   const sessionByCall = new Map(
@@ -106,10 +116,13 @@ export function scheduleItems(
       if (run.auto_recall && run.status === "scheduled" && textBooked.has(e.phone)) continue;
       // Once the run has dialled, its own attempt is already counted.
       const prior = run.status === "dispatched" ? Math.max(0, e.attempts - 1) : e.attempts;
-      const state = memberState(run, e, now);
+      // A patient held for their language is never dialled: say so, in a run
+      // still to come and in today's run that passed them by.
+      const held = e.list_status === "pending" ? holdOf(e) : null;
+      const state = held ? "held" : memberState(run, e, now);
       // Already called or already reached: not on the queue (never a past time).
       if (state === "attempted" || state === "done") continue;
-      if (run.status === "dispatched" && state !== "calling" && state !== "queued") continue;
+      if (run.status === "dispatched" && state !== "calling" && state !== "queued" && state !== "held") continue;
       out.push({
         id: `run:${run.run_id}:${eid}`,
         entryId: eid,
@@ -124,6 +137,8 @@ export function scheduleItems(
         attempts: prior,
         lastCallStatus: e.last_call_status,
         sourceCallSid: e.last_call_sid ?? null,
+        language: e.language || undefined,
+        held: held ?? undefined,
       });
     }
   }
@@ -146,6 +161,7 @@ export function scheduleItems(
         : new Date(cb.run_at).getTime() + SCHEDULER_GRACE_MS < now.getTime() ? "overdue" : "upcoming",
       attempts: 1,
       sourceCallSid: cb.origin_call_sid ?? null,
+      language: origin ? callLanguage(origin) : undefined,
     });
   }
 
@@ -176,7 +192,7 @@ function memberState(run: CallRun, e: PlannedEntry, now: Date): ScheduleState {
 /** In progress first, then anything the scheduler missed, then by time. */
 function compareSchedule(a: ScheduleItem, b: ScheduleItem): number {
   const RANK: Record<ScheduleState, number> = {
-    calling: 0, queued: 1, overdue: 1, upcoming: 2, attempted: 2, done: 2, blocked: 2,
+    calling: 0, queued: 1, overdue: 1, upcoming: 2, attempted: 2, done: 2, blocked: 2, held: 2,
   };
   const rank = (s: ScheduleItem) => RANK[s.state];
   if (rank(a) !== rank(b)) return rank(a) - rank(b);
@@ -248,6 +264,8 @@ export interface CompletedItem {
   /** Set for a cancelled queued call: the call-list entry, and why. */
   entry?: CallListEntry;
   cancel?: CancelEvent;
+  /** The patient's preferred language (absent = English (US)). */
+  language?: string;
 }
 
 export function completedItems(
@@ -298,6 +316,7 @@ export function completedItems(
       overridden: !!c.follow_up_override,
       current: isCurrent(c),
       call: c,
+      language: callLanguage(c),
     });
   }
   // A call a nurse cancelled from the queue never rang, so it has no call
@@ -319,6 +338,7 @@ export function completedItems(
       current: false,
       entry: e,
       cancel: e.canceled,
+      language: e.language || undefined,
     });
   }
   return out.sort((a, b) => b.at.localeCompare(a.at));
@@ -426,6 +446,8 @@ export interface FollowUpItem {
   /** A callback the patient booked by text, if one is pending. */
   callback?: ScheduledCallback;
   call: CallDoc;
+  /** The patient's preferred language (absent = English (US)). */
+  language?: string;
 }
 
 export const DUE_HOUR = 17;
@@ -456,6 +478,7 @@ export function followUpItems(
         overdue: tier !== "emergency" && now.getTime() > new Date(dueBy).getTime(),
         callback: pending.find((cb) => cb.phone === c.to),
         call: c,
+        language: callLanguage(c),
       };
     })
     .sort(compareFollowUps);

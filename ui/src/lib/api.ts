@@ -23,6 +23,7 @@ import {
   TranscriptResponse,
 } from "./types";
 import type { SmsMessage } from "./followups";
+import type { LanguagesResponse } from "./languages";
 import type { AssetKind, BrandingPatch, BrandingResponse } from "./branding";
 import type {
   KnowledgeDoc,
@@ -167,6 +168,11 @@ export const api = {
    */
   setFollowUp(sid: string, body: FollowUpOverrideRequest): Promise<CallDoc> {
     return request<CallDoc>(`/calls/${encodeURIComponent(sid)}/follow-up`, json("POST", body));
+  },
+
+  /** The 24 patient languages and which can be called today, per use case. */
+  getLanguages(): Promise<LanguagesResponse> {
+    return request<LanguagesResponse>("/languages");
   },
 
   // ---- Call list ----------------------------------------------------------

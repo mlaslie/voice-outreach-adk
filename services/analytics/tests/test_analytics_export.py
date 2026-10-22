@@ -136,6 +136,11 @@ def test_bigquery_loader_job_config():
         def create_table(self, table, exists_ok):
             self.calls.append(("create", table.table_id, exists_ok))
 
+        def get_table(self, ref):
+            from google.api_core.exceptions import NotFound
+
+            raise NotFound(ref)
+
         def query(self, sql):
             self.calls.append(("query", sql))
             return Job()
@@ -155,3 +160,49 @@ def test_bigquery_loader_job_config():
     loader.load(schema.FACT_CALLS, [])
     assert client.calls[0][0] == "create" and client.calls[0][2] is True
     assert client.calls[1] == ("query", "TRUNCATE TABLE `proj-123.voa_analytics.fact_calls`")
+
+
+def test_bigquery_loader_adds_new_columns_to_an_existing_table():
+    """fact_calls gained ``language`` (21 Oct): an existing table gets the column
+    by an explicit schema update before the WRITE_TRUNCATE load, on the empty
+    path too."""
+    from google.cloud import bigquery
+
+    class Job:
+        def result(self):
+            return None
+
+    old = [
+        bigquery.SchemaField(c.name, c.type, mode=c.mode)
+        for c in schema.FACT_CALLS.columns
+        if c.name != "language"
+    ]
+
+    class Client:
+        def __init__(self):
+            self.table = bigquery.Table("proj-123.voa_analytics.fact_calls", schema=old)
+            self.updates = []
+
+        def get_table(self, ref):
+            return self.table
+
+        def update_table(self, table, fields):
+            self.updates.append(([f.name for f in table.schema], fields))
+            return table
+
+        def create_table(self, table, exists_ok):
+            pass
+
+        def query(self, sql):
+            return Job()
+
+    client = Client()
+    loader = export.BigQueryLoader("proj-123", "voa_analytics", client=client)
+    loader.load(schema.FACT_CALLS, [])
+    ((names, fields),) = client.updates
+    assert fields == ["schema"] and names[-1] == "language"
+    assert names == list(schema.FACT_CALLS.column_names)
+    # Up to date: nothing more to add.
+    client.table.schema = [bigquery.SchemaField(n, "STRING") for n in names]
+    loader.load(schema.FACT_CALLS, [])
+    assert len(client.updates) == 1

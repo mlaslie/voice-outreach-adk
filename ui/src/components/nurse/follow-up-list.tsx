@@ -1,5 +1,6 @@
 "use client";
 
+import { LanguageChip } from "@/components/language-chip";
 import { useState } from "react";
 import { AlertTriangle, CalendarClock, Check, Clock, Phone, Siren, Undo2 } from "lucide-react";
 import { FollowUpFilter, FollowUpItem, FollowUpTier, matchesFollowUp } from "@/lib/nurse/model";
@@ -112,6 +113,7 @@ function FollowUpCard({
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-display text-[15px] font-semibold text-ink">{item.patientName}</span>
               <Pill tone={t.tone} icon={emergency ? Siren : undefined} pulse={emergency && !done}>{t.label}</Pill>
+              <LanguageChip code={item.language} />
               {item.callback ? (
                 <Pill tone="info" icon={CalendarClock}>Callback {isSameDay(item.callback.run_at, now) ? "today" : new Date(item.callback.run_at).toLocaleDateString(undefined, { weekday: "short" })} {clock(item.callback.run_at)}</Pill>
               ) : null}

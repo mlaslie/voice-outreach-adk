@@ -91,6 +91,8 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
 
   // Settings
   ["GET", /^call-settings$/, "both"],
+  // Patient languages and which can be called today (docs/LANGUAGES-PLAN.md)
+  ["GET", /^languages$/, "both"],
   ["PUT", /^call-settings\/recall$/, "admin"],
   ["PUT", /^call-settings\/display$/, "admin"],
   ["PUT", /^call-settings\/organization$/, "admin"],

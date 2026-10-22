@@ -32,7 +32,7 @@ This is how a service that reads the EHR schedules post-op calls without anyone 
           "procedure_date": "2026-10-19",
           "is_diabetic": false,
           "care_setting": "outpatient",
-          "language": "en"
+          "language": "es-US"
         }
       ]
     }
@@ -41,6 +41,12 @@ This is how a service that reads the EHR schedules post-op calls without anyone 
 ```
 
 **Optional fields:** `procedure`, `procedure_date`, `is_diabetic` (default false), `care_setting` (`inpatient` or `outpatient`; it picks which of the clinic's guidelines apply to the patient, see `docs/KNOWLEDGE-API.md`) and `language`.
+
+**Language (optional):** the patient's preferred language, one of the 24 languages the live voice model speaks (`docs/LANGUAGES-PLAN.md`): `ar-EG, bn-BD, nl-NL, en-IN, en-US, fr-FR, de-DE, hi-IN, id-ID, it-IT, ja-JP, ko-KR, mr-IN, pl-PL, pt-BR, ro-RO, ru-RU, es-US, ta-IN, te-IN, th-TH, tr-TR, uk-UA, vi-VN`. Default `en-US`.
+- **Normalised:** case-insensitive; a bare tag that names one of them (`es` → `es-US`, `pt` → `pt-BR`, `en` → `en-US`) and the English name (`Spanish`, `spanish (us)`) are accepted. The entry stores the code.
+- **Unsupported values are rejected per item** (for example `zh`, `tl`, `ht`): that patient comes back `rejected` with `language: … is not supported; use one of: …` and is not enrolled; the rest of the batch goes ahead.
+- **Held, not called in English.** Today only English can be called. A patient in another language is stored and shown to nurses, but **held**: no run dials them until their language has an approved language pack, or an admin turns on "Call in English" for them in the admin console. A re-send never resets that override.
+- A changed language counts as an update; the same language spelled differently (`es` then `es-US`) does not. A batch without `language` fingerprints exactly as before, so a re-send is still a replay.
 
 **Use case (optional):** `"campaign"` on a tranche applies to every call in it; `"campaign"` on a call overrides the tranche's. It names a use-case spec under `config/campaigns/` (for example `"pre_op"`); without one the call is post-op. An unknown use case rejects the whole batch with a 422. The call-list entry stores it as `campaign_id`, and changing it on a re-send counts as an update. A batch without `campaign` fingerprints exactly as before the field existed, so a re-send after the upgrade is still a replay. See `docs/USE-CASES-PLAN.md`.
 

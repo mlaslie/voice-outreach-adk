@@ -64,6 +64,9 @@ FEED_FIELDS = (
     "is_diabetic",
     "care_setting",
     "campaign_id",
+    # Normalised to one of the 24 codes (docs/LANGUAGES-PLAN.md). Not
+    # call_in_english: that is an admin's override, which a re-send must keep.
+    "language",
 )
 
 
@@ -85,7 +88,9 @@ class IngestCall(BaseModel):
     procedure_date: str | None = None
     is_diabetic: bool = False
     care_setting: Literal["inpatient", "outpatient"] | None = None
-    language: str | None = Field(default=None, max_length=16)
+    # Validated per item (an unsupported language rejects that item only), in
+    # _entry_input. Kept raw here so the batch fingerprint is unchanged.
+    language: str | None = Field(default=None, max_length=32)
     # The use case for this patient (docs/USE-CASES-PLAN.md); overrides the tranche's.
     campaign: str | None = None
 
@@ -151,7 +156,20 @@ def _entry_input(c: IngestCall, tranche: IngestTranche | None = None) -> CallLis
         operation_date=c.procedure_date,
         is_diabetic=c.is_diabetic,
         care_setting=c.care_setting,
+        language=c.language,
     )
+
+
+def _stored(entry: dict, key: str):
+    """An entry's field for change detection. An entry stored before languages
+    were validated may hold None or a raw value ("es"); compared normalised, so
+    the upgrade alone never reports every patient as updated."""
+    v = entry.get(key)
+    if key == "language":
+        from voa_core import languages
+
+        return languages.normalize(v) or (languages.DEFAULT if v in (None, "") else v)
+    return v
 
 
 def _why(exc: ValidationError) -> str:
@@ -220,7 +238,6 @@ async def put_batch(source: str, batch_id: str, body: IngestBatch, request: Requ
                 continue
             fields = {
                 **{k: v for k, v in entry_in.model_dump().items() if k in FEED_FIELDS},
-                "language": c.language,
                 "source": source,
                 "external_id": c.external_id,
                 "batch_id": batch_id,
@@ -241,7 +258,7 @@ async def put_batch(source: str, batch_id: str, body: IngestBatch, request: Requ
                 new_entries += 1
                 items.append({**item, "status": "created", "entry_id": entry_id})
             else:
-                changed = any(existing.get(k) != v for k, v in fields.items())
+                changed = any(_stored(existing, k) != v for k, v in fields.items())
                 if existing.get("list_status") == "calling":
                     items.append(
                         {

@@ -26,7 +26,7 @@ import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from voa_core import timefmt
+from voa_core import languages, timefmt
 
 from . import triage
 
@@ -450,6 +450,18 @@ def has_recording(c: dict) -> bool:
     return bool(c.get("recording_uri") or c.get("recording_url"))
 
 
+def language_line(language) -> str | None:
+    """ "Language: Español (Spanish US)" for a non-English (US) patient; None for
+    en-US, the default, to keep the common card unchanged."""
+    if not language or languages.normalize(language) == languages.DEFAULT:
+        return None
+    return f"Language: {languages.display(language)}"
+
+
+def call_language(c: dict):
+    return c.get("language") or (c.get("patient_context") or {}).get("language")
+
+
 def call_detail_card(c: dict) -> Card:
     v = triage.verdict_for(c)
     ctx = c.get("patient_context") or {}
@@ -459,6 +471,8 @@ def call_detail_card(c: dict) -> Card:
     if "is_diabetic" in ctx:
         facts.append(f"DM: {'Yes' if ctx['is_diabetic'] else 'No'}")
     facts.append(phone(c.get("to")))
+    if lang := language_line(call_language(c)):
+        facts.append(lang)
     card.line(" · ".join(facts), "caption")
     if ctx.get("operation_name") or ctx.get("operation_date"):
         proc = f"Procedure: {ctx.get('operation_name') or 'not recorded'}"
@@ -860,6 +874,7 @@ def choose_patient_card(query: str, choices: list[dict], then: str, key: str = "
         meta = [
             f"MRN {c['patient_id']}" if c.get("patient_id") else None,
             ctx.get("operation_name") or None,
+            language_line(call_language(c)),
             phone(c.get("to")),
             f"last call {when(c.get('initiated_at'))}",
         ]
@@ -912,6 +927,8 @@ CALL_FORM_FIELDS = (
     "operation_name",
     "operation_date",
     "is_diabetic",
+    "language",
+    "call_in_english",
 )
 
 
@@ -959,6 +976,20 @@ def place_call_form_card(prefill: dict | None = None, problems: list[str] = ()) 
             value={"path": "/call/is_diabetic"},
         )
     )
+    card.put(
+        card.add(
+            "TextField",
+            label="Preferred language (optional, e.g. es-US or Spanish; blank is English)",
+            value={"path": "/call/language"},
+        )
+    )
+    card.put(
+        card.add(
+            "CheckBox",
+            label="Call in English (when their language is not available yet)",
+            value={"path": "/call/call_in_english"},
+        )
+    )
     card.buttons(
         card.button(
             "Review before calling",
@@ -968,7 +999,7 @@ def place_call_form_card(prefill: dict | None = None, problems: list[str] = ()) 
     )
     card.data_model = {
         "call": {
-            f: (bool(p.get(f)) if f == "is_diabetic" else str(p.get(f) or ""))
+            f: (bool(p.get(f)) if f in ("is_diabetic", "call_in_english") else str(p.get(f) or ""))
             for f in CALL_FORM_FIELDS
         }
     }

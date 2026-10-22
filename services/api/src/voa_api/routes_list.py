@@ -103,6 +103,30 @@ def _parse_when(raw: str) -> datetime:
     return dt
 
 
+# --------------------------------------------------------------------------- languages
+
+
+@router.get("/languages")
+async def get_languages(request: Request, campaign_id: str | None = None):
+    """The 24 patient languages, and which can be called today for a use case
+    (``available``: English, or an approved language pack). Per use case:
+    ``available_by_campaign`` maps every use case to its available codes, so a
+    form can mark a language "not available yet" for the patient's own one."""
+    from voa_core import languages
+    from voa_core.campaign import DEFAULT_CAMPAIGN_ID, campaign_ids, validate_campaign_id
+
+    try:
+        cid = validate_campaign_id(campaign_id) or DEFAULT_CAMPAIGN_ID
+    except ValueError:
+        raise HTTPException(422, "campaign_id is not a known use case") from None
+    return {
+        "campaign_id": cid,
+        "default": languages.DEFAULT,
+        "languages": languages.catalog(cid),
+        "available_by_campaign": {c: sorted(languages.available(c)) for c in campaign_ids()},
+    }
+
+
 # --------------------------------------------------------------------------- entries
 
 
@@ -169,7 +193,11 @@ async def edit_entry(entry_id: str, body: CallListEntryInput, request: Request):
         raise HTTPException(409, "This patient is on a call right now.")
     await _write_budget(api)
     now = now_iso(api.now())
-    patch = {**body.model_dump(), "updated_at": now}
+    # The language and its override change only when the edit sends them: an
+    # older client that does not know the fields must never reset a Spanish
+    # patient to English (which would make them callable in English).
+    keep = {"language", "call_in_english"} - body.model_fields_set
+    patch = {**body.model_dump(exclude=keep), "updated_at": now}
     if cur.get("list_status") == "blocked":
         patch |= {"list_status": "pending", "last_error": ""}  # editing a blocked number retries it
     await api.store.merge(CALL_LIST, entry_id, patch)

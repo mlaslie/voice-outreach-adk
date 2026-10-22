@@ -1,5 +1,7 @@
 "use client";
 
+import { useLanguages } from "@/components/languages-provider";
+import { holdReason } from "@/lib/languages";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTimeFormat } from "@/lib/time";
@@ -94,6 +96,7 @@ export function NurseConsole({
     () => (deletedIds.size ? data.calls.filter((c) => !deletedIds.has(c.doc_id)) : data.calls),
     [data.calls, deletedIds],
   );
+  const langs = useLanguages();
   const callById = useMemo(() => new Map(calls.map((c) => [c.doc_id, c])), [calls]);
   const onCallsRemoved = (ids: string[]) => {
     if (!ids.length) return;
@@ -104,11 +107,11 @@ export function NurseConsole({
 
   const all = useMemo(
     () => ({
-      schedule: scheduleItems(data.entries, data.runs, data.callbacks, data.sessions, calls, now),
+      schedule: scheduleItems(data.entries, data.runs, data.callbacks, data.sessions, calls, now, (e) => holdReason(e, langs)),
       completed: completedItems(calls, data.sessions, data.callbacks, data.entries),
       followups: followUpItems(calls, data.callbacks, now),
     }),
-    [data, calls, now],
+    [data, calls, now, langs],
   );
 
   const q = query.trim().toLowerCase();
@@ -127,21 +130,21 @@ export function NurseConsole({
 
   const openSchedule = (i: ScheduleItem) =>
     setDrawer({
-      name: i.patientName, patientId: i.patientId, phone: i.phone, procedure: i.procedure, tone: "info",
+      name: i.patientName, patientId: i.patientId, phone: i.phone, procedure: i.procedure, language: i.language, tone: "info",
       scheduledFor: i.when,
       call: calls.find((c) => (c.call_sid ?? c.doc_id) === i.sourceCallSid),
       context: i.whenText ? <>Booked by text: “{i.whenText}”</> : undefined,
     });
   const openCompleted = (i: CompletedItem) =>
     setDrawer({
-      name: i.patientName, patientId: i.patientId, phone: i.phone, procedure: i.procedure,
+      name: i.patientName, patientId: i.patientId, phone: i.phone, procedure: i.procedure, language: i.language,
       tone: KIND[i.kind].tone, call: i.call,
       context: i.cancel ? `Cancelled — ${i.cancel.reason}` : KIND[i.kind].label,
       entryId: i.entry?.entry_id, cancel: i.cancel,
     });
   const openFollowUp = (i: FollowUpItem) =>
     setDrawer({
-      name: i.patientName, patientId: i.patientId, phone: i.phone, procedure: i.procedure,
+      name: i.patientName, patientId: i.patientId, phone: i.phone, procedure: i.procedure, language: i.language,
       tone: TIER[i.tier].tone, call: i.call, context: i.reason,
     });
 

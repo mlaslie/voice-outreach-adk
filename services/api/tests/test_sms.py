@@ -836,3 +836,38 @@ def test_conversation_without_interpreter_is_the_deterministic_machine():
     s = {"state": st.STATE_AWAITING_TIME, "retry_count": 0}
     d = run(conv.decide(s, "once the kids are asleep", NOW))
     assert d.note == "reask" and d.effect.value == "none"
+
+
+# --------------------------------------------------------------------------- languages
+
+
+def _language_call(api, **ctx):
+    entry_id = seed_call(api)
+    call = run(api.store.get("calls", CALL))
+    run(api.store.merge("calls", CALL, {"patient_context": {**call["patient_context"], **ctx}}))
+    return entry_id
+
+
+def test_a_recall_keeps_the_original_calls_language_and_override():
+    client, api, _ = make()
+    _language_call(api, language="vi-VN", call_in_english=True)
+    consent(client)
+    invite(client, api)
+    text(client, "1")
+    task = queued(api, "dispatch_recall")[0]
+    first = client.post(task["path"], json=task["payload"]).json()
+    call = run(api.store.get("calls", first["call_id"]))
+    assert (call["language"], call["call_in_english"]) == ("vi-VN", True)
+    assert call["patient_context"]["language"] == "vi-VN"
+
+
+def test_a_recall_for_a_held_language_is_refused_not_called_in_english():
+    client, api, _ = make()
+    _language_call(api, language="es-US", call_in_english=False)
+    consent(client)
+    invite(client, api)
+    text(client, "1")
+    task = queued(api, "dispatch_recall")[0]
+    res = client.post(task["path"], json=task["payload"]).json()
+    assert "Spanish (US)" in res["error"] and api.voice.placed == []
+    assert session(api)["state"] == st.STATE_CLOSED

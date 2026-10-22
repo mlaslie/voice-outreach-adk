@@ -1254,6 +1254,10 @@ async def _patient_context(api: Api, call: dict) -> dict:
             ctx.setdefault("is_diabetic", entry.get("is_diabetic", False))
             if entry.get("care_setting"):
                 ctx.setdefault("care_setting", entry["care_setting"])
+            # A call placed before languages were recorded: the entry's.
+            if entry.get("language"):
+                ctx.setdefault("language", entry["language"])
+                ctx.setdefault("call_in_english", bool(entry.get("call_in_english")))
     # The call's use case: the questionnaire, a booked callback and a recall dial
     # all run on it (patient_context travels with each of them).
     if call.get("campaign_id"):
@@ -1487,6 +1491,10 @@ async def _place(api: Api, phone: str, ctx: dict, *, placed_via: str, entry_id: 
                 "is_diabetic": ctx.get("is_diabetic", False),
                 "care_setting": ctx.get("care_setting") or None,
                 "campaign_id": ctx.get("campaign_id") or None,
+                # The original call's language and override travel with the
+                # recall, so the hold applies to it exactly as to the first call.
+                "language": ctx.get("language") or None,
+                "call_in_english": ctx.get("call_in_english", False),
             }
         )
     except ValidationError:

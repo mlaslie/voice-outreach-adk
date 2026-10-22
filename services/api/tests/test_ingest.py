@@ -125,3 +125,63 @@ def test_care_setting_is_fed_and_a_change_is_an_update():
     assert run(api.store.get("call_list", item["entry_id"]))["care_setting"] == "inpatient"
     r = client.put(URL, json=batch(call("e2", care_setting="home")))
     assert r.status_code == 422
+
+
+# --------------------------------------------------------------------------- languages
+
+
+def test_an_unsupported_language_rejects_that_item_only():
+    client, api, _ = make()
+    r = client.put(
+        URL, json=batch(call("es", language="Spanish"), call("zh", phone=PHONE2, language="zh"))
+    )
+    assert r.status_code == 200, r.text
+    assert statuses(r) == {"es": "created", "zh": "rejected"}
+    reason = next(i["reason"] for i in r.json()["items"] if i["external_id"] == "zh")
+    assert reason.startswith("language:") and "not supported" in reason
+    eid = next(i["entry_id"] for i in r.json()["items"] if i["external_id"] == "es")
+    e = run(api.store.get("call_list", eid))
+    assert e["language"] == "es-US" and e["call_in_english"] is False
+
+
+def test_a_language_change_is_an_update_and_keeps_the_admin_override():
+    client, api, _ = make()
+    r = client.put(URL, json=batch(call("e1", language="es")))
+    eid = r.json()["items"][0]["entry_id"]
+    run(api.store.merge("call_list", eid, {"call_in_english": True}))  # an admin's override
+    r = client.put(URL, json=batch(call("e1", language="vi-VN")))
+    assert statuses(r) == {"e1": "updated"}
+    e = run(api.store.get("call_list", eid))
+    assert (e["language"], e["call_in_english"]) == ("vi-VN", True)
+    # The same language spelled differently is not a change.
+    assert statuses(client.put(URL, json=batch(call("e1", language="Vietnamese")))) == {
+        "e1": "unchanged"
+    }
+
+
+def test_the_fingerprint_is_unchanged_for_batches_without_language():
+    """A batch sent before languages were validated must still replay as the same."""
+    import hashlib
+    import json
+
+    from voa_api.routes_ingest import IngestBatch, _fingerprint
+
+    body = batch(call("e1"))
+    data = IngestBatch.model_validate(body).model_dump()
+    for t in data["tranches"]:
+        t.pop("campaign", None)
+        for c in t["calls"]:
+            c.pop("campaign", None)
+    # The pre-language shape: every call carried "language": None.
+    assert all(c["language"] is None for t in data["tranches"] for c in t["calls"])
+    expected = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+    assert _fingerprint(IngestBatch.model_validate(body)) == expected
+
+
+def test_an_entry_stored_with_no_language_is_not_reported_updated():
+    client, api, _ = make()
+    r = client.put(URL, json=batch(call("e1")))
+    eid = r.json()["items"][0]["entry_id"]
+    run(api.store.merge("call_list", eid, {"language": None}))  # stored before the upgrade
+    body = batch(call("e1"), label="Afternoon")  # a different batch, same patient
+    assert statuses(client.put(URL, json=body)) == {"e1": "unchanged"}

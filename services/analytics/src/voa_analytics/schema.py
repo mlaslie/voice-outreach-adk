@@ -83,6 +83,9 @@ FACT_CALLS = Table(
         _c("tool_calls", "INT64", "Agent tool calls"),
         _c("live_errors", "INT64", "Live-model errors"),
         _c("voicemail_played", "BOOL", "The canned voicemail clip was played"),
+        # Added 21 Oct 2026 (docs/LANGUAGES-PLAN.md): the loader adds it to an
+        # existing table (BigQueryLoader._add_new_columns).
+        _c("language", "STRING", "Patient's preferred language asked for (BCP-47, e.g. es-US)"),
     ),
     description="One row per call. De-identified: no names, phones, DOB or free text.",
 )

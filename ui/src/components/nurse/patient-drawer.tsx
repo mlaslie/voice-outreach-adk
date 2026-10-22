@@ -21,6 +21,8 @@ import { withShadowReview } from "@/lib/patient-questions";
 import { cn } from "@/lib/utils";
 import { Avatar, Pill, Tone, ago, clock } from "./parts";
 import { ClinicDateTimeInput } from "./clinic-time-input";
+import { LanguageChip } from "@/components/language-chip";
+import { callLanguage } from "@/lib/languages";
 import { fmtDateTime } from "@/lib/time";
 import { FollowUpReasonList } from "@/components/follow-up-reasons";
 import {
@@ -33,6 +35,8 @@ export interface DrawerSubject {
   patientId?: string;
   phone: string;
   procedure?: string;
+  /** The patient's preferred language (absent = English (US)). */
+  language?: string;
   tone: Tone;
   /** One line under the name: why this patient is on the list you came from. */
   context?: React.ReactNode;
@@ -152,7 +156,10 @@ function Body({
         <div className="relative flex items-center gap-4 pr-10">
           <Avatar name={s.name} tone={s.tone} size="lg" className="bg-white/15 text-white ring-1 ring-white/25" />
           <div className="min-w-0">
-            <Dialog.Title className="truncate font-display text-xl font-semibold">{s.name}</Dialog.Title>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <Dialog.Title className="truncate font-display text-xl font-semibold">{s.name}</Dialog.Title>
+              <LanguageChip code={s.language ?? (call ? callLanguage(call) : undefined)} className="bg-white/15 text-white ring-white/25" />
+            </div>
             <Dialog.Description className="mt-0.5 text-[13px] text-white/70">
               {[s.patientId, s.procedure].filter(Boolean).join(" · ") || "—"}
             </Dialog.Description>

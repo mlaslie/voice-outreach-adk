@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from voa_core import budget, compliance, lifecycle
+from voa_core import budget, compliance, languages, lifecycle
 from voa_core.campaign import DEFAULT_CAMPAIGN_ID, load_campaign
 from voa_core.logging import mask_phone
 from voa_core.store import now_iso
@@ -39,6 +39,29 @@ class OutsideCallingHours(DialError):
 
     def __init__(self, detail: str):
         super().__init__(409, detail)
+
+
+class LanguageHeld(DialError):
+    """The patient's language has no approved language pack for this use case and
+    no admin chose "Call in English" (docs/LANGUAGES-PLAN.md §3.2). Never called
+    in English silently. Permanent for the call being attempted: retrying the
+    same request cannot succeed until the entry or the packs change."""
+
+    def __init__(self, detail: str):
+        super().__init__(409, detail)
+
+    @property
+    def permanent(self) -> bool:
+        return True
+
+
+def check_language(req: Any, campaign_id: str | None) -> None:
+    """Refuse a held language (raises LanguageHeld)."""
+    language = getattr(req, "language", None)
+    if languages.hold_reason(
+        language, campaign_id, compliance.coerce_bool(getattr(req, "call_in_english", False))
+    ):
+        raise LanguageHeld(languages.held_message(getattr(req, "patient_name", ""), language))
 
 
 def check_calling_hours(api: Api, hours: compliance.RecallSettings | None) -> None:
@@ -86,6 +109,10 @@ def patient_from(req: Any) -> dict[str, Any]:
         "operation_date": req.operation_date,
         "is_diabetic": req.is_diabetic,
         "care_setting": getattr(req, "care_setting", None),
+        # Recorded only in step 1: the gateway strips both before the session, so
+        # the call itself is unchanged (docs/LANGUAGES-PLAN.md).
+        "language": getattr(req, "language", None) or languages.DEFAULT,
+        "call_in_english": bool(getattr(req, "call_in_english", False)),
     }
 
 
@@ -116,6 +143,7 @@ async def dial(
         spec_version = load_campaign(campaign_id).version
     except (OSError, ValueError):
         raise DialError(400, f"Unknown use case {campaign_id!r}.") from None
+    check_language(req, campaign_id)
     await check_allowed(api, req.phone)
     if api.voice is None:
         raise DialError(503, "Telephony is not configured (provider secrets missing).")
@@ -179,6 +207,8 @@ async def dial(
             "amd_requested": amd.enabled,
             "campaign_id": campaign_id,
             "spec_version": spec_version,
+            "language": patient["language"],
+            "call_in_english": patient["call_in_english"],
             "entry_id": entry_id,
             "entry_attempt": attempt,
             "run_id": run_id,

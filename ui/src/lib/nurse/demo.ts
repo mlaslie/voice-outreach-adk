@@ -270,6 +270,11 @@ export function demoData(now: Date = new Date()): NurseData {
     entry("Walter Kim", "P-2050", "Cataract surgery", 1, 1),
     { ...entry("Felix Moreau", "P-2063", "Bunionectomy", 2, 0), care_setting: "outpatient" },
     entry("Chen Wei", "P-2064", "Sinus surgery", 1, 0),
+    // Languages (docs/LANGUAGES-PLAN.md): Spanish has no approved language
+    // pack yet, so she is held and shows "Held: waiting for Spanish (US)
+    // support"; an admin turned on "Call in English" for him, so he is called.
+    { ...entry("Lucía Herrera", "P-2068", "Gallbladder removal", 1, 0), language: "es-US" },
+    { ...entry("Nguyen Van Minh", "P-2069", "Carpal tunnel release", 2, 0), language: "vi-VN", call_in_english: true },
     // On the list but not in any run yet — shows under Settings only.
     entry("Odette Marsh", "P-2066", "Shoulder arthroscopy", 1, 0),
     // Cancelled from the queue this morning — on Call status, reschedulable.
@@ -305,6 +310,7 @@ export function demoData(now: Date = new Date()): NurseData {
     run(inHours(at(3.5)), ["P-2049"], "Retry"),
     run(inHours(atClock(1, 11, 0)), ["P-2050", "P-2063"], "Next morning"),
     run(inHours(atClock(2, 10, 30)), ["P-2064"], null),
+    run(inHours(atClock(1, 14, 0)), ["P-2068", "P-2069"], "Post-op day 1"),
   ];
 
   return { entries, runs, calls, sessions, callbacks };

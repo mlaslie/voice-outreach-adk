@@ -5,6 +5,8 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ClinicDateTimeInput, INPUT_LOOK } from "@/components/nurse/clinic-time-input";
 import { CallListEntryInput, CareSetting, PlaceCallRequest } from "@/lib/types";
+import { useLanguages } from "@/components/languages-provider";
+import { DEFAULT_LANGUAGE, callInEnglishHint, isAvailable, optionLabel } from "@/lib/languages";
 
 const DOB_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
@@ -20,6 +22,12 @@ export interface PatientFormState {
   is_diabetic: boolean;
   /** Inpatient or outpatient care, or "" when not given. */
   care_setting: "" | CareSetting;
+  /** Preferred language code (GET /api/languages); default en-US. */
+  language: string;
+  /** Call in English while the language is not available (held otherwise). */
+  call_in_english: boolean;
+  /** The entry's use case, for which languages are available ("" = default). */
+  campaign_id?: string;
   /** Planned call time as the browser's datetime-local string, or "". */
   scheduled_for: string;
 }
@@ -33,6 +41,8 @@ export const INITIAL_PATIENT_FORM: PatientFormState = {
   operation_date: "",
   is_diabetic: false,
   care_setting: "",
+  language: DEFAULT_LANGUAGE,
+  call_in_english: false,
   scheduled_for: "",
 };
 
@@ -98,6 +108,9 @@ export function patientFormToRequest(form: PatientFormState): PlaceCallRequest {
   if (form.operation_name.trim()) body.operation_name = form.operation_name.trim();
   if (form.operation_date.trim()) body.operation_date = form.operation_date.trim();
   if (form.care_setting) body.care_setting = form.care_setting;
+  // Always sent, so an edit can change it (the API keeps them only when absent).
+  body.language = form.language || DEFAULT_LANGUAGE;
+  body.call_in_english = form.call_in_english;
   return body;
 }
 
@@ -133,6 +146,9 @@ export function PatientFields({
   onBlur,
 }: PatientFieldsProps) {
   const id = (k: string) => `${idPrefix}${k}`;
+  const langs = useLanguages();
+  const list = langs?.languages ?? [];
+  const available = isAvailable(form.language, form.campaign_id, langs);
 
   return (
     <>
@@ -238,6 +254,44 @@ export function PatientFields({
           <option value="outpatient">Outpatient</option>
         </select>
         <p className="text-xs text-ink-soft">Picks which clinic guidelines apply when the agent answers questions.</p>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={id("language")}>Preferred language</Label>
+        <select
+          id={id("language")}
+          value={form.language}
+          onChange={(e) => {
+            onChange("language", e.target.value);
+            // The override only means something for a language not available yet.
+            if (isAvailable(e.target.value, form.campaign_id, langs)) onChange("call_in_english", false);
+          }}
+          disabled={!langs}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {/* Until the list loads, only the current value (so it is never lost). */}
+          {!langs ? <option value={form.language}>{form.language}</option> : null}
+          {list.map((l) => (
+            <option key={l.code} value={l.code}>
+              {optionLabel(l)}{isAvailable(l.code, form.campaign_id, langs) ? "" : " (not available yet)"}
+            </option>
+          ))}
+        </select>
+        {langs && !available ? (
+          <div className="space-y-1 rounded-md bg-brand-yellow/20 p-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={id("call_in_english")}
+                checked={form.call_in_english}
+                onCheckedChange={(v) => onChange("call_in_english", Boolean(v))}
+              />
+              <Label htmlFor={id("call_in_english")} className="font-normal cursor-pointer">
+                Call in English
+              </Label>
+            </div>
+            <p className="text-xs text-ink-soft">{callInEnglishHint(form.language, list)}</p>
+          </div>
+        ) : null}
+        {errors.language && <p className="text-xs text-brand-red-dark">{errors.language}</p>}
       </div>
       <div className="flex items-center gap-2">
         <Checkbox

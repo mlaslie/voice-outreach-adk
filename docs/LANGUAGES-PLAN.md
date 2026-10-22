@@ -1,6 +1,6 @@
 # Patient languages: plan
 
-**Status:** proposal (21 Oct 2026). Nothing is built.
+**Status:** step 1 built (21 Oct 2026, not deployed): the language field end to end with the safe hold. Calls are still English only. Steps 2–6 are proposals.
 
 **The requirement:**
 1. A preferred language on each patient in the call list.

@@ -22,6 +22,10 @@ export interface CallDoc {
   patient_id?: string;
   patient_name?: string;
   patient_context?: Record<string, unknown>;
+  /** The patient's preferred language when the call was placed (absent on older calls = en-US). */
+  language?: string;
+  call_in_english?: boolean;
+  campaign_id?: string;
   session_uuid?: string;
   stream_sid?: string;
   outcome?: string;
@@ -229,6 +233,10 @@ export interface PlaceCallRequest {
   is_diabetic: boolean;
   /** Optional; null clears it on an edit. */
   care_setting?: CareSetting | null;
+  /** Preferred language, one of GET /api/languages (default en-US). */
+  language?: string;
+  /** An admin's override: call in English while the language is not available. */
+  call_in_english?: boolean;
 }
 
 export interface PlaceCallResponse {
@@ -275,6 +283,12 @@ export interface CallListEntry {
   operation_date?: string;
   is_diabetic: boolean;
   care_setting?: CareSetting | null;
+  /** Preferred language (BCP-47, e.g. es-US). Absent on older entries = en-US. */
+  language?: string | null;
+  /** Call in English although the language is not available (admin override). */
+  call_in_english?: boolean;
+  /** The use case; absent = the default (post-op). */
+  campaign_id?: string | null;
   /**
    * pending   = will be dialed on the next run
    * calling   = in flight right now

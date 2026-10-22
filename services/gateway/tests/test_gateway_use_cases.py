@@ -92,3 +92,44 @@ def test_the_voicemail_is_the_use_cases():
     assert post.startswith("Hello, this is Acme Health calling with a follow-up message.")
     assert pre.startswith("Hello, this is Acme Health calling with a message.")
     assert gw.voicemail_text("Acme Health", "retired_one") == post
+
+
+async def test_the_patients_language_is_kept_out_of_the_session_state():
+    """Step 1 of docs/LANGUAGES-PLAN.md records the language but the call does not
+    use it: state["patient"] (instruction, tools) is exactly as before."""
+
+    class Captured(Exception):
+        pass
+
+    class Sessions:
+        async def create_session(self, *, app_name, user_id, state):
+            raise Captured(state)
+
+    class Runner:
+        app_name = "voa"
+        session_service = Sessions()
+
+    store = MemoryStore()
+    await store.set(
+        "pending_calls",
+        CALL_ID,
+        {
+            "first_name": "Jordan",
+            "last_name": "Rivera",
+            "dob": "1950-03-15",
+            "patient_id": "TEST-0001",
+            "is_diabetic": False,
+            "campaign_id": "post_op",
+            "spec_version": 1,
+            "language": "es-US",
+            "call_in_english": True,
+        },
+    )
+    s, _ = session(store)
+    s.runner = Runner()
+    s.media.start()
+    with pytest.raises(Captured) as got:
+        await s.run(start_timeout_s=5)
+    patient = got.value.args[0]["patient"]
+    assert "language" not in patient and "call_in_english" not in patient
+    assert patient["first_name"] == "Jordan" and patient["dob"] == "1950-03-15"

@@ -6,6 +6,7 @@ import {
   Ban,
   CheckCircle2,
   CheckSquare,
+  Languages,
   MessageSquareText,
   PhoneCall,
   PhoneMissed,
@@ -17,6 +18,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { ScheduleItem, ScheduleOrigin, dayHeading } from "@/lib/nurse/model";
+import { LanguageChip } from "@/components/language-chip";
 import { CallRun } from "@/lib/types";
 import { NurseActions } from "@/lib/nurse/actions";
 import { isAllowed } from "@/lib/nurse/allowlist";
@@ -38,9 +40,10 @@ const ORIGIN: Record<ScheduleOrigin, { label: string; tone: Tone; icon: React.Co
 /** Only call-list entries can be dialled from here; text bookings belong to the SMS service. */
 /** Only run members can be dialled from here; text bookings belong to the SMS service. */
 const dialable = (i: ScheduleItem) =>
-  !!i.entryId && i.state !== "calling" && i.state !== "queued" && i.state !== "done" && i.state !== "blocked";
+  !!i.entryId && i.state !== "calling" && i.state !== "queued" && i.state !== "done" && i.state !== "blocked" &&
+  i.state !== "held"; // held for their language: the dialler would not call them
 /** A patient waiting for their turn in a run already being dialled can be cancelled, not called now. */
-const cancellable = (i: ScheduleItem) => dialable(i) || (!!i.entryId && i.state === "queued");
+const cancellable = (i: ScheduleItem) => dialable(i) || (!!i.entryId && (i.state === "queued" || i.state === "held"));
 
 export function ScheduleView({
   items,
@@ -322,6 +325,7 @@ function ScheduleRow({
             <Pill tone={o.tone} icon={o.icon}>{o.label}</Pill>
             {item.origin === "retry" ? <span className="text-[11px] text-ink-muted">attempt {item.attempts + 1}</span> : null}
             {allowed === false ? <Pill tone="warn" icon={ShieldAlert}>Not an approved number</Pill> : null}
+            <LanguageChip code={item.language} />
           </div>
           <div className="mt-1 truncate text-[13px] text-ink-soft">
             {item.procedure ?? "—"}
@@ -391,6 +395,8 @@ function GroupHeader({ when, run, count, now }: { when: string; run?: CallRun; c
   );
 }
 
+const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+
 function StateBadge({ item }: { item: ScheduleItem }) {
   switch (item.state) {
     case "calling":
@@ -401,6 +407,12 @@ function StateBadge({ item }: { item: ScheduleItem }) {
       return <Pill tone="good" icon={CheckCircle2}>Completed</Pill>;
     case "blocked":
       return <Pill tone="warn" icon={Ban}>Blocked · not an approved number</Pill>;
+    case "held":
+      return (
+        <span title="Not called until calls in this language are available. An admin can turn on Call in English for this patient in the admin console (Patients → Edit).">
+          <Pill tone="warn" icon={Languages}>Held: {lowerFirst(item.held ?? "waiting for language support")}</Pill>
+        </span>
+      );
     case "overdue":
       return <Pill tone="urgent">Not dialled yet</Pill>;
     case "attempted":
