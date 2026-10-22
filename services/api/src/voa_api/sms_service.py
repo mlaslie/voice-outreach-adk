@@ -1420,6 +1420,9 @@ async def handle_missed_call(api: Api, call_id: str) -> dict:
     call = await api.store.get(CALLS, call_id)
     if not call:
         return {"skipped": "no call"}
+    if blocked := lifecycle.missed_call_text_block(call):
+        await mark_follow_up(api, call_id, "not_sent", blocked)
+        return {"skipped": blocked}
     if call.get("call_status") not in UNANSWERED:
         return {"skipped": f"call is {call.get('call_status')}"}
     phone = (call.get("to") or "").strip()
@@ -1464,6 +1467,10 @@ async def send_invite(api: Api, payload: dict) -> dict:
     call = await api.store.get(CALLS, call_id) if call_id else None
     if not call:
         return {"skipped": "no call"}
+    # A report filed while this task waited may show a person answered.
+    if blocked := lifecycle.missed_call_text_block(call):
+        await mark_follow_up(api, call_id, "not_sent", blocked)
+        return {"skipped": blocked}
     # A late report can promote rna -> success while this task waited.
     if call.get("call_status") not in UNANSWERED:
         return {"skipped": "call no longer unanswered"}
@@ -1471,7 +1478,7 @@ async def send_invite(api: Api, payload: dict) -> dict:
         return {"skipped": "number mismatch"}
     try:
         if await is_opted_out(api, phone):
-            await _mark_follow_up(api, call_id, "not_sent", _skip_text(api, "opted out"))
+            await mark_follow_up(api, call_id, "not_sent", _skip_text(api, "opted out"))
             return {"skipped": "opted out"}
     except Exception:
         raise Retryable("opt-out store unavailable") from None
@@ -1548,7 +1555,7 @@ async def send_invite(api: Api, payload: dict) -> dict:
             extra={"event": "sms.invite_skipped", "reason": seen["skip"], "to": mask_phone(phone)},
         )
         # Say why on the call: a skipped text used to leave no trace a nurse could see.
-        await _mark_follow_up(api, call_id, "not_sent", _skip_text(api, seen["skip"]))
+        await mark_follow_up(api, call_id, "not_sent", _skip_text(api, seen["skip"]))
         return {"skipped": seen["skip"]}
     # A previous conversation's booking must not dial after a fresh menu.
     await cancel_callbacks(api, phone, status="superseded", reason="new follow-up started")
@@ -1576,13 +1583,13 @@ async def send_invite(api: Api, payload: dict) -> dict:
             extra={"event": "sms.invite_blocked", "reason": exc.reason, "to": mask_phone(phone)},
         )
         if exc.resume_at is not None:
-            await _mark_follow_up(api, call_id, "deferred", exc.reason)
+            await mark_follow_up(api, call_id, "deferred", exc.reason)
             return await _defer_invite(api, payload, exc.resume_at)
         if exc.retryable:
             raise Retryable(exc.reason) from None
-        await _mark_follow_up(api, call_id, "not_sent", exc.reason)
+        await mark_follow_up(api, call_id, "not_sent", exc.reason)
         return {"blocked": exc.reason}
-    await _mark_follow_up(api, call_id, "sent")
+    await mark_follow_up(api, call_id, "sent")
     return {"sent": True}
 
 
@@ -1597,7 +1604,7 @@ def _skip_text(api: Api, why: str) -> str:
     }.get(why, why)
 
 
-async def _mark_follow_up(api: Api, call_id: str, status: str, reason: str = "") -> None:
+async def mark_follow_up(api: Api, call_id: str, status: str, reason: str = "") -> None:
     """Say on the call whether its follow-up text went out, and if not why: a
     nurse looking at a voicemail otherwise cannot tell a skipped text (no consent,
     the other system has the number, ...) from one that is on its way."""

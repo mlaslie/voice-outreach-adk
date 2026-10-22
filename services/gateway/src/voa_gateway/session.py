@@ -550,7 +550,13 @@ class CallSession:
             if resp.name == "submit_report" and status == "ok":
                 self._report_filed = True
                 self._spawn(self._save_report())
-            if resp.name == "end_call" and status == "ending" and self._phase != "closing":
+            # After a voicemail drop the clip owns the line: the agent's end_call must
+            # not move the call to "closing", which would unmute the agent over it.
+            if (
+                resp.name == "end_call"
+                and status == "ending"
+                and self._phase not in ("closing", "voicemail")
+            ):
                 self._phase = "closing"
                 self._spawn(self._finish_turn_then_drain())
         if (t := event.input_transcription) and t.finished and t.text:
@@ -599,7 +605,13 @@ class CallSession:
             app_name=self.runner.app_name, user_id=self.call_id, session_id=self.session_id
         )
         report = (session.state if session else {}).get("report")
-        if report:
+        if report and self._phase == "voicemail":
+            # The drop filed voicemail_left. The model, still running behind the
+            # muted line, may file its own reading of the greeting it heard (22 Oct:
+            # "unable_to_reach_wrong_person" over a voicemail greeting), which would
+            # overwrite the outcome on a call whose status is, correctly, left_vmail.
+            self.timeline.add("report.ignored", reason="voicemail_dropped")
+        elif report:
             await self.sink.save_report(self.call_id, {**dict(report), **self._use_case()})
             self.timeline.add("report.saved", outcome=report.get("outcome"))
 

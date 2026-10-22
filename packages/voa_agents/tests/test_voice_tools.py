@@ -164,3 +164,70 @@ async def test_swelling_needs_a_description_and_one_leg_is_same_day():
     await tools.record_answer("swelling_description", "just my left leg", c)
     r = await tools.submit_report("questionnaire_completed", c)
     assert r["status"] == "ok" and c.state["report"]["follow_up"] == "urgent_same_day"
+
+
+# --------------------------------------------------------------------------- 22 Oct: DOB guard
+
+
+def _live(sid):
+    from voa_agents.voice import call_facts
+
+    c = ctx()
+    c.session = SimpleNamespace(id=sid)
+    return c, call_facts.register(sid)
+
+
+async def test_dob_invented_in_the_same_turn_as_the_question_waits():
+    # Persona eval: "Can you confirm your date of birth? ... January first, nineteen
+    # eighty", then verify_identity, before the patient said anything.
+    from voa_agents.voice import call_facts
+
+    c, facts = _live("s-dob-invented")
+    try:
+        facts.caller_spoke()  # "Yes, this is Jordan."
+        facts.agent_said("Thanks. Can you confirm your date of birth? January first, 1980.")
+        r = await tools.verify_identity("January first, nineteen eighty", c)
+        assert r == tools.DOB_WAIT and r["status"] == "wait"
+        assert "dob_attempts" not in c.state and "dob_verification_result" not in c.state
+        facts.caller_spoke()  # the patient's real answer
+        assert (await tools.verify_identity("March 15, 1950", c))["result"] == "match"
+    finally:
+        call_facts.unregister("s-dob-invented")
+
+
+async def test_each_attempt_needs_a_new_caller_turn():
+    from voa_agents.voice import call_facts
+
+    c, facts = _live("s-dob-turns")
+    try:
+        assert (await tools.verify_identity("June 2nd 1961", c)) == tools.DOB_WAIT  # nobody spoke
+        facts.caller_spoke()
+        assert (await tools.verify_identity("June 2nd 1961", c))["result"] == "needs_readback"
+        assert c.state["dob_attempts"] == 1 and c.state["dob_attempt_caller_turns"] == 1
+        # Again without a reply: no second attempt is spent.
+        assert (await tools.verify_identity("June 2nd 1961", c)) == tools.DOB_WAIT
+        assert c.state["dob_attempts"] == 1
+        facts.caller_spoke()
+        assert (await tools.verify_identity("June 2nd 1961", c)) == {"result": "mismatch_final"}
+    finally:
+        call_facts.unregister("s-dob-turns")
+
+
+async def test_unparseable_rule_holds_with_the_guard():
+    # Two unclear replies are free; the third counts as a failed attempt.
+    from voa_agents.voice import call_facts
+
+    c, facts = _live("s-dob-unclear")
+    try:
+        for _ in range(2):
+            facts.caller_spoke()
+            assert (await tools.verify_identity("I'd rather not", c))["result"] == "retry"
+            assert c.state["dob_attempts"] == 0
+            assert (await tools.verify_identity("I'd rather not", c)) == tools.DOB_WAIT
+        facts.caller_spoke()
+        assert (await tools.verify_identity("I'd rather not", c))["result"] == "retry"
+        assert c.state["dob_attempts"] == 1 and c.state["dob_unparseable"] == 3
+        facts.caller_spoke()
+        assert (await tools.verify_identity("still no", c)) == {"result": "mismatch_final"}
+    finally:
+        call_facts.unregister("s-dob-unclear")

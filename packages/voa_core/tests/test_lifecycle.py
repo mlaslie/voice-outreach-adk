@@ -1,10 +1,12 @@
 from datetime import UTC, datetime
 
 import pytest
+from voa_core import reports as _reports
 from voa_core.lifecycle import (
     CALL_DOC_PHI_FIELDS,
     DEFAULT_VM_DROP_VERDICTS,
     EVENT_TERMINAL_STATUS,
+    MISSED_CALL_TEXT_BLOCKED,
     NON_REACHING_OUTCOMES,
     REPORT_PROMOTABLE,
     TERMINAL_STATUSES,
@@ -19,8 +21,10 @@ from voa_core.lifecycle import (
     is_machine,
     late_verdict_promotes,
     merge_call_doc,
+    missed_call_text_block,
     normalize_amd_verdict,
     release_marks_amd_released,
+    report_demotes_voicemail,
     stale_status_dropped,
     strip_phi_for_call_doc,
     verdict_action,
@@ -466,3 +470,95 @@ def test_non_reaching_report_before_completed_is_not_success(outcome):
     now = datetime(2026, 10, 17, 20, 31, tzinfo=UTC)
     patch = call_event_patch(CallEventKind.COMPLETED, now=now, current=doc)
     assert patch["call_status"] == "interrupted"
+
+
+# --- 22 Oct: a person answered, a machine verdict said otherwise ------------
+
+
+def _report(doc, outcome, channel="voice"):
+    clean = {"outcome": outcome, "channel": channel, "follow_up": "none"}
+    patch, _ = _reports.report_call_patch(clean, "r1")
+    return merge_call_doc(doc, patch, now=NOW, from_report=True) or doc
+
+
+def _status(doc, kind, **kw):
+    return merge_call_doc(doc, call_event_patch(kind, now=NOW, current=doc, **kw), now=NOW) or doc
+
+
+def _amd(doc, verdict):
+    return apply_amd_verdict(doc, verdict, now=NOW)[0]
+
+
+def test_real_20_oct_sequence_voicemail_drop_stays_left_vmail():
+    # Calls ...2083 / ...bb8d: answered, AMD machine_end_beep while live, the
+    # gateway dropped the clip and filed voicemail_left, then the agent filed
+    # wrong person, then "completed". The machine was real: left_vmail is true.
+    doc = _status({}, "answered")
+    doc = _amd(doc, "machine_end_beep")
+    assert doc.get("call_status") is None  # in progress: nothing to promote
+    doc = _report(doc, "voicemail_left")
+    assert doc["call_status"] == "left_vmail"
+    # What the agent's late report did (the gateway now ignores it after a drop):
+    bad = _report(doc, "unable_to_reach_wrong_person")
+    assert bad["call_status"] == "left_vmail"  # not demoted: the drop's voicemail stands
+    assert missed_call_text_block(bad) == "wrong person answered"  # and no text
+    doc = _status(doc, "completed", duration_seconds="19")
+    assert doc["call_status"] == "left_vmail" and missed_call_text_block(doc) is None
+
+
+@pytest.mark.parametrize("outcome", sorted(NON_REACHING_OUTCOMES))
+@pytest.mark.parametrize("verdict", ["machine_start", "machine_end_beep", "machine_end_other"])
+def test_report_then_completed_with_a_machine_verdict_is_answered(outcome, verdict):
+    # Usual order: the agent files during the call, "completed" follows.
+    doc = _amd(_status({}, "answered"), verdict)
+    doc = _report(doc, outcome)
+    assert doc.get("call_status") is None  # a non-reaching report writes no status
+    doc = _status(doc, "completed")
+    assert doc["call_status"] == "interrupted"
+    assert missed_call_text_block(doc) == MISSED_CALL_TEXT_BLOCKED[outcome]
+
+
+@pytest.mark.parametrize("outcome", sorted(NON_REACHING_OUTCOMES))
+def test_completed_then_report_demotes_the_inferred_voicemail(outcome):
+    # Reversed: "completed" classifies left_vmail from the verdict, the report lands after.
+    doc = _status(_status({}, "answered"), "completed", answered_by="machine_start")
+    assert doc["call_status"] == "left_vmail"
+    doc = _report(doc, outcome)
+    assert doc["call_status"] == "interrupted" and doc["outcome"] == outcome
+    assert missed_call_text_block(doc) == MISSED_CALL_TEXT_BLOCKED[outcome]
+
+
+def test_late_amd_verdict_after_a_wrong_person_report_does_not_promote():
+    doc = _status(_report(_status({}, "answered"), "unable_to_reach_wrong_person"), "completed")
+    assert doc["call_status"] == "interrupted"
+    new, promoted = apply_amd_verdict(doc, "machine_end_beep", now=NOW)
+    assert not promoted and new["call_status"] == "interrupted"
+
+
+def test_sms_wrong_person_report_never_demotes_a_real_voicemail():
+    # A by-text questionnaire that fails the DOB files wrong person onto the call
+    # it followed up: that call's voicemail was real.
+    doc = _status(_status({}, "answered"), "completed", answered_by="machine_end_beep")
+    doc = _report(doc, "unable_to_reach_wrong_person", channel="sms")
+    assert doc["call_status"] == "left_vmail"
+
+
+def test_demotion_needs_a_report_and_a_non_reaching_outcome():
+    cur = {"call_status": "left_vmail", "answered_by": "machine_start"}
+    wp = {"outcome": "unable_to_reach_wrong_person", "channel": "voice"}
+    assert report_demotes_voicemail(cur, wp)
+    assert "call_status" not in effective_call_patch(cur, wp)  # not from a report
+    assert effective_call_patch(cur, wp, from_report=True)["call_status"] == "interrupted"
+    assert not report_demotes_voicemail(cur, {"outcome": "voicemail_left", "channel": "voice"})
+    assert not report_demotes_voicemail({**cur, "outcome": "voicemail_left"}, wp)
+    assert not report_demotes_voicemail({"call_status": "rna"}, wp)
+
+
+def test_other_answered_outcomes_are_success_and_never_texted():
+    for outcome in ("reschedule_requested", "questionnaire_completed", "emergency_ended"):
+        doc = {"answered_at": T0, "answered_by": "machine_start", "outcome": outcome}
+        assert classify_completed(doc) == "success"
+        assert missed_call_text_block(doc)
+    assert missed_call_text_block({"outcome": "something_new"}) == "a person answered the call"
+    assert missed_call_text_block({"outcome": "voicemail_left"}) is None
+    assert missed_call_text_block({}) is None and missed_call_text_block(None) is None

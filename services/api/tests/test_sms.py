@@ -871,3 +871,76 @@ def test_a_recall_for_a_held_language_is_refused_not_called_in_english():
     res = client.post(task["path"], json=task["payload"]).json()
     assert "Spanish (US)" in res["error"] and api.voice.placed == []
     assert session(api)["state"] == st.STATE_CLOSED
+
+
+# ------------------------------------------------- 22 Oct: a person answered
+
+
+def _stamp(api, call_id=CALL):
+    return run(api.store.get("calls", call_id)).get("sms_follow_up") or {}
+
+
+@pytest.mark.parametrize(
+    ("outcome", "reason"),
+    [
+        ("unable_to_reach_wrong_person", "wrong person answered"),
+        ("identity_verification_failed", "identity not verified"),
+        ("consent_declined", "the person who answered declined the call"),
+    ],
+)
+def test_call_terminal_never_queues_the_text_when_a_person_answered(outcome, reason):
+    # The 20 Oct calls: left_vmail on the line, but the agent filed a non-voicemail
+    # outcome. "We missed you" must not go to whoever answered.
+    client, api, _ = make()
+    seed_call(api, status="left_vmail")
+    run(api.store.merge("calls", CALL, {"outcome": outcome}))
+    consent(client)
+    r = client.post("/tasks/call-terminal", json={"call_id": CALL})
+    assert r.status_code == 200 and r.json()["sms"] == f"not sent: {reason}"
+    assert not [t for t in api.tasks.tasks if t["path"] == "/tasks/sms-missed-call"]
+    assert _stamp(api)["status"] == "not_sent" and _stamp(api)["reason"] == reason
+    assert api.sms.bodies(PHONE) == []
+
+
+@pytest.mark.parametrize(
+    "outcome", ["unable_to_reach_wrong_person", "identity_verification_failed"]
+)
+def test_missed_call_handler_refuses_when_the_report_says_a_person_answered(outcome):
+    # Defence in depth: the task was queued (or arrived) with left_vmail; the
+    # handler re-reads the call and refuses with a stamped reason.
+    client, api, _ = make()
+    seed_call(api, status="left_vmail")
+    run(api.store.merge("calls", CALL, {"outcome": outcome}))
+    consent(client)
+    r = client.post("/tasks/sms-missed-call", json={"call_id": CALL})
+    assert "skipped" in r.json() and not queued(api, "send_invite")
+    assert _stamp(api)["status"] == "not_sent" and _stamp(api)["reason"]
+    assert api.sms.bodies(PHONE) == []
+
+
+def test_report_after_the_text_was_queued_still_stops_it():
+    # Reversed order: "completed" (left_vmail, no report yet) queues the text;
+    # the wrong-person report lands while the invite task waits for its delay.
+    client, api, _ = make()
+    seed_call(api, status="left_vmail")
+    consent(client)
+    client.post("/tasks/call-terminal", json={"call_id": CALL})
+    assert drain(client, api, path="/tasks/sms-missed-call")[0].json()["queued"] is True
+    run(api.store.merge("calls", CALL, {"outcome": "unable_to_reach_wrong_person"}))
+    assert drain(client, api, kind="send_invite")[0].json() == {"skipped": "wrong person answered"}
+    assert _stamp(api) | {"at": None} == {
+        "status": "not_sent",
+        "reason": "wrong person answered",
+        "at": None,
+    }
+    assert api.sms.bodies(PHONE) == []
+
+
+def test_a_real_voicemail_still_gets_the_text():
+    client, api, _ = make()
+    seed_call(api, status="left_vmail")
+    run(api.store.merge("calls", CALL, {"outcome": "voicemail_left"}))
+    consent(client)
+    client.post("/tasks/call-terminal", json={"call_id": CALL})
+    assert drain(client, api, path="/tasks/sms-missed-call")[0].json()["queued"] is True
+    assert drain(client, api, kind="send_invite")[0].json() == {"sent": True}

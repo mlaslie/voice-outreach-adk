@@ -433,7 +433,15 @@ async def task_call_terminal(payload: dict, request: Request):
             await _run_update(api, run_id, finished)
         if entry and status in RECALLABLE:
             result["recall"] = await _maybe_recall(api, entry_id, entry)
-    if status in SMS_FOLLOW_UP and call.get("placed_via") != "test_call":
+    blocked = lifecycle.missed_call_text_block(call)
+    if status in SMS_FOLLOW_UP and blocked:
+        # A person answered (wrong person, identity not verified, ...): the line
+        # status says otherwise, but texting "we missed you" could reach a stranger.
+        from .sms_service import mark_follow_up
+
+        await mark_follow_up(api, call_id, "not_sent", blocked)
+        result["sms"] = f"not sent: {blocked}"
+    elif status in SMS_FOLLOW_UP and call.get("placed_via") != "test_call":
         await api.tasks.enqueue(
             api.cfg.services.queue_sms,
             "/tasks/sms-missed-call",

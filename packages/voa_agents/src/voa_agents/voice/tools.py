@@ -54,6 +54,14 @@ MAX_DOB_UNPARSEABLE = 3
 # What an unreadable answer does is decided by the question's TYPE (or named
 # parser): voa_core.parsers.voice_on_unclear.
 
+#: verify_identity before the caller has replied (22 Oct: the model asked for the
+#: date of birth and, in the same turn, "heard" one the patient never said).
+DOB_WAIT = {
+    "status": "wait",
+    "message": "The caller hasn't answered yet. Ask for their date of birth and wait for "
+    "their reply.",
+}
+
 # --------------------------------------------------------------------------- languages
 #
 # docs/LANGUAGES-PLAN.md §3.3 (step 3). The tool DECLARATIONS are unchanged; only
@@ -127,6 +135,20 @@ async def verify_identity(spoken_dob: str, tool_context: ToolContext) -> dict:
     """
     from voa_core.parsers import not_english
 
+    facts = facts_for(getattr(getattr(tool_context, "session", None), "id", ""))
+    if facts is not None:
+        # Only a date the caller said may be checked: the caller must have spoken
+        # since the agent last asked a question (the DOB prompt) and since the last
+        # attempt. A wait costs no attempt and records nothing.
+        last = tool_context.state.get("dob_attempt_caller_turns")
+        if (
+            facts.caller_turns == 0
+            or facts.unanswered_question
+            or (last is not None and facts.caller_turns <= int(last))
+        ):
+            _audit(tool_context, "verify_identity", result="wait")
+            return dict(DOB_WAIT)
+        tool_context.state["dob_attempt_caller_turns"] = facts.caller_turns
     patient = tool_context.state.get("patient", {})
     attempts = int(tool_context.state.get("dob_attempts", 0)) + 1
     tool_context.state["dob_attempts"] = attempts
@@ -164,7 +186,7 @@ async def verify_identity(spoken_dob: str, tool_context: ToolContext) -> dict:
 
     if check.result is DobResult.MATCH:
         tool_context.state["dob_verification_result"] = "verified"
-        if facts := facts_for(getattr(getattr(tool_context, "session", None), "id", "")):
+        if facts is not None:
             facts.identity_verified = True
         _audit(tool_context, "verify_identity", result="match", attempt=attempts)
         return {"result": "match"}

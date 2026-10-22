@@ -541,3 +541,49 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
   - **Proposed hardening:** `verify_identity` refuses to check unless the caller has spoken since the DOB question (`call_facts` already counts caller turns). That would stop a model-invented date from costing an attempt.
 - **Live `make eval-languages` rerun before deploy:** every metric 1.0, all gates passed.
 - **Deployed 22 Oct:** all six services healthy, smoke passes, no errors in the logs. **Not yet seen live:** the transcript-translate task on a real call (the smoke softphone call doesn't save a transcript), and the `config/languages` lists loading in the images. Place one test call with a Spanish reply, then check the transcript toggle and `translation.status`.
+
+## 22 Oct: wrong-person status and DOB guard (not deployed)
+
+**The failure.** Two demo calls on 20 Oct (…2083, …bb8d) had `outcome: unable_to_reach_wrong_person` but `call_status: left_vmail`. …bb8d was texted (`sms_follow_up: sent`); …2083 was only stopped by the 24-hour invite cooldown. The suspicion was that an AMD machine verdict had labelled a human-answered call as voicemail, so the missed-call text went to a stranger.
+
+**The real sequence** (call docs, `call_events`, `reports`; statuses and timings only):
+- …2083: answered 17:45:39.4. The agent opened at once (speak-first). At 7.5 s, `submit_report` was refused (AMD still pending). AMD `machine_end_beep` arrived at 17:45:46.8 (7.6 s); the gateway dropped the clip and filed **`voicemail_left` at 17:45:47.17** (`call_status: left_vmail`). The agent called `submit_report` again at 8.1 s, now accepted, and **`unable_to_reach_wrong_person` was saved at 17:45:47.71**. It then called `end_call` at 11.3 s. `completed` arrived at 17:45:58.5 (19 s); the status was already terminal, so it kept `left_vmail`. The missed-call text was refused by the cooldown.
+- …bb8d: answered 20:30:20.1. AMD `machine_end_beep` came at 11.4 s; the drop's `voicemail_left` report was filed at 20:30:31.65, and the agent's `unable_to_reach_wrong_person` at 20:30:32.70. `completed` arrived at 20:30:33.7 and kept `left_vmail`. **The text was sent at 20:31:35.**
+- Both "patient" transcript turns contain voicemail-greeting wording (checked as a yes/no only). **A machine answered both calls.** `left_vmail` was right; the wrong part was the outcome.
+
+**Root cause.** After a voicemail drop the agent is muted (audio is sent only in `live`/`closing`), but the model keeps running. In both calls it filed its own report about the greeting it had heard, and `_save_report` saved it in any phase, overwriting the drop's `voicemail_left`. The model's `end_call` also moved the phase from `voicemail` to `closing`, which unmutes the agent over the clip.
+
+**The latent bug from the brief is real too, though it was not what happened here.** `classify_completed` let non-reaching outcomes fall through to the machine inference. So a person answers, AMD says `machine_start` (released, not dropped) and the agent files wrong person: the call became `left_vmail` and was texted. When `completed` beat the report, nothing corrected it.
+
+**The fix.**
+- **Gateway (`session.py`).** After a drop, an agent report is not saved (`report.ignored`, `reason: voicemail_dropped`), and `end_call` no longer leaves the `voicemail` phase.
+- **Lifecycle (`lifecycle.py`).**
+  - `classify_completed`: a non-reaching outcome (wrong person, identity failed, consent declined) is `interrupted`, ahead of any machine verdict.
+  - `report_demotes_voicemail`: in the reverse order (`completed` first), a **voice** non-reaching report changes an inferred `left_vmail` to `interrupted`.
+  - **Why `interrupted`, not `success`:** `success` clears the call-list entry and closes the real patient's follow-up (the first-real-call bug). `interrupted` is the lifecycle's existing "answered, not reached" status: recallable, never texted. No new status was added.
+  - The demotion is skipped in two cases. If the doc's outcome is `voicemail_left`, the drop really played. An SMS report is the other case: a by-text questionnaire that fails the DOB files wrong person onto the call it followed up, and that voicemail was real.
+  - `reschedule_requested`, `questionnaire_completed` and `emergency_ended` were already `success` before the machine check.
+- **The text, gated three times on the outcome** (`lifecycle.missed_call_text_block`: any filed outcome except `voicemail_left` blocks it, with a reason):
+  1. `/tasks/call-terminal` does not queue it, and stamps `sms_follow_up: {status: not_sent, reason: "wrong person answered"}` (or "identity not verified", and so on).
+  2. `handle_missed_call` re-reads the call and refuses with the same stamp.
+  3. `send_invite` re-checks after its delay, because the report can land while the invite waits.
+- **DOB guard (`voice/tools.py`, declaration unchanged).** With live `call_facts`, `verify_identity` returns `{status: "wait", message: "The caller hasn't answered yet. …"}` in three cases: the caller hasn't spoken, the agent's last words include an unanswered question (the DOB prompt), or the caller hasn't spoken since the last attempt. `state["dob_attempt_caller_turns"]` records the turn count at each attempt. A wait costs no attempt and records nothing. The step-3 rule is unchanged: unparseable replies 1–2 are free, the 3rd counts, 2 failed attempts end the check. With no `call_facts` (the parity voice sessions), nothing changes.
+- **Not done: matching the DOB against the caller's words.** `call_facts` keeps no caller text. The model normalises speech ("three fifteen fifty" → "March 15th 1950"), and dates arrive translated or with day first. A text match would refuse real answers. The turn guard alone stops an invented date.
+
+**Existing data.** `scripts/fix_wrong_person_left_vmail.py <project> [--apply]` (dry run by default; not applied). Dry run on the demo project: **2 `drop_overwritten`** (…2083, …bb8d: outcome back to `voicemail_left` from the drop's report, with `report_doc_id` and the follow-up fields; status stays `left_vmail`), **0 `inferred_voicemail`** (status → `interrupted`), and 3 left_vmail calls already correct. It adds a `correction` note and never touches `sms_follow_up` or report docs.
+
+**Watch out.**
+- `interrupted` is recallable, so a wrong-number call is auto-recalled, just as a wrong-person call with no AMD verdict always was. Blocking recalls after a wrong person is a separate decision.
+- In the reverse order, the call-list entry keeps `last_call_status: left_vmail`, because `call-terminal` is not re-run (re-running it would double-count the run). The SMS gates still hold.
+- The guard relies on `?` in the agent's output transcription to spot the DOB question. A prompt with no question mark is caught only from the second attempt on.
+
+**Tests:**
+- `test_lifecycle.py` covers the real sequence, report-then-completed, completed-then-report, the late AMD verdict, the SMS channel and the other outcomes.
+- `test_sms.py` covers call-terminal, the handler and the invite after a late report: no text for wrong person, identity failed or consent declined, even at `left_vmail`; a real voicemail is still texted.
+- `test_voicemail_drop_report.py` (gateway) shows the agent's report is ignored after the drop.
+- `test_voice_tools.py`: the invented DOB, one attempt per caller turn, and the unparseable rule with the guard.
+- The correction script has its own tests.
+
+**Parity:** the goldens and tool declarations are unchanged.
+- **Verified before deploy:** full suite green, goldens unchanged, live persona eval **24/24** (all three dob_retry runs pass with the new guard).
+- **Data correction not applied.** On the demo project, the dry run of `scripts/fix_wrong_person_left_vmail.py` would restore 2 outcomes to `voicemail_left` and change 0 statuses. It writes to the live database, so run it with `--apply` only on the user's say-so.

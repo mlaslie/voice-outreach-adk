@@ -57,6 +57,20 @@ NON_REACHING_OUTCOMES: frozenset[str] = frozenset(
     {"unable_to_reach_wrong_person", "identity_verification_failed", "consent_declined"}
 )
 
+#: Why the missed-call text is withheld, by report outcome. The text is for a call
+#: nobody answered (rna, busy, a voicemail). Any other filed outcome means a person
+#: picked up and the agent ended the call on purpose: a wrong person is a stranger,
+#: an unverified identity may be one, and a patient who declined or was reached
+#: needs no "we missed you" text. Unknown outcomes fall to the generic reason.
+MISSED_CALL_TEXT_BLOCKED: Mapping[str, str] = {
+    "unable_to_reach_wrong_person": "wrong person answered",
+    "identity_verification_failed": "identity not verified",
+    "consent_declined": "the person who answered declined the call",
+    "reschedule_requested": "the patient answered and asked to be called later",
+    "questionnaire_completed": "the patient answered the call",
+    "emergency_ended": "the patient answered the call",
+}
+
 #: Timeline fields that are set once. Duplicate or late provider callbacks are no-ops.
 SET_IF_ABSENT_FIELDS: tuple[str, ...] = ("ringing_at", "answered_at", "ended_at")
 
@@ -144,10 +158,50 @@ def effective_call_patch(
         )
         if not promotion:
             p.pop("call_status", None)
+        if from_report and report_demotes_voicemail(existing, p):
+            p["call_status"] = INTERRUPTED
     for field in SET_IF_ABSENT_FIELDS:
         if field in p and existing.get(field):
             p.pop(field)
     return p
+
+
+def report_demotes_voicemail(current: Mapping[str, Any] | None, patch: Mapping[str, Any]) -> bool:
+    """Does a report correct a ``left_vmail`` the machine verdict inferred?
+
+    A non-reaching outcome (wrong person, identity failed, consent declined) is
+    only filed after a person spoke (``submit_report`` refuses an exit before the
+    caller's first turn). When the completed callback beat the report to the doc
+    and classified the call ``left_vmail`` from an AMD machine verdict, that label
+    is wrong, and it is what queues the missed-call text. The call becomes
+    ``interrupted``: what ``classify_completed`` gives the same facts in the
+    usual order. Not when the doc's outcome is ``voicemail_left``: the gateway's
+    own voicemail drop filed that, the clip played, and ``left_vmail`` is true.
+    Voice reports only: a by-text questionnaire that fails the date of birth also
+    files a wrong-person report onto the call it followed up, and that call's
+    voicemail really was left.
+    """
+    doc = current or {}
+    return (
+        patch.get("channel") == "voice"
+        and doc.get("call_status") == LEFT_VMAIL
+        and doc.get("outcome") != "voicemail_left"
+        and patch.get("outcome") in NON_REACHING_OUTCOMES
+    )
+
+
+def missed_call_text_block(doc: Mapping[str, Any] | None) -> str | None:
+    """Why this call must NOT get the missed-call text, or None when it may.
+
+    Checked where ``/tasks/call-terminal`` queues the text and again when the SMS
+    service handles it, because the report and the status callback arrive in
+    either order: the line status alone (``left_vmail``) cannot be trusted to
+    mean nobody answered.
+    """
+    outcome = (doc or {}).get("outcome")
+    if not outcome or outcome == "voicemail_left":
+        return None
+    return MISSED_CALL_TEXT_BLOCKED.get(str(outcome), "a person answered the call")
 
 
 def merge_call_doc(
@@ -388,10 +442,12 @@ def classify_completed(doc: Mapping[str, Any] | None, answered_by_hint: str | No
     Order matters:
       1. A report outcome wins: voicemail_left -> left_vmail, anything else -> success,
          EXCEPT outcomes that did not reach the patient (wrong person, identity
-         failed, consent declined): those fall through to the inference below, so
-         the patient's follow-up stays open. (The report path already withheld
-         promotion for them; this closes the same hole when Twilio's "completed"
-         arrives after the report. Found on the first real call.)
+         failed, consent declined): never success, so the patient's follow-up
+         stays open. (The report path already withheld promotion for them; this
+         closes the same hole when Twilio's "completed" arrives after the report.
+         Found on the first real call.) They are ``interrupted``: a person
+         answered, so a machine verdict must not make them left_vmail, which
+         would text the missed-call message to whoever answered (22 Oct).
       2. A machine verdict -> left_vmail, unless the live session released on it
          (``amd_released``): then the agent went on talking to whoever it was.
          ``answered_by_hint`` (this event's verdict) beats the stored one.
@@ -401,7 +457,9 @@ def classify_completed(doc: Mapping[str, Any] | None, answered_by_hint: str | No
     outcome = d.get("outcome")
     if outcome == "voicemail_left":
         return LEFT_VMAIL
-    if outcome and outcome not in NON_REACHING_OUTCOMES:
+    if outcome in NON_REACHING_OUTCOMES:
+        return INTERRUPTED
+    if outcome:
         return SUCCESS
     answered_by = (answered_by_hint or d.get("answered_by") or "").strip()
     if not d.get("amd_released") and is_machine(answered_by):
