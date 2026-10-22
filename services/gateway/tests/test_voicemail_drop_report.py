@@ -107,3 +107,20 @@ async def test_agent_report_on_a_live_call_is_saved():
     call = await store.get("calls", CALL_ID)
     assert call["outcome"] == "unable_to_reach_wrong_person"
     assert call.get("call_status") is None  # a non-reaching report settles nothing
+
+
+async def test_a_spanish_call_drops_the_spanish_clip():
+    """Step 4: a call spoken in Spanish asks for the clip in its language; an
+    English call asks exactly as before (no language argument)."""
+    asked = []
+
+    async def clip(campaign_id, **kw):
+        asked.append((campaign_id, kw))
+        return None  # no clip: hang up (enough to see what was asked)
+
+    for language in (None, "es-US"):
+        s = _session(MemoryStore())
+        s.voicemail_clip = clip
+        s.call_language = language
+        await s._voicemail_drop()
+    assert asked == [("post_op", {}), ("post_op", {"language": "es-US"})]

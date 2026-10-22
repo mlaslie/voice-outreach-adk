@@ -861,11 +861,49 @@ def test_a_recall_keeps_the_original_calls_language_and_override():
     assert call["patient_context"]["language"] == "vi-VN"
 
 
-def test_a_recall_for_a_held_language_is_refused_not_called_in_english():
+def test_a_spanish_patient_gets_no_english_missed_call_text():
+    # Step 4: the invite and its 1/2/3 recall menu are English copy. A Spanish
+    # patient (no "call in English") must not get them until Spanish text wording
+    # is approved (step 5), whatever the voice pack's status.
     client, api, _ = make()
     _language_call(api, language="es-US", call_in_english=False)
     consent(client)
+    r = client.post("/tasks/sms-missed-call", json={"call_id": CALL})
+    assert r.json() == {"skipped": "no approved Spanish (US) text wording"}
+    assert _stamp(api)["status"] == "not_sent"
+    assert _stamp(api)["reason"] == "no approved Spanish (US) text wording"
+    assert not queued(api, "send_invite") and not api.sms.sent
+    # Switched to English by an admin: the English text goes out as before.
+    client2, api2, _ = make()
+    _language_call(api2, language="es-US", call_in_english=True)
+    consent(client2)
+    assert invite(client2, api2)[0].json() == {"sent": True}
+
+
+def test_the_invite_rechecks_the_language_when_it_runs():
+    client, api, _ = make()
+    _language_call(api)
+    consent(client)
+    client.post("/tasks/sms-missed-call", json={"call_id": CALL})
+    # The patient's language was set to Spanish while the invite waited.
+    call = run(api.store.get("calls", CALL))
+    ctx = {**call["patient_context"], "language": "es-US"}
+    run(api.store.merge("calls", CALL, {"patient_context": ctx}))
+    res = drain(client, api, kind="send_invite")
+    assert res[0].json() == {"skipped": "no approved Spanish (US) text wording"}
+    assert not api.sms.sent
+
+
+def test_a_recall_for_a_held_language_is_refused_not_called_in_english():
+    client, api, _ = make()
+    _language_call(api)
+    consent(client)
     invite(client, api)
+    # The menu went out in English; the patient's language changed to a held one
+    # before they replied "1" (defence in depth behind the text gate above).
+    sess = session(api)
+    ctx = {**sess["patient_context"], "language": "es-US", "call_in_english": False}
+    run(api.store.merge("sms_sessions", PHONE, {"patient_context": ctx}))
     text(client, "1")
     task = queued(api, "dispatch_recall")[0]
     res = client.post(task["path"], json=task["payload"]).json()

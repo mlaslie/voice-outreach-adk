@@ -148,15 +148,32 @@ def clean_transcript(text: str, latin_only: bool = False) -> str:
     return " ".join(text.split())
 
 
-def run_config(cfg: AppConfig, vocabulary: list[str]) -> RunConfig:
+def run_config(cfg: AppConfig, vocabulary: list[str], language: str | None = None) -> RunConfig:
+    """``language``: a non-English call's spoken language (an approved pack, or a
+    draft one in evals). It sets the voice's ``language_code`` for this session
+    (``PerCallSpeechGemini`` keeps it) and hints the caller transcription with the
+    language plus English (the caller may switch). None, every English call: the
+    run config is exactly as before and the agent's own speech config applies."""
+    speech = None
+    hints = None
+    if language:
+        speech = types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=cfg.voice.voice_name)
+            ),
+            language_code=language,
+        )
+        hints = [language, *([] if language == "en-US" else ["en-US"])]
     return RunConfig(
         response_modalities=["AUDIO"],
         session_resumption=types.SessionResumptionConfig()
         if cfg.voice.session_resumption
         else None,
+        **({"speech_config": speech} if speech is not None else {}),
         # Domain terms (procedures, drug names) bias caller transcription (gemini-3.8-live).
         input_audio_transcription=types.AudioTranscriptionConfig(
-            custom_vocabulary=vocabulary or None
+            custom_vocabulary=vocabulary or None,
+            **({"language_codes": hints} if hints else {}),
         ),
         output_audio_transcription=types.AudioTranscriptionConfig(),
         realtime_input_config=types.RealtimeInputConfig(
@@ -194,6 +211,10 @@ class CallSession:
         self.drain_timeout_s = drain_timeout_s
         self.on_agent_turn_end = on_agent_turn_end
         self._latin_only = cfg.voice.language_code.lower().startswith("en")
+        #: The spoken language of a non-English call (docs/LANGUAGES-PLAN.md step 4),
+        #: and its pack's transcription vocabulary. None: English, as before.
+        self.call_language: str | None = None
+        self._pack_vocabulary: list[str] = []
         in_codec = inbound_codec or media.codec
         self.timeline = Timeline()
         self.queue = LiveRequestQueue()
@@ -232,13 +253,15 @@ class CallSession:
             # patient context, so it never reaches state["patient"].
             patient = dict(patient)
             use_case = {k: patient.pop(k) for k in ("campaign_id", "spec_version") if k in patient}
-            # The patient's language (docs/LANGUAGES-PLAN.md) is recorded but not
-            # used by calls yet (step 1): kept out of state["patient"], so the
-            # instruction, tools and voice are exactly as before.
+            # The patient's language (docs/LANGUAGES-PLAN.md) is kept out of
+            # state["patient"], so an English call's instruction, tools and voice
+            # are exactly as before. It decides the spoken language below.
             language = patient.get("language")
+            call_in_english = patient.get("call_in_english")
             for k in ("language", "call_in_english"):
                 patient.pop(k, None)
             await self._resolve_campaign(use_case)
+            self._choose_language(language, call_in_english)
             from voa_core import organization
 
             store = getattr(self.sink, "store", None)
@@ -250,9 +273,11 @@ class CallSession:
             # Knowledge agent (docs/KNOWLEDGE-PLAN.md): only in live mode for voice
             # (off and shadow leave the agent exactly as before); read once per
             # call through a 60 s cache, like org_name.
+            # Knowledge-base answers stay off for a non-English call (plan §3.3):
+            # every question goes to a nurse.
             kn_state, kn_runtime = (
                 await voice_knowledge.prepare(store, self.cfg)
-                if store is not None
+                if store is not None and not self.call_language
                 else (None, None)
             )
             state = {
@@ -271,6 +296,9 @@ class CallSession:
             code = languages.normalize(language)
             if code and code not in languages.ENGLISH:
                 state["patient_language"] = code
+            if self.call_language:
+                # The instruction and the closing use the pack's wording.
+                state["call_language"] = self.call_language
             session = await self.runner.session_service.create_session(
                 app_name=self.runner.app_name,
                 user_id=self.call_id,
@@ -318,6 +346,35 @@ class CallSession:
             spec = load_campaign(self.campaign_id)
         self.spec_version = version if isinstance(version, int) else spec.version
         self.timeline.add("campaign", id=self.campaign_id, version=self.spec_version)
+
+    def _choose_language(self, language: Any, call_in_english: Any) -> None:
+        """The spoken language (``language_packs.voice_pack_for_call``): the
+        patient's language when its pack is approved (or a draft in dev/test
+        evals with VOA_ALLOW_DRAFT_PACKS=1) and no admin chose "call in English";
+        otherwise English. Whether the call may be placed at all was decided by
+        the hold before dialling."""
+        from voa_core import language_packs, languages
+        from voa_core.compliance import coerce_bool
+
+        code = languages.normalize(language) if language else None
+        if code is None or code in languages.ENGLISH:
+            return
+        pack = language_packs.voice_pack_for_call(self.campaign_id, code, call_in_english)
+        if pack is None:
+            self.timeline.add(
+                "language.english",
+                patient_language=code,
+                reason="call_in_english" if coerce_bool(call_in_english) else "no_usable_pack",
+            )
+            return
+        self.call_language = code
+        self._pack_vocabulary = list(pack.custom_vocabulary)
+        self.timeline.add("language", code=code, pack_status=pack.status)
+        if not pack.approved:
+            log.warning(
+                "draft language pack in use (eval only)",
+                extra=safe_extra({"event": "language_pack.draft_used", "language": code}),
+            )
 
     def _use_case(self) -> dict[str, Any]:
         """Stamped on every report this call files (the model never sets it)."""
@@ -426,7 +483,12 @@ class CallSession:
 
     async def _voicemail_drop(self) -> None:
         self._phase = "voicemail"
-        clip = await self.voicemail_clip(self.campaign_id) if self.voicemail_clip else None
+        clip = None
+        if self.voicemail_clip and self.call_language:
+            # The pack's voicemail, rendered in the call's language.
+            clip = await self.voicemail_clip(self.campaign_id, language=self.call_language)
+        elif self.voicemail_clip:
+            clip = await self.voicemail_clip(self.campaign_id)
         await self.media.clear()
         if self.recorder:
             self.recorder.clear()
@@ -503,13 +565,14 @@ class CallSession:
         campaign_vocab = [
             *load_campaign(self.campaign_id).custom_vocabulary,
             *self.cfg.voice.custom_vocabulary,
+            *self._pack_vocabulary,
         ]
         try:
             async for event in self.runner.run_live(
                 user_id=self.call_id,
                 session_id=self.session_id,
                 live_request_queue=self.queue,
-                run_config=run_config(self.cfg, campaign_vocab),
+                run_config=run_config(self.cfg, campaign_vocab, self.call_language),
             ):
                 await self._handle(event)
         except Exception:

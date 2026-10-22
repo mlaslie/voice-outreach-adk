@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  LanguagesResponse, callLanguage, holdReason, isAvailable, languageChip, normalizeLanguage, optionLabel, parseYesNo,
+  LanguagesResponse, callLanguage, holdReason, isAvailable, languageChip, normalizeLanguage, optionLabel, packChannelLines, parseYesNo,
 } from "./languages";
 import sample from "./languages-sample.json";
 
@@ -69,5 +69,28 @@ describe("labels", () => {
     expect(parseYesNo("")).toBe(false);
     expect(parseYesNo("no")).toBe(false);
     expect(parseYesNo("maybe")).toBeUndefined();
+  });
+});
+
+describe("packChannelLines", () => {
+  const base = {
+    campaign_id: "post_op", language: "es-US", name: "Spanish (US)", status: "draft",
+    reviewed_by: "", approved_by: "", approved_at: "",
+    voice: { complete: true, available: false }, sms: { complete: false, available: false },
+    needs: "needs translator review",
+  };
+  it("says a draft voice pack needs review and texts stay off", () => {
+    expect(packChannelLines(base)).toEqual([
+      "Voice: draft, needs translator review",
+      "Texts: not translated yet (English texts are never sent instead)",
+    ]);
+  });
+  it("says an approved voice pack is in use", () => {
+    expect(packChannelLines({ ...base, status: "approved", needs: "", voice: { complete: true, available: true } })[0])
+      .toBe("Voice: approved, in use");
+  });
+  it("matches the sample data", () => {
+    const es = RESP.packs?.find((p) => p.campaign_id === "post_op" && p.language === "es-US");
+    expect(es && packChannelLines(es)[0]).toBe("Voice: draft, needs translator review");
   });
 });

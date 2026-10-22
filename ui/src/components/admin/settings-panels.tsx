@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Building2, Clock, MessageSquareText } from "lucide-react";
+import { Building2, Clock, Languages, MessageSquareText } from "lucide-react";
 import { AdminActions } from "@/lib/nurse/actions";
 import { OrganizationSettings } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Panel } from "@/components/nurse/parts";
+import { Panel, Pill } from "@/components/nurse/parts";
 import { fmtHHMM, TimeFormat, useTimeFormat } from "@/lib/time";
 import { fetchSettings, setSetting } from "@/lib/followups";
+import { useLanguages } from "@/components/languages-provider";
+import { packChannelLines } from "@/lib/languages";
 
 /** Admin → Display: 12- or 24-hour clocks for nurses. */
 export function TimeDisplayPanel({ saved, actions }: { saved: TimeFormat | null; actions: Pick<AdminActions, "live" | "saveDisplay"> }) {
@@ -212,6 +214,50 @@ export function CompanyNamePanel({
         that differs from the registered brand can be filtered by carriers, so update the registration when this changes.
         {org && !org.is_default ? ` Configured default: ${org.default}.` : ""}
       </p>
+    </Panel>
+  );
+}
+
+
+/**
+ * Admin → Display → Languages: which language packs exist and their review
+ * status (docs/LANGUAGES-PLAN.md step 4). Read-only: a pack is approved by
+ * editing its file (docs/HANDOFF.md, "How to approve a pack") and redeploying.
+ */
+export function LanguagesPanel() {
+  const packs = useLanguages()?.packs ?? [];
+  return (
+    <Panel className="px-5 py-3.5">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand-deep">
+          <Languages className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="font-display text-[15px] font-semibold text-ink">Languages</h3>
+          <p className="text-[12px] text-ink-muted">
+            Calls in a language other than English need an approved language pack. Until then those patients are held,
+            or called in English when you tick &ldquo;Call in English&rdquo;. Read-only.
+          </p>
+        </div>
+      </div>
+      {packs.length === 0 ? (
+        <p className="mt-3 text-[12px] text-ink-muted">No language packs yet: every call is in English.</p>
+      ) : (
+        <ul className="mt-3 divide-y divide-black/[0.06]">
+          {packs.map((p) => {
+            const [voice, texts] = packChannelLines(p);
+            return (
+              <li key={`${p.campaign_id}.${p.language}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 py-2 text-[12px]">
+                <span className="font-semibold text-ink">{p.name}</span>
+                <span className="text-ink-muted">{p.campaign_id.replace("_", "-")}</span>
+                <Pill tone={p.voice.available ? "good" : "warn"}>{p.status.replace("_", " ")}</Pill>
+                <span className="basis-full text-ink-soft sm:basis-auto">{voice}</span>
+                <span className="basis-full text-ink-muted sm:basis-auto">{texts}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </Panel>
   );
 }

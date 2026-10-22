@@ -187,6 +187,61 @@ US carriers register sample messages for business texting. If you change the wor
 
 Every call, call-list entry, run and ingest tranche can name a use case with `campaign_id` (ingest: `"campaign"`); without one it is post-op. The call stores `campaign_id` and `spec_version`, the gateway runs that spec, and a missed call's text follow-up uses it too. Nothing in the dashboard offers another use case yet.
 
+## Language packs (calls in another language)
+
+A use case is written in English. A **language pack** gives the same use case's wording in one other language: `config/campaigns/i18n/<campaign>.<language>.yaml`, for example `post_op.es-US.yaml`. Plan: `docs/LANGUAGES-PLAN.md` §3.2. Code: `packages/voa_core/src/voa_core/language_packs.py`.
+
+**A pack is wording only.** The question ids, types, rules, triage, red flags and the call frame all come from the English spec, and a pack cannot change them. The voice agent records every answer as the same English value as on an English call ("yes", 7, "worse"), so triage, reports and the nurse screens need nothing per language.
+
+The file:
+
+```yaml
+language: es-US                 # one of the 24 codes; must match the file name
+campaign: post_op               # must match the file name
+status: draft                   # draft | in_review | approved | retired
+translated_by: "machine draft (Claude)"
+reviewed_by: ""                 # the qualified medical translator
+approved_by: ""                 # the named approver
+approved_at: ""                 # YYYY-MM-DD
+notes: "..."                    # what the reviewer should look at
+scripts:                        # every key of the English spec's scripts
+  opener: "Hola, esta es una llamada automatizada de {org_name}. ..."
+  ...
+questions:                      # every question id of the English spec
+  pain_present:
+    ask: "¿Tiene algún dolor?"  # what the voice agent says
+  pain_severity:
+    ask: "..."
+    note: "For a range, record the higher number."  # optional; only where the English has a note
+custom_vocabulary: [incisión, ...]  # optional: words the caller's speech recognition should expect
+# Optional until texts in other languages are built (LANGUAGES-PLAN step 5):
+# sms_scripts: {...} and a question's sms / sms_if_* wording.
+```
+
+**To add a language or a pack:**
+1. Copy an existing pack, rename it `<campaign>.<code>.yaml`, and set `language`, `campaign`, `status: draft`, `translated_by`.
+2. Translate every line of `scripts` and every question's `ask`. Write numbers in words: the voice agent reads them aloud. A `note` is guidance for the model, in English, with any line to say quoted in the pack's language.
+3. A developer adds the language's emergency words to `EMERGENCY_WORDS` in `language_packs.py` (Spanish and English exist). Without them the lint fails, so a pack in a new language cannot be approved by mistake.
+4. Run the check below, then the persona evals in that language (`evals/voice_personas.py`; Spanish: `--set es` with `VOA_ENV=dev VOA_ALLOW_DRAFT_PACKS=1`).
+5. A qualified medical translator reviews it. Then it is approved: see `docs/HANDOFF.md`, "How to approve a pack".
+
+**To edit a pack:** change the wording only. A change to an approved pack's wording should go back through the translator.
+
+**The lint** (`language_packs.pack_problems`, run by `packages/voa_core/tests/test_language_packs.py` on every pack in the repo) fails on:
+- a missing script or question wording;
+- a `{placeholder}` that differs from the English line's (keep `{org_name}`, `{patient_first_name}`, `{patient_last_name}` exactly as in English);
+- an emergency line without 911 (or "nueve uno uno") or without the instruction to hang up and call;
+- any extra key: a script, question, note or field the English spec does not have (a pack cannot carry `type`, `rules` or anything else);
+- `status: approved` without `reviewed_by`, `approved_by` and `approved_at`.
+
+**What a pack's status does:**
+- `draft`, `in_review`, `retired`: nothing. Patients in that language stay **held** (not called), unless an admin ticks "Call in English" for them. The patient form shows the language as "(not available yet)".
+- `approved` (and lint-clean): the language becomes available for **voice** calls of that use case. Patients in it are called in their language, and the voicemail is said in it.
+- **Texts stay English-only in this step.** A patient whose language is not English (and who is not set to "Call in English") gets no missed-call text: it is skipped with the reason "no approved Spanish (US) text wording" on the call.
+- The admin console shows each pack and its status under Display → Languages (read-only).
+
+**Evals only:** `VOA_ALLOW_DRAFT_PACKS=1` lets the gateway speak a draft pack, and only when `VOA_ENV` is set to `dev` or `test`. It is refused in demo and prod, and it never makes a patient callable.
+
 ## Not built yet
 
 Changes apply only after a redeploy. A later step would load the campaign from Cloud Storage or Firestore, with the same checks run on upload, so that a rewording goes live without one.

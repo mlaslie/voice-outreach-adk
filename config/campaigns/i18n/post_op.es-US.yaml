@@ -1,0 +1,86 @@
+# Language pack: post-op wellness check in Spanish (US). WORDING ONLY.
+# Ids, types, rules, triage and red flags come from config/campaigns/post_op.yaml
+# and cannot be changed here. Format, lint and approval: docs/EDITING-QUESTIONS.md
+# ("Language packs") and voa_core/language_packs.py.
+#
+# THIS IS A MACHINE DRAFT. No patient is called in Spanish until a qualified
+# medical translator has reviewed it and a named approver has set
+# status: approved with reviewed_by, approved_by and approved_at
+# (docs/HANDOFF.md, "How to approve a pack").
+#
+# Keep exactly the English {placeholders}. The emergency line must keep 911
+# ("nueve uno uno") and "cuelgue ... y llame". Numbers are written in words,
+# because the voice agent reads these lines aloud.
+# Check after any edit: uv run pytest -q -p no:warnings packages/voa_core
+
+language: es-US
+campaign: post_op
+status: draft
+translated_by: "machine draft (Claude)"
+reviewed_by: ""
+approved_by: ""
+approved_at: ""
+notes: >
+  Machine-drafted on 22 Oct 2026 from post_op.yaml version 1: plain, warm US
+  Spanish for older patients, formal "usted". It must be reviewed by a qualified
+  medical translator before approval (HHS Section 1557, 2024 rule: machine
+  translation of critical patient content needs review by a qualified human
+  translator). Points for the reviewer: the fever threshold is said as
+  "cien punto cuatro grados Fahrenheit" (the English says "one hundred point
+  four", without the unit); "incisión" is used for the surgical wound;
+  "equipo de cuidados" for "care team"; the voicemail says no name or clinical
+  detail. Voice only: the SMS wording is step 5.
+
+scripts:
+  opener: "Hola, esta es una llamada automatizada de {org_name}. ¿Podría hablar con {patient_first_name} {patient_last_name}, por favor?"
+  identity_prompt: "Para proteger su privacidad, ¿me podría decir su fecha de nacimiento, por favor?"
+  identity_verified: "Gracias, su identidad quedó verificada."
+  consent: "Le llamo del equipo de cuidados posoperatorios de {org_name} para saber cómo se encuentra después de su procedimiento reciente. Esta llamada puede ser grabada para fines de calidad. Toma unos minutos. ¿Es un buen momento para hablar?"
+  wrong_person: "Gracias, volveremos a intentarlo en otro momento. Adiós."
+  identity_failed: "Lo siento, no pude verificar su identidad. Una persona de nuestro equipo de cuidados se comunicará con usted. Adiós."
+  reschedule: "No hay problema. Le volveremos a llamar en un mejor momento. Adiós."
+  emergency: "Eso suena grave. Por favor, cuelgue ahora y llame al nueve uno uno. Me aseguraré de avisar al equipo de cuidados."
+  no_medical_advice: "Soy un asistente automatizado, así que no puedo darle consejos médicos, pero me aseguraré de que una enfermera se comunique con usted."
+  closing_extra: "Antes de despedirme, por favor lleve una lista de todos los medicamentos que toma actualmente a su cita de seguimiento posoperatorio en la clínica."
+  closing_questions: "Gracias por sus preguntas. Nuestro equipo de cuidados se comunicará con usted para responderlas. Cuídese mucho, adiós."
+  closing_follow_up: "Gracias. Una de nuestras enfermeras se comunicará con usted pronto. Cuídese mucho, adiós."
+  closing_no_follow_up: "Gracias, eso es todo. No necesita hacer nada más hoy. Cuídese mucho, adiós."
+  # No patient name or clinical detail on a voicemail: anyone may hear it.
+  voicemail: "Hola, le llamamos de {org_name} con un mensaje de seguimiento. Por favor, devuélvanos la llamada cuando le sea posible al número que aparece en sus documentos. Gracias."
+
+# ask: what the voice agent says. note: guidance for the voice agent (read by
+# the model, in English, with any line to say quoted in Spanish).
+questions:
+  overall_feeling:
+    ask: "¿Cómo se siente?"
+  pain_present:
+    ask: "¿Tiene algún dolor?"
+  pain_severity:
+    ask: "En una escala del cero al diez, ¿qué tan fuerte es el dolor?"
+    note: "For a range, record the higher number."
+  pain_location:
+    ask: "¿Me puede describir el dolor, por ejemplo, dónde lo tiene y cómo se siente?"
+    note: "If they already said where it hurts, do not ask where again: say \"Usted mencionó dolor en <lugar>. ¿Tiene dolor en algún otro lugar?\" and record both."
+  pain_trend:
+    ask: "¿El dolor está mejorando, sigue igual o está empeorando?"
+  fever_reported:
+    ask: "¿Ha tenido fiebre, es decir, una temperatura de más de cien punto cuatro grados Fahrenheit, desde que regresó a casa?"
+  incision_concerns:
+    ask: "¿Ha notado algo fuera de lo normal en su incisión, como enrojecimiento que se extiende, líquido que sale, calor o que se esté abriendo?"
+  incision_description:
+    ask: "¿Me puede describir lo que ve?"
+  legs_swollen:
+    ask: "¿Tiene las piernas o los pies hinchados?"
+  swelling_description:
+    ask: "¿Es en una pierna o en las dos, y está empeorando?"
+    note: "Ask only the part they have not already told you (which side, or whether it is getting worse); if they told you both, record what they said without asking."
+  sleeping_well:
+    ask: "¿Está durmiendo bien?"
+  blood_sugar_status:
+    ask: "¿En qué rango han estado sus niveles de azúcar en la sangre?"
+    note: "Record the numbers or words they say, in English, e.g. \"120 to 250\"."
+  has_questions:
+    ask: "¿Tiene alguna pregunta para el equipo de cuidados?"
+
+# Transcription hints for the caller's Spanish (added to the spec's own list).
+custom_vocabulary: [incisión, herida, supuración, enrojecimiento, hinchazón, hinchado, Tylenol, ibuprofeno, oxicodona, insulina, azúcar]

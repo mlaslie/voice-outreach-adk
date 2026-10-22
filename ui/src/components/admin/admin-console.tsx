@@ -28,7 +28,7 @@ import { RecallSettingsPanel } from "@/components/nurse/recall-settings";
 import { RunsPanel } from "./runs-panel";
 import { PatientsPanel } from "./patients-panel";
 import { AllowlistPanel, ConsentMap } from "./allowlist-panel";
-import { CompanyNamePanel, TextLimitPanel, TimeDisplayPanel } from "./settings-panels";
+import { CompanyNamePanel, LanguagesPanel, TextLimitPanel, TimeDisplayPanel } from "./settings-panels";
 import { BookedCallbacksPanel, TextConversationsPanel } from "./messaging-panels";
 import { TestByTextPanel, TestInBrowserPanel } from "./testing-panels";
 import { DiagnosticsPanel } from "./diagnostics-panel";
@@ -251,6 +251,7 @@ export function AdminConsole({
                 <>
                   <CompanyNamePanel org={settings?.organization ?? null} actions={actions} />
                   <TimeDisplayPanel saved={settings?.display?.time_format ?? null} actions={actions} />
+                  <LanguagesPanel />
                 </>
               ) : null}
             </div>

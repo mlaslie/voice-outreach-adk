@@ -587,3 +587,54 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
 **Parity:** the goldens and tool declarations are unchanged.
 - **Verified before deploy:** full suite green, goldens unchanged, live persona eval **24/24** (all three dob_retry runs pass with the new guard).
 - **Data correction not applied.** On the demo project, the dry run of `scripts/fix_wrong_person_left_vmail.py` would restore 2 outcomes to `voicemail_left` and change 0 statuses. It writes to the live database, so run it with `--apply` only on the user's say-so.
+
+## 22 Oct: Spanish voice pilot (step 4; not deployed)
+
+**What changed** (`docs/LANGUAGES-PLAN.md` step 4). Calls can now be spoken in a patient's language once that language has an **approved** pack. The Spanish post-op pack is a **machine draft**, so nothing changes for patients yet: Spanish patients stay held.
+- **Pack format, loader, lint** (`voa_core/language_packs.py`): `config/campaigns/i18n/<campaign>.<lang>.yaml` with `language`, `campaign`, `status` (draft | in_review | approved | retired), `translated_by`, `reviewed_by`, `approved_by`, `approved_at`, `notes`, `scripts` (every key of the spec's scripts), `questions: {id: {ask, note?}}`, optional `custom_vocabulary`, and optional `sms_scripts` / question `sms*` (step 5). Wording only: ids, types, rules and triage are the English spec's (`localize` copies the spec and swaps only the wording). `load_pack`, `pack_problems` (the lint: every voice line and question, identical placeholders, 911 plus "hang up and call" in the emergency line, no extra keys, approvers required when approved), `voice_pack_for_call` (the gate), `summary` (the console rows). Format and how to edit: `docs/EDITING-QUESTIONS.md`, "Language packs".
+- **Availability by channel:** `languages.available(campaign_id, channel="voice")` counts approved, lint-clean, complete packs. `channel="sms"` stays English-only (`SMS_PACKS_ENABLED = False`), because the shared SMS copy (invite, menu, DOB prompt, STOP/HELP in `copy.py`) is not in the pack format yet.
+- **No English text to a non-English patient:** `lifecycle.missed_call_text_block` now also returns `languages.text_block(...)`: a patient whose language is not English and who is not on "Call in English" gets no missed-call text (so no 1/2/3 recall menu either), stamped `sms_follow_up: not_sent, "no approved Spanish (US) text wording"`. All three existing gates apply it (call-terminal, `handle_missed_call`, `send_invite` after its delay). English patients and calls with no language are unchanged.
+- **Packs:** `post_op.es-US.yaml` (draft, `translated_by: "machine draft (Claude)"`, notes for the reviewer: the fever threshold said as "cien punto cuatro grados Fahrenheit", "incisión", "equipo de cuidados"; Section 1557 review required). `pre_op.es-US.yaml` too (draft, for a draft use case).
+- **Voice wiring:**
+  - Gateway `CallSession._choose_language`: the spoken language is the patient's when `voice_pack_for_call` returns a pack (approved, or a draft with the eval switch) and `call_in_english` is off; otherwise English (timeline `language.english`). It sets `state["call_language"]`, turns the knowledge base off for that call, adds the pack's vocabulary, and passes the language to `run_config`.
+  - `run_config(cfg, vocab, language)`: for a non-English call, `speech_config` (same voice, `language_code=es-US`) and input-transcription `language_codes=[es-US, en-US]`. For English the RunConfig is exactly as before (tested).
+  - **What bit us:** ADK's `Gemini.connect` overwrites the live request's speech config with the model's own (set once at agent build from `cfg.voice`), so `RunConfig.speech_config` alone is silently ignored. `voice/agent.py` now builds a `PerCallSpeechGemini` that keeps a per-call speech config when one is set, and connects exactly as before when none is (English).
+  - Instruction: for `call_language`, the localized spec plus a language block after the first paragraph ("Speak only Spanish (US)… RESPOND IN SPANISH. YOU MUST RESPOND UNMISTAKABLY IN SPANISH", scripted lines as written, tool arguments in English, DOB passed as an English date, switch to English on request, interpreter path) and a short reminder at the end. English instruction byte-identical (parity goldens unchanged).
+  - Tools: the closing `submit_report` returns comes from the pack. On a Spanish call a free-text answer that is not English is refused ("Call record_answer again with a short English summary… Do not ask the caller again"); see the eval below.
+  - **`language_assistance_needed` was not added.** A new outcome touches the `submit_report` docstring (the tool-declaration golden), `reports.OUTCOMES`, the lifecycle, the nurse agent, analytics and the UI. Instead, on a non-English call only, the frame tells the model to record "Needs an interpreter: speaks <language>" and file `reschedule_requested`; `submit_report` then files it `routine_next_business_day` with "language assistance needed: call back with an interpreter" (a plain reschedule stays `none`). English reschedules are unchanged.
+  - Voicemail: `Gateway.voicemail_clip(campaign, language=…)` uses the pack's voicemail and `PromptCache.ensure(text, language_code=…)`, cached per language; English key and render are unchanged (tested). Approved languages' clips are warmed at startup. **TTS:** `es-US` checked live on `gemini-2.5-flash-tts` (22 Oct): accepted (5.1 s clip; `es-ES` also accepted). es-US is used.
+- **The eval switch:** `VOA_ALLOW_DRAFT_PACKS=1` is honoured only with `VOA_ENV` explicitly `dev` or `test` (logged and refused otherwise), only by the gateway's choice of spoken language, and never by `languages.available` (it cannot make anyone callable). Deployed services run `VOA_ENV=demo`.
+- **Console:** Admin → Display → **Languages** card (read-only): each pack, its status, and "Voice: draft, needs translator review" / "Texts: not translated yet". `GET /api/languages` adds `packs`; the UI sample JSON was regenerated from the endpoint. The patient language select still says "(not available yet)" for Spanish. Not checked in a browser (types, unit tests and both builds pass). The nurse agent needed nothing: its hold and 409 paths already read `languages`.
+
+**Evals** (real Gemini Live, local ADC, dev config, 3 runs, concurrency 3):
+- **Spanish** (`docs/evals/voice-personas-20261022-es.md`): **20/21**. happy_es, red_flag_es (emergency), negated_red_flag_es (no emergency), patient_questions_es (Tylenol question → medication, same day; both questions recorded in English), switch_to_english (Spanish share of agent turns 1.0 before the request, ≤0.1 after) and voicemail_es (Spanish clip): all 3/3. dob_retry_es 2/3.
+  - **The failure:** the model recorded `overall_feeling: "feeling جيد"` (an Arabic word in an English summary of a Spanish answer). Triage failed safe (the non-English free-text check made it a follow-up), but the answer was not English. Fixed by the refusal above (Spanish calls only).
+  - **Recheck after the fix** (`…-es-recheck.md`): happy_es and dob_retry_es **6/6**.
+  - The Spanish DOB ("quince de marzo de mil novecientos cincuenta") verified in every run; the model passed it as an English date.
+- **English** (`docs/evals/voice-personas-20261022-step4-en.md`): **24/24**, unchanged from the baseline.
+
+**How to approve a pack** (who, and what to change):
+1. A **qualified medical translator** reviews the file line by line against `post_op.yaml` (and listens to a few eval calls: `evals/out/*.json` keep the Spanish transcripts). Wording fixes go into the pack.
+2. The named **approver** (clinic's language-access or compliance owner) edits the pack file in a commit:
+   ```yaml
+   status: approved
+   reviewed_by: "<translator's name and credential>"
+   approved_by: "<approver's name>"
+   approved_at: "YYYY-MM-DD"
+   ```
+   Commit history is the audit trail. Run `uv run pytest -q -p no:warnings packages/voa_core` (the lint runs on every pack).
+3. Also get the Spanish red-flag and STOP/HELP lists in `config/languages/keywords.yaml` reviewed (still draft from step 3).
+4. **Redeploy the gateway and the API together** (`make deploy SERVICES="gateway api"`): the API decides who is held, the gateway decides the spoken language, and the pack ships inside both images. Only after the deploy are Spanish patients dialled in Spanish; held ones are picked up by the next run.
+5. Place one test call to a test handset as a Spanish patient; check the timeline `language` event, the transcript toggle and the voicemail.
+- To withdraw: set `status: retired` (or `draft`) and redeploy. Patients go back to held.
+- Texts stay English-only and are skipped for Spanish patients until step 5.
+
+**Watch out.**
+- Once Spanish is approved, a Spanish patient's missed call gets **no text** until step 5 (today such patients are never called, so nothing changes yet). Patients on "Call in English" still get the English text, as before.
+- The pack is used as soon as it is approved; an approved pack with a wording error is lint-clean if placeholders and 911 are intact. The review is the control.
+- The frame's own guidance phrases ("Do you have any other questions?") are English; the model says them in Spanish. The eval transcripts show it does, but they are not pack-reviewed wording.
+- Switching to English mid-call: the model translates the remaining Spanish lines back to English itself (not reviewed wording).
+- Spanish calls average ~145 s against ~98 s in English.
+
+**Parity:** the goldens, the tool declarations and the voice-tool session goldens are unchanged; the full suite passes (2115).
+- **Flaky test seen once (22 Oct):** `services/api/tests/test_ingest.py::test_a_batch_creates_patients_and_a_run_without_echoing_patient_data` failed in one full-suite run, then passed alone, in its file, in the API suite, and in two more full runs. It is not investigated yet. If it recurs, suspect test-order shared state (stores or caches) before timing.

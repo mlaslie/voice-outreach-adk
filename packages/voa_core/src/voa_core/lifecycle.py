@@ -199,9 +199,31 @@ def missed_call_text_block(doc: Mapping[str, Any] | None) -> str | None:
     mean nobody answered.
     """
     outcome = (doc or {}).get("outcome")
-    if not outcome or outcome == "voicemail_left":
+    if outcome and outcome != "voicemail_left":
+        return MISSED_CALL_TEXT_BLOCKED.get(str(outcome), "a person answered the call")
+    return missed_call_language_block(doc)
+
+
+def missed_call_language_block(doc: Mapping[str, Any] | None) -> str | None:
+    """The missed-call text (the invite and its 1/2/3 recall menu) is English
+    copy. A patient whose language is not English, and who was not switched to
+    English by an admin, must not get it until their language has approved text
+    wording (docs/LANGUAGES-PLAN.md step 5): "no approved Spanish (US) text
+    wording". English patients, and calls with no language recorded, are
+    unchanged."""
+    from . import languages
+
+    d = doc or {}
+    ctx = d.get("patient_context") if isinstance(d.get("patient_context"), Mapping) else {}
+    language = d.get("language") or ctx.get("language")
+    if not language:
         return None
-    return MISSED_CALL_TEXT_BLOCKED.get(str(outcome), "a person answered the call")
+    call_in_english = d.get("call_in_english")
+    if call_in_english is None:
+        call_in_english = ctx.get("call_in_english")
+    return languages.text_block(
+        language, d.get("campaign_id") or ctx.get("campaign_id"), call_in_english
+    )
 
 
 def merge_call_doc(

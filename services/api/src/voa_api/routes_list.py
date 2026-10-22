@@ -111,7 +111,8 @@ async def get_languages(request: Request, campaign_id: str | None = None):
     """The 24 patient languages, and which can be called today for a use case
     (``available``: English, or an approved language pack). Per use case:
     ``available_by_campaign`` maps every use case to its available codes, so a
-    form can mark a language "not available yet" for the patient's own one."""
+    form can mark a language "not available yet" for the patient's own one.
+    ``packs``: the language packs and their review status (read-only)."""
     from voa_core import languages
     from voa_core.campaign import DEFAULT_CAMPAIGN_ID, campaign_ids, validate_campaign_id
 
@@ -124,7 +125,28 @@ async def get_languages(request: Request, campaign_id: str | None = None):
         "default": languages.DEFAULT,
         "languages": languages.catalog(cid),
         "available_by_campaign": {c: sorted(languages.available(c)) for c in campaign_ids()},
+        # Read-only: every language pack on disk, its status and channels
+        # (voa_core.language_packs.summary; the admin console's Languages card).
+        "packs": _pack_rows(),
     }
+
+
+def _pack_rows() -> list[dict]:
+    from voa_core import language_packs
+
+    keep = (
+        "campaign_id",
+        "language",
+        "name",
+        "status",
+        "reviewed_by",
+        "approved_by",
+        "approved_at",
+        "voice",
+        "sms",
+        "needs",
+    )
+    return [{k: r[k] for k in keep} for r in language_packs.summary()]
 
 
 # --------------------------------------------------------------------------- entries

@@ -129,22 +129,37 @@ class Gateway:
         self._softphone_secret: str | None = None
 
     def voicemail_text(
-        self, org_name: str | None = None, campaign_id: str = DEFAULT_CAMPAIGN_ID
+        self,
+        org_name: str | None = None,
+        campaign_id: str = DEFAULT_CAMPAIGN_ID,
+        language: str | None = None,
     ) -> str:
-        """The call's use case's voicemail (specs are cached per id by load_campaign)."""
+        """The call's use case's voicemail (specs are cached per id by load_campaign).
+        ``language``: a non-English call's language; its pack's voicemail."""
         try:
             spec = load_campaign(campaign_id)
         except (OSError, ValueError):
             spec = load_campaign(DEFAULT_CAMPAIGN_ID)
+        if language:
+            from voa_core import language_packs
+
+            spec = language_packs.localized_campaign(spec, language)
         return spec.script("voicemail", org_name=org_name or self.cfg.site.org_name)
 
-    async def voicemail_clip(self, campaign_id: str = DEFAULT_CAMPAIGN_ID) -> bytes | None:
+    async def voicemail_clip(
+        self, campaign_id: str = DEFAULT_CAMPAIGN_ID, *, language: str | None = None
+    ) -> bytes | None:
         # The clip says the company name: a new name renders (and caches) a new clip.
         # One clip per distinct text, so use cases with the same wording share it.
+        # A non-English call's clip is the pack's text in that language, cached
+        # per language; English is rendered exactly as before.
         from voa_core import organization
 
         org = await organization.org_name(self.store, self.cfg.site.org_name)
-        return await self.prompts.ensure(self.voicemail_text(org, campaign_id))
+        text = self.voicemail_text(org, campaign_id, language)
+        if language:
+            return await self.prompts.ensure(text, language_code=language)
+        return await self.prompts.ensure(text)
 
     def _secret(self, ref: str) -> str:
         """Resolve a secret, failing closed: a missing secret or version yields ""
@@ -198,6 +213,14 @@ def create_app(cfg: AppConfig | None = None, gateway: Gateway | None = None) -> 
             import asyncio
 
             asyncio.get_running_loop().create_task(app.state.gw.voicemail_clip())  # warm the clip
+            # And one per approved language pack (none until a pack is approved),
+            # so a non-English drop does not wait for the render.
+            from voa_core import languages
+
+            for lang in sorted(languages.approved_packs(DEFAULT_CAMPAIGN_ID)):
+                asyncio.get_running_loop().create_task(
+                    app.state.gw.voicemail_clip(DEFAULT_CAMPAIGN_ID, language=lang)
+                )
         yield
 
     app = FastAPI(

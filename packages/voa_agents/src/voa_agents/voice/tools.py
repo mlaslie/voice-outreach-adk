@@ -77,6 +77,10 @@ NOT_ENGLISH_MESSAGE = (
     "The answer to {qid} was not recorded in English. Record the answer in English, "
     "e.g. yes / no / unknown / a number. If the caller said they don't know, record unknown."
 )
+NOT_ENGLISH_SUMMARY = (
+    "The answer to {qid} was not recorded in English. Call record_answer again with a short "
+    "English summary of what the caller said. Do not ask the caller again."
+)
 #: The patient is waiting on the line: one quick translation, then give up.
 DOB_TRANSLATE_TIMEOUT_S = 3.0
 
@@ -92,6 +96,29 @@ def set_dob_translator(translator: Any) -> None:
 
 def _patient_language(tool_context: ToolContext) -> str | None:
     return tool_context.state.get("patient_language") or None
+
+
+def _call_language(tool_context: ToolContext) -> str | None:
+    """The language the call is spoken in, set by the gateway only for a
+    non-English call with an approved pack (docs/LANGUAGES-PLAN.md step 4)."""
+    return tool_context.state.get("call_language") or None
+
+
+def _spoken_campaign(tool_context: ToolContext):
+    """The spec in the call's spoken language: the closing the model says comes
+    from the pack. Everything else the tools do reads the English spec."""
+    campaign = _campaign(tool_context)
+    language = _call_language(tool_context)
+    if not language:
+        return campaign
+    from voa_core import language_packs
+
+    return language_packs.localized_campaign(campaign, language)
+
+
+#: A non-English call that ends early with questions recorded (the frame's
+#: "speaks another language" path: "Needs an interpreter: ..."): a nurse calls back.
+LANGUAGE_ASSISTANCE_REASON = "language assistance needed: call back with an interpreter"
 
 
 def _typed(question) -> bool:
@@ -244,6 +271,13 @@ async def record_answer(question_id: str, answer: str, tool_context: ToolContext
         # the English value instead. English answers never reach this.
         _audit(tool_context, "record_answer", question_id=question_id, status="not_english")
         return {"status": "unclear", "message": NOT_ENGLISH_MESSAGE.format(qid=question_id)}
+    if _call_language(tool_context) and not _typed(question) and parsers.not_english(answer or ""):
+        # A call spoken in another language records free text as an English
+        # summary (step 4 eval: the model once recorded "feeling جيد"). Ask the
+        # model to re-record it; the caller is not asked again. English calls
+        # never reach this.
+        _audit(tool_context, "record_answer", question_id=question_id, status="not_english")
+        return {"status": "unclear", "message": NOT_ENGLISH_SUMMARY.format(qid=question_id)}
     parsed: object = parsers.parse(question, answer)
     if parsed is None:
         on_unclear = parsers.voice_on_unclear(question)
@@ -408,6 +442,20 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
         tier, reason, reasons = t.follow_up, t.reason, t.reasons
     else:
         tier, reason, reasons = "none", outcome.replace("_", " "), []
+    if outcome == "reschedule_requested" and _call_language(tool_context):
+        # Non-English calls only (English reports are unchanged): there is no
+        # language_assistance_needed outcome, so a caller the agent could not
+        # continue with in any supported language is filed as a reschedule with
+        # a next-day follow-up, so a nurse calls back with an interpreter.
+        from voa_core import patient_questions as _pq
+
+        recorded = [q for q in (answers.get("patient_questions") or []) if isinstance(q, dict)]
+        if any("interpreter" in str(q.get("text", "")).lower() for q in recorded):
+            tier, reason = "routine_next_business_day", LANGUAGE_ASSISTANCE_REASON
+            reasons = reports.single_reason(tier, reason)
+        elif any(_pq.needs_follow_up(q) for q in recorded):
+            tier, reason = "routine_next_business_day", "questions for the care team"
+            reasons = reports.single_reason(tier, reason)
 
     report = {
         "outcome": outcome,
@@ -438,7 +486,7 @@ async def submit_report(outcome: str, tool_context: ToolContext) -> dict:
     pending = [q for q in qs if not isinstance(q, dict) or patient_questions.needs_follow_up(q)]
     said_yes = any(_yes(answers.get(qid)) for qid in campaign.open_question_ids)
     asked = bool(pending) or (said_yes and not qs)
-    closing = closing_for(campaign, tier, asked)
+    closing = closing_for(_spoken_campaign(tool_context), tier, asked)
     return (
         {"status": "ok", "closing": closing}
         if outcome == "questionnaire_completed"

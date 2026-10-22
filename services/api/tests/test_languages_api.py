@@ -107,7 +107,7 @@ def test_a_held_patient_becomes_callable_once_a_pack_is_approved(tmp_path, monke
     assert api.voice.placed == []
     d = tmp_path / "i18n"
     d.mkdir()
-    (d / "post_op.es-US.yaml").write_text("status: approved\n")
+    (d / "post_op.es-US.yaml").write_text(_approved_spanish_pack())
     monkeypatch.setattr(languages, "pack_dir", lambda config_dir=None: d)
     client.post("/api/call-list/run", json={})
     drain(client, api)
@@ -195,6 +195,18 @@ def test_languages_endpoint():
     assert client.get("/api/languages?campaign_id=nope").status_code == 422
 
 
+def test_the_languages_endpoint_lists_the_packs_read_only():
+    client, _, _ = make()
+    body = client.get("/api/languages").json()
+    es = next(p for p in body["packs"] if (p["campaign_id"], p["language"]) == ("post_op", "es-US"))
+    assert es["status"] == "draft" and es["needs"] == "needs translator review"
+    assert es["voice"] == {"complete": True, "available": False}
+    assert es["sms"] == {"complete": False, "available": False}
+    # A draft pack never makes Spanish callable.
+    assert body["available_by_campaign"]["post_op"] == ["en-IN", "en-US"]
+    assert next(x for x in body["languages"] if x["code"] == "es-US")["available"] is False
+
+
 def test_ui_sample_languages_match_the_endpoint():
     """The UI's sample-data copy (?data=demo has no backend) must not drift."""
     from pathlib import Path
@@ -209,3 +221,20 @@ def test_languages_route_is_a_read_for_every_console(path):
     from voa_api import auth
 
     assert auth.ROUTE_POLICY[f"GET {path}"] == auth.READ
+
+
+def _approved_spanish_pack() -> str:
+    """The repo's draft Spanish pack, as an approved one (fictional names)."""
+    import yaml
+    from voa_core.campaign import default_config_dir
+
+    doc = yaml.safe_load(
+        (default_config_dir() / "campaigns" / "i18n" / "post_op.es-US.yaml").read_text()
+    )
+    doc.update(
+        status="approved",
+        reviewed_by="Test Translator",
+        approved_by="Test Approver",
+        approved_at="2026-10-22",
+    )
+    return yaml.safe_dump(doc, allow_unicode=True)

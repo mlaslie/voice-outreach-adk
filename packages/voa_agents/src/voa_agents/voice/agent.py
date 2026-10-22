@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import AsyncIterator
 from importlib import resources
 from pathlib import Path
 
@@ -19,6 +21,28 @@ from .tools import build_tools
 SKILLS_DIR = Path(__file__).resolve().parents[1] / "skills"
 
 AGENT_NAME = "Sara"
+
+
+class PerCallSpeechGemini(Gemini):
+    """``Gemini`` whose speech config can be set per call.
+
+    ADK applies ``RunConfig.speech_config`` to the live request, then
+    ``Gemini.connect`` overwrites it with the model's own ``speech_config`` (set
+    once, at agent build, from ``cfg.voice``). The language is per call
+    (docs/LANGUAGES-PLAN.md §3.4), so a call that sets a speech config in its
+    ``RunConfig`` (the gateway does, for a non-English call only) keeps it. An
+    English call passes none and connects exactly as before."""
+
+    @contextlib.asynccontextmanager
+    async def connect(self, llm_request) -> AsyncIterator:
+        per_call = llm_request.live_connect_config.speech_config
+        if per_call is None:
+            async with super().connect(llm_request) as conn:
+                yield conn
+            return
+        model = self.model_copy(update={"speech_config": per_call})
+        async with Gemini.connect(model, llm_request) as conn:
+            yield conn
 
 
 def _load_prompt(name: str) -> str:
@@ -51,6 +75,19 @@ def build_voice_agent(
             campaign = load_campaign(ctx.state.get("campaign_id") or DEFAULT_CAMPAIGN_ID)
             # The admin console's company name, resolved by the gateway when the call starts.
             org = ctx.state.get("org_name") or cfg.site.org_name
+            language = ctx.state.get("call_language")
+            if language:
+                # A non-English call (the gateway decided it from an approved pack):
+                # the pack's wording, plus the language block. English: untouched.
+                from voa_core import language_packs
+
+                return build_instruction(
+                    language_packs.localized_campaign(campaign, language),
+                    org_name=org,
+                    patient=patient,
+                    knowledge=None,
+                    language=language,
+                )
             return build_instruction(
                 campaign, org_name=org, patient=patient, knowledge=ctx.state.get("knowledge")
             )
@@ -61,7 +98,7 @@ def build_voice_agent(
             patient_last_name=patient.get("last_name", ""),
         )
 
-    model = Gemini(
+    model = PerCallSpeechGemini(
         model=cfg.models.live,
         client_kwargs={
             "enterprise": True,  # Vertex (Agent Platform), not the AI Studio API

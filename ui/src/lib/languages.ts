@@ -23,12 +23,48 @@ export interface LanguageInfo {
   available: boolean;
 }
 
+/** One language pack (config/campaigns/i18n/<campaign>.<lang>.yaml), read-only. */
+export interface LanguagePackInfo {
+  campaign_id: string;
+  language: string;
+  name: string;
+  /** draft | in_review | approved | retired | invalid */
+  status: string;
+  reviewed_by: string;
+  approved_by: string;
+  approved_at: string;
+  voice: { complete: boolean; available: boolean };
+  sms: { complete: boolean; available: boolean };
+  /** What it still needs, e.g. "needs translator review"; "" when approved. */
+  needs: string;
+}
+
 export interface LanguagesResponse {
   campaign_id: string;
   default: string;
   languages: LanguageInfo[];
   /** Every use case → the codes it can be called in today. */
   available_by_campaign: Record<string, string[]>;
+  /** The language packs on disk and their review status (step 4). */
+  packs?: LanguagePackInfo[];
+}
+
+/**
+ * One line per channel for the admin Languages card, e.g.
+ * "Voice: draft, needs translator review" or "Texts: not translated yet".
+ */
+export function packChannelLines(p: LanguagePackInfo): string[] {
+  const voice = p.voice.available
+    ? "Voice: approved, in use"
+    : p.voice.complete
+      ? `Voice: ${p.status.replace("_", " ")}${p.needs ? `, ${p.needs}` : ""}`
+      : `Voice: incomplete${p.needs ? `, ${p.needs}` : ""}`;
+  const texts = p.sms.available
+    ? "Texts: approved, in use"
+    : p.sms.complete
+      ? "Texts: translated, not in use yet (texts in other languages are a later step)"
+      : "Texts: not translated yet (English texts are never sent instead)";
+  return [voice, texts];
 }
 
 /** Fields a row needs to be checked for a hold. */

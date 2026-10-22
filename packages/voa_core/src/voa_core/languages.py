@@ -3,7 +3,8 @@
 A patient's preferred language is one of the 24 languages the live voice model
 speaks. A language is *available* for a use case only when the call can be made
 in it today: English (both English codes use the English wording), plus any
-language with an approved language pack (none exist yet). A patient whose
+language with an approved, complete language pack (``voa_core.language_packs``;
+step 4 ships a draft Spanish pack, which does not count). A patient whose
 language is not available is **held**: never auto-dialled and never called in
 English silently, unless an admin turns on ``call_in_english`` for them.
 
@@ -16,8 +17,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-import yaml
 
 DEFAULT = "en-US"
 
@@ -135,11 +134,17 @@ def pack_dir(config_dir: Path | None = None) -> Path:
     return (config_dir or default_config_dir()) / "campaigns" / "i18n"
 
 
-def approved_packs(campaign_id: str, config_dir: Path | None = None) -> set[str]:
+def approved_packs(
+    campaign_id: str, config_dir: Path | None = None, channel: str = "voice"
+) -> set[str]:
     """THE SEAM for language packs (plan §3.2): the languages with an approved
-    pack for this use case, read from ``config/campaigns/i18n/<id>.<lang>.yaml``
-    with ``status: approved``. A missing, unreadable or unapproved pack does not
-    count (fail closed: the patient stays held)."""
+    pack for this use case whose wording is complete for ``channel``, read from
+    ``config/campaigns/i18n/<id>.<lang>.yaml`` (``voa_core.language_packs``). A
+    missing, unreadable, unapproved, incomplete or lint-failing pack does not
+    count (fail closed: the patient stays held). Draft packs never count here,
+    whatever ``VOA_ALLOW_DRAFT_PACKS`` says: that switch is for evals only and
+    acts on the gateway, never on who may be dialled."""
+    from . import language_packs as lp
     from .campaign import DEFAULT_CAMPAIGN_ID
 
     cid = campaign_id or DEFAULT_CAMPAIGN_ID
@@ -149,22 +154,50 @@ def approved_packs(campaign_id: str, config_dir: Path | None = None) -> set[str]
         return out
     for path in d.glob(f"{cid}.*.yaml"):
         code = normalize(path.stem[len(cid) + 1 :])
-        if code is None or code != path.stem[len(cid) + 1 :]:
+        if code is None or code != path.stem[len(cid) + 1 :] or code in ENGLISH:
             continue
-        try:
-            doc = yaml.safe_load(path.read_text())
-        except (OSError, yaml.YAMLError):
+        pack = lp.load_pack(cid, code, config_dir)
+        if pack is None or not pack.approved:
             continue
-        if isinstance(doc, Mapping) and doc.get("status") == "approved":
+        campaign = lp._campaign_for(cid, config_dir)
+        if campaign is not None and lp.channel_ready(pack, campaign, channel):
             out.add(code)
     return out
 
 
-def available(campaign_id: str | None, config_dir: Path | None = None) -> set[str]:
-    """The languages a use case can be called in today."""
+def available(
+    campaign_id: str | None, config_dir: Path | None = None, channel: str = "voice"
+) -> set[str]:
+    """The languages a use case can be called (``voice``) or texted (``sms``) in
+    today. In step 4 an approved voice pack makes a language available for voice
+    only; texts stay English-only until step 5."""
     from .campaign import DEFAULT_CAMPAIGN_ID
 
-    return set(ENGLISH) | approved_packs(campaign_id or DEFAULT_CAMPAIGN_ID, config_dir)
+    return set(ENGLISH) | approved_packs(campaign_id or DEFAULT_CAMPAIGN_ID, config_dir, channel)
+
+
+def text_block(
+    language: Any,
+    campaign_id: str | None,
+    call_in_english: Any = False,
+    config_dir: Path | None = None,
+) -> str | None:
+    """Why this patient must not get a text now, or None when they may.
+
+    A non-English patient (not switched to English by an admin) is never texted
+    in English: without approved text wording in their language the text is
+    skipped, with this reason stamped on the call ("no approved Spanish (US)
+    text wording")."""
+    from .compliance import coerce_bool
+
+    if coerce_bool(call_in_english) or language is None or language == "":
+        return None
+    code = normalize(language)
+    if code is None:
+        return f"no approved text wording for language {language!r}"
+    if code in available(campaign_id, config_dir, channel="sms"):
+        return None
+    return f"no approved {name(code)} text wording"
 
 
 # --------------------------------------------------------------------------- the hold
@@ -187,7 +220,7 @@ def hold_reason(
     code = normalize(language)
     if code is None:
         return f"Language {language!r} is not supported"
-    if code in available(campaign_id, config_dir):
+    if code in ENGLISH or code in available(campaign_id, config_dir):
         return None
     return f"Waiting for {name(code)} support"
 

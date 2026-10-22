@@ -1,0 +1,50 @@
+# Language pack: pre-op preparation call in Spanish (US). WORDING ONLY.
+# Ids, types, rules and triage come from config/campaigns/pre_op.yaml (itself a
+# draft use case). Format and approval: docs/EDITING-QUESTIONS.md ("Language packs").
+#
+# THIS IS A MACHINE DRAFT, for a use case that is itself a draft. Not for patients
+# until a qualified medical translator has reviewed it and it is approved.
+
+language: es-US
+campaign: pre_op
+status: draft
+translated_by: "machine draft (Claude)"
+reviewed_by: ""
+approved_by: ""
+approved_at: ""
+notes: >
+  Machine-drafted on 22 Oct 2026 from pre_op.yaml version 1: plain, warm US
+  Spanish for older patients, formal "usted". It must be reviewed by a qualified
+  medical translator before approval (HHS Section 1557). The pre-op use case is
+  itself a draft and needs clinical sign-off first. Voice only.
+
+scripts:
+  opener: "Hola, esta es una llamada automatizada de {org_name}. ¿Podría hablar con {patient_first_name} {patient_last_name}, por favor?"
+  identity_prompt: "Para proteger su privacidad, ¿me podría decir su fecha de nacimiento, por favor?"
+  identity_verified: "Gracias, su identidad quedó verificada."
+  consent: "Le llamo del equipo quirúrgico de {org_name} para ayudarle a prepararse para su próximo procedimiento. Esta llamada puede ser grabada para fines de calidad. Toma unos minutos. ¿Es un buen momento para hablar?"
+  wrong_person: "Gracias, volveremos a intentarlo en otro momento. Adiós."
+  identity_failed: "Lo siento, no pude verificar su identidad. Una persona de nuestro equipo de cuidados se comunicará con usted. Adiós."
+  reschedule: "No hay problema. Le volveremos a llamar en un mejor momento. Adiós."
+  emergency: "Eso suena grave. Por favor, cuelgue ahora y llame al nueve uno uno. Me aseguraré de avisar al equipo de cuidados."
+  no_medical_advice: "Soy un asistente automatizado, así que no puedo darle consejos médicos, pero me aseguraré de que una enfermera se comunique con usted."
+  closing_questions: "Gracias por sus preguntas. Nuestro equipo quirúrgico se comunicará con usted para responderlas. Cuídese mucho, adiós."
+  closing_follow_up: "Gracias. Una de nuestras enfermeras se comunicará con usted antes de su procedimiento. Cuídese mucho, adiós."
+  closing_no_follow_up: "Gracias, eso es todo. Le esperamos el día de su procedimiento. Cuídese mucho, adiós."
+  voicemail: "Hola, le llamamos de {org_name} con un mensaje. Por favor, devuélvanos la llamada cuando le sea posible al número que aparece en sus documentos. Gracias."
+
+questions:
+  arrival_confirmed:
+    ask: "¿Sabe a qué hora debe llegar el día de su procedimiento, y esa hora todavía le funciona?"
+  fasting_understood:
+    ask: "¿Sabe cuándo debe dejar de comer y beber antes de su procedimiento?"
+  ride_home:
+    ask: "¿Tiene a un adulto que pueda llevarle a casa en carro y quedarse con usted después?"
+  stop_meds_instructions:
+    ask: "¿Le dijeron cuáles de sus medicamentos debe dejar de tomar antes de su procedimiento?"
+  feeling_unwell:
+    ask: "¿Ha tenido fiebre, tos o un resfriado en los últimos días?"
+  unwell_description:
+    ask: "¿Me puede contar un poco sobre eso?"
+  has_questions:
+    ask: "¿Tiene alguna pregunta para el equipo quirúrgico?"

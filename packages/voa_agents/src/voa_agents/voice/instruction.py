@@ -82,15 +82,61 @@ def _questions_block(
     return "\n".join(lines)
 
 
+def language_block(language: str) -> str:
+    """The non-English call's language rules (docs/LANGUAGES-PLAN.md §3.4). The
+    scripts and question wording in the frame are already the pack's."""
+    from voa_core import languages
+
+    full = languages.name(language)  # "Spanish (US)"
+    base = full.split("(")[0].strip()  # "Spanish"
+    up = base.upper()
+    polite = ' (use "usted")' if language.lower().startswith("es") else ""
+    return f"""# Language: {full}
+Speak only {full} to the caller. RESPOND IN {up}. YOU MUST RESPOND UNMISTAKABLY IN {up}.
+- Say the scripted lines exactly as written below: they are already in {base}. Any other words quoted in English below (for example "Do you have any other questions?" or "So you'd like to know ...") are guidance: say them in natural, polite {base}, as you would to an older patient{polite}.
+- Tool results are in English. Say anything from them in {base} (for example, a date of birth to read back), and the closing exactly as the tool returns it.
+- When you call tools, pass answers in English: yes, no, unknown, a number, better, same or worse. Record free-text answers as a short English summary of what the caller said. Record each of the caller's questions with record_patient_question as a short English summary.
+- For verify_identity, pass the date of birth the caller said written in English with the month name and the year, for example "March 15 1950". Never pass a date the caller did not say.
+- If the caller asks to speak English, switch to English for the rest of the call: say the remaining lines in faithful English, and carry on where you were.
+- If they speak another language you cannot continue in (neither {base} nor English), do not continue the questions: say, in {base} and then in English, that a member of the care team will call them back with an interpreter. Call record_patient_question with "Needs an interpreter: speaks <the language>", then submit_report with outcome "reschedule_requested", then end_call."""
+
+
 def build_instruction(
     c: Campaign,
     *,
     org_name: str,
     patient: dict[str, Any],
     knowledge: dict[str, Any] | None = None,
+    language: str | None = None,
 ) -> str:
     """``knowledge``: ``state["knowledge"]`` when the knowledge base is on for this
-    call (``{"ask_satisfied": bool}``); None (off) builds today's instruction."""
+    call (``{"ask_satisfied": bool}``); None (off) builds today's instruction.
+
+    ``language``: a non-English call (``state["call_language"]``). ``c`` is then
+    the spec localized with the approved pack (``language_packs.localize``), and
+    the language block goes right after the opening paragraph, with a reminder at
+    the end. None (every English call) builds exactly today's instruction."""
+    text = _build(c, org_name=org_name, patient=patient, knowledge=knowledge)
+    if not language:
+        return text
+    from voa_core import languages
+
+    head, sep, rest = text.partition("\n\n")
+    base = languages.name(language).split("(")[0].strip()
+    return (
+        f"{head}{sep}{language_block(language)}\n\n{rest}"
+        f"\n# Remember\nEverything you say to the caller is in {base}, unless they asked for "
+        "English. Tool arguments are in English.\n"
+    )
+
+
+def _build(
+    c: Campaign,
+    *,
+    org_name: str,
+    patient: dict[str, Any],
+    knowledge: dict[str, Any] | None = None,
+) -> str:
     v = {
         "org_name": org_name,
         "patient_first_name": patient.get("first_name", ""),

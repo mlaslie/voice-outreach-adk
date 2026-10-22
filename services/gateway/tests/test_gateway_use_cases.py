@@ -136,3 +136,130 @@ async def test_the_patients_language_is_kept_out_of_the_session_state():
     # Step 3: the tools read dates day first and keep a question's original for a
     # patient whose language is not English (set only then).
     assert got.value.args[0]["patient_language"] == "es-US"
+
+
+# --------------------------------------------------------------------------- step 4: Spanish
+
+
+async def _state_for(store, monkeypatch, env, **patient):
+    class Captured(Exception):
+        pass
+
+    class Sessions:
+        async def create_session(self, *, app_name, user_id, state):
+            raise Captured(state)
+
+    class Runner:
+        app_name = "voa"
+        session_service = Sessions()
+
+    for k in ("VOA_ALLOW_DRAFT_PACKS", "VOA_ENV"):
+        monkeypatch.delenv(k, raising=False)
+    for k, v in env.items():
+        monkeypatch.setenv(k, v)
+    await store.set(
+        "pending_calls",
+        CALL_ID,
+        {
+            "first_name": "Jordan",
+            "last_name": "Rivera",
+            "dob": "1950-03-15",
+            "patient_id": "TEST-0001",
+            "campaign_id": "post_op",
+            "spec_version": 1,
+            **patient,
+        },
+    )
+    s, _ = session(store)
+    s.runner = Runner()
+    s.media.start()
+    with pytest.raises(Captured) as got:
+        await s.run(start_timeout_s=5)
+    return s, got.value.args[0]
+
+
+DEV = {"VOA_ALLOW_DRAFT_PACKS": "1", "VOA_ENV": "test"}
+
+
+async def test_a_draft_pack_is_never_spoken_outside_dev_or_test(monkeypatch):
+    for env in ({}, {"VOA_ALLOW_DRAFT_PACKS": "1", "VOA_ENV": "demo"}, {"VOA_ENV": "test"}):
+        s, state = await _state_for(MemoryStore(), monkeypatch, env, language="es-US")
+        assert "call_language" not in state and s.call_language is None
+        assert state["patient_language"] == "es-US"  # step 3 behaviour, unchanged
+        assert any(e["event"] == "language.english" for e in s.timeline.entries)
+
+
+async def test_a_spanish_call_with_the_eval_switch(monkeypatch):
+    s, state = await _state_for(MemoryStore(), monkeypatch, DEV, language="es-US")
+    assert state["call_language"] == "es-US" and s.call_language == "es-US"
+    assert "language" not in state["patient"]
+    assert {"event": "language", "code": "es-US", "pack_status": "draft"}.items() <= next(
+        e for e in s.timeline.entries if e["event"] == "language"
+    ).items()
+    assert "incisión" in s._pack_vocabulary
+
+
+async def test_call_in_english_keeps_the_call_english(monkeypatch):
+    s, state = await _state_for(
+        MemoryStore(), monkeypatch, DEV, language="es-US", call_in_english=True
+    )
+    assert "call_language" not in state and s.call_language is None
+
+
+async def test_an_english_patient_is_untouched(monkeypatch):
+    s, state = await _state_for(MemoryStore(), monkeypatch, DEV, language="en-US")
+    assert "call_language" not in state and "patient_language" not in state
+    assert not any(e["event"].startswith("language") for e in s.timeline.entries)
+
+
+def test_the_run_config_is_unchanged_for_english():
+    from voa_gateway.session import run_config
+
+    rc = run_config(cfg(), ["incision"])
+    assert rc.speech_config is None
+    assert rc.input_audio_transcription.language_codes is None
+    assert rc.input_audio_transcription.custom_vocabulary == ["incision"]
+    assert rc == run_config(cfg(), ["incision"], None)
+
+
+def test_the_run_config_sets_the_language_per_call():
+    from voa_gateway.session import run_config
+
+    c = cfg()
+    rc = run_config(c, ["incisión"], "es-US")
+    assert rc.speech_config.language_code == "es-US"
+    assert rc.speech_config.voice_config.prebuilt_voice_config.voice_name == c.voice.voice_name
+    assert rc.input_audio_transcription.language_codes == ["es-US", "en-US"]
+    assert rc.input_audio_transcription.custom_vocabulary == ["incisión"]
+
+
+def test_the_voicemail_in_spanish():
+    gw = Gateway(cfg(), store=MemoryStore())
+    es = gw.voicemail_text("Acme Health", "post_op", "es-US")
+    assert es.startswith("Hola, le llamamos de Acme Health con un mensaje de seguimiento.")
+    assert gw.voicemail_text("Acme Health", "post_op", None) == gw.voicemail_text("Acme Health")
+
+
+async def test_the_voicemail_clip_is_rendered_per_language():
+    calls = []
+
+    class Prompts:
+        async def ensure(self, text, language_code=None):
+            calls.append((text[:12], language_code))
+            return b"clip"
+
+    gw = Gateway(cfg(), store=MemoryStore())
+    gw.prompts = Prompts()
+    await gw.voicemail_clip("post_op")
+    await gw.voicemail_clip("post_op", language="es-US")
+    assert calls == [("Hello, this ", None), ("Hola, le lla", "es-US")]
+
+
+def test_the_prompt_cache_key_is_unchanged_for_english():
+    import hashlib
+
+    from voa_gateway.prompts import PromptCache
+
+    pc = PromptCache(project_id="p", location="l", model="m", voice="v", bucket=None)
+    assert pc._key("hi") == hashlib.sha256(b"m|v|hi").hexdigest()[:24]
+    assert pc._key("hi", "es-US") != pc._key("hi")

@@ -2,6 +2,7 @@
 availability per use case (the language-pack seam) and the hold."""
 
 import pytest
+import yaml
 from voa_core import languages
 
 
@@ -68,12 +69,29 @@ def _pack(tmp_path, name, body):
 
 def test_only_english_is_available_without_packs(tmp_path):
     assert languages.available("post_op", tmp_path) == {"en-US", "en-IN"}
-    # The real config has no packs yet either.
+    # The real config has only DRAFT packs (step 4): Spanish stays held.
     assert languages.available("post_op") == {"en-US", "en-IN"}
 
 
+def approved_spanish(campaign="post_op", **over) -> str:
+    """The repo's draft Spanish pack, as a reviewed and approved one (fictional names)."""
+    from voa_core.campaign import default_config_dir
+
+    doc = yaml.safe_load(
+        (default_config_dir() / "campaigns" / "i18n" / f"{campaign}.es-US.yaml").read_text()
+    )
+    doc.update(
+        status="approved",
+        reviewed_by="Test Translator",
+        approved_by="Test Approver",
+        approved_at="2026-10-22",
+        **over,
+    )
+    return yaml.safe_dump(doc, allow_unicode=True)
+
+
 def test_an_approved_pack_makes_a_language_available_for_its_use_case_only(tmp_path):
-    _pack(tmp_path, "post_op.es-US.yaml", "status: approved\n")
+    _pack(tmp_path, "post_op.es-US.yaml", approved_spanish())
     _pack(tmp_path, "post_op.vi-VN.yaml", "status: in_review\n")  # not approved
     _pack(tmp_path, "post_op.zh-CN.yaml", "status: approved\n")  # not a supported code
     _pack(tmp_path, "post_op.ko-KR.yaml", ": not yaml : [")  # unreadable: fail closed
