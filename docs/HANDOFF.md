@@ -446,7 +446,7 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
   - `language` is not stored;
   - the CSV import has no use-case column.
 
-## 21 Oct: patient language (step 1; not deployed)
+## 21 Oct: patient language (step 1; deployed 21 Oct)
 
 **What changed** (`docs/LANGUAGES-PLAN.md` step 1). Each patient has `language`, one of the 24 live-model languages (default `en-US`), and `call_in_english` (an admin's override). Calls and texts are unchanged: still English only.
 - `voa_core/languages.py`: the 24 codes with English and native names, `normalize` ("es", "Spanish" → `es-US`; "zh" → None), `available(campaign_id)` (English plus approved packs, read from `config/campaigns/i18n/<id>.<lang>.yaml` with `status: approved`; none exist), `hold_reason`.
@@ -465,3 +465,9 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
 - The UI's sample mode has no backend, so it uses `ui/src/lib/languages-sample.json`, a copy of the API's answer. `test_ui_sample_languages_match_the_endpoint` fails if it drifts.
 
 **Parity:** the goldens and tool declarations are unchanged; the suite passes as is.
+- **Verified live after deploy:**
+  - `GET /api/languages` returns 24 languages, with en-US and en-IN available.
+  - "Call now" for a Spanish patient returns 409 with the "Call in English" hint; `zh` returns 422.
+  - The analytics export added `fact_calls.language` to the existing table, and all 10 existing calls show en-US.
+  - Smoke passes.
+  - The first smoke rerun hung locally with no output, and the cause was not found. gcloud auth was fine, and a rerun with visible output passed in under 4 minutes.
