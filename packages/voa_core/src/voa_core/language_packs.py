@@ -18,15 +18,23 @@ The file::
     scripts:   {<every key of the spec's scripts>: "..."}
     questions: {<every question id>: {ask: "...", note: "..."}}
     custom_vocabulary: [...]  # optional: transcription hints in the language
-    sms_scripts: {...}        # optional in step 4 (texts are step 5)
-    # a question may also carry sms / sms_if_* wording (optional in step 4)
+    sms_copy: {...}           # the shared texts (invite, menu, DOB gate, STOP/HELP...):
+                              # every key of voa_core.sms_copy.ENGLISH
+    sms_scripts: {...}        # the questionnaire's own lines (every key of the spec's)
+    # a question also carries sms / sms_if_* wording (where the English has it)
 
 Lifecycle: a machine or a person drafts a pack, a qualified medical translator
 reviews it (``reviewed_by``), and a named approver sets ``status: approved``
 with ``approved_by`` and ``approved_at``. Only an approved pack whose wording is
-complete and lint-clean makes a language *available* (``languages.available``).
+complete and lint-clean makes a language *available* (``languages.available``),
+per channel: voice needs the voice wording; texts also need the SMS wording
+(``sms_copy``, ``sms_scripts``, question ``sms*``) complete and within the
+encoding-aware segment limits (``sms_problems``).
 For evals only, ``VOA_ALLOW_DRAFT_PACKS=1`` lets the gateway use a draft pack,
 and only when ``VOA_ENV`` is ``dev`` or ``test`` (never in a deployed service).
+The admin "Test by text" simulator may use a draft pack's SMS wording because it
+sends nothing (``sms_pack``'s ``allow_drafts``); a real send refuses one
+(``voa_api.sms_service.send_sms``).
 
 ``pack_problems`` is the lint; ``localize`` returns the English spec with the
 pack's wording in place of the scripts and question wording.
@@ -42,6 +50,7 @@ from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -53,11 +62,6 @@ log = logging.getLogger(__name__)
 
 PackStatus = Literal["draft", "in_review", "approved", "retired"]
 CHANNELS = ("voice", "sms")
-
-#: Step 4 ships voice only. The shared SMS copy (invite, 1/2/3 menu, DOB prompt,
-#: STOP/HELP replies: voa_core/copy.py) is not in the pack format yet (step 5),
-#: so no non-English pack can be available for texts, whatever it contains.
-SMS_PACKS_ENABLED = False
 
 #: The eval-only switch, and the environments it is honoured in.
 ALLOW_DRAFTS_ENV = "VOA_ALLOW_DRAFT_PACKS"
@@ -76,6 +80,7 @@ _TOP_KEYS = frozenset(
         "scripts",
         "questions",
         "custom_vocabulary",
+        "sms_copy",
         "sms_scripts",
     }
 )
@@ -122,6 +127,7 @@ class Pack(_Strict):
     scripts: dict[str, str] = Field(default_factory=dict)
     questions: dict[str, PackQuestion] = Field(default_factory=dict)
     custom_vocabulary: list[str] = Field(default_factory=list)
+    sms_copy: dict[str, str] = Field(default_factory=dict)
     sms_scripts: dict[str, str] = Field(default_factory=dict)
 
     @property
@@ -356,26 +362,238 @@ def voice_complete(pack: Pack, campaign: Campaign) -> bool:
     return "voice" in campaign.channels and not pack_problems(pack, campaign)
 
 
-def sms_complete(pack: Pack, campaign: Campaign) -> bool:
-    """Every SMS line of the spec translated (and the voice lint clean). Not
-    enough on its own for texts in step 4: see ``SMS_PACKS_ENABLED``."""
-    if "sms" not in campaign.channels or pack_problems(pack, campaign):
-        return False
-    if any(not pack.sms_scripts.get(k, "").strip() for k in campaign.sms_scripts):
-        return False
+# --------------------------------------------------------------------------- SMS lint
+
+#: Realistic values for the segment count (fictional): a long first name and org
+#: name, a caller ID, the longest booked-time shape, a 60-character question echo.
+SMS_SAMPLE = {
+    "org_name": "Northgate Regional Health",
+    "patient_name": "Maximiliano Fernandez",
+    "voice_number": "(202) 555-0199",
+    "support_email": "followup@northgate-health.example.org",
+    "site": "la parte baja de la espalda",
+    "question": "¿Cuándo puedo volver a manejar y subir escaleras sin ayuda...",
+    "total": 9,
+}
+_SMS_TEXT_KEYS = ("sms", *_SMS_QUESTION_KEYS)
+
+
+def _literal_problems(where: str, text: str, english: str) -> list[str]:
+    """What carriers and emergency services need left untranslated."""
+    out = []
+    if re.search(r"(?<!\w)911(?!\w)", english) and not re.search(r"(?<!\w)911(?!\w)", text):
+        out.append(f"{where}: must keep 911 in digits")
+    if "tel:911" in english and "tel:911" not in text:
+        out.append(f"{where}: must keep the tap-to-call link tel:911")
+    if re.search(r"\bSTOP\b", english) and not re.search(r"\bSTOP\b", text):
+        out.append(f"{where}: must keep the English keyword STOP (carriers require it)")
+    if re.search(r"(?<!\w)C(?!\w)", english) and not re.search(r"(?<!\w)C(?!\w)", text):
+        out.append(f'{where}: must keep the reply letter "C"')
+    return out
+
+
+def sms_messages(pack: Pack, campaign: Campaign) -> list[tuple[str, str]]:
+    """Every text a conversation in this pack can send, rendered the way it is
+    sent with the realistic values of ``SMS_SAMPLE`` (and a caller ID): (name,
+    text). Needs a complete pack (``sms_problems`` without the segment check)."""
+    from . import copy as messages
+    from . import sms_copy
+    from .copy import SiteCopy
+
+    m = sms_copy.PackCopy(pack.sms_copy, pack.language, approved=pack.approved)
+    c = localize_sms(campaign, pack)
+    v = SMS_SAMPLE
+    site = SiteCopy(
+        org_name=v["org_name"],
+        support_email=v["support_email"],
+        voice_number=v["voice_number"],
+        survey_enabled=True,
+    )
+    tz = ZoneInfo("America/New_York")
+    now = datetime(2026, 12, 30, 9, 0, tzinfo=tz)
+    when = m.humanize(datetime(2027, 9, 29, 10, 30, tzinfo=tz), now)  # "mié 29 sep 2027, ..."
+    out = [
+        ("invite", m.invite(v["patient_name"], site)),
+        ("unclear_choice", m.unclear_choice(site)),
+        ("gave_up_choice", m.gave_up_choice()),
+        ("calling_now", m.calling_now(site)),
+        ("cannot_call_back", m.cannot_call_back()),
+        ("ask_for_time", m.ask_for_time()),
+        ("unclear_time", m.unclear_time()),
+        ("gave_up_time", m.gave_up_time()),
+        ("booked", m.booked(when, True, site)),
+        ("already_booked", m.already_booked(when)),
+        ("booking_canceled", m.booking_canceled(site)),
+        ("nothing_to_cancel", m.nothing_to_cancel()),
+        ("emergency", m.emergency()),
+        ("opted_out", m.opted_out(site)),
+        ("help", m.help_message(site)),
+        ("session_closed", m.session_closed(site)),
+        ("ask_dob", m.ask_dob(v["patient_name"])),
+        ("dob_unreadable", m.dob_unreadable()),
+        ("dob_failed", m.dob_failed()),
+        ("survey_stopped", m.survey_stopped()),
+        ("confirm_time", m.confirm_time_prompt(when, False)),
+        ("confirm_time_adjusted", m.confirm_time_prompt(when, True)),
+    ]
+    if "sms" not in c.channels or not c.sms_scripts:
+        return out
+    numbered = [q for q in c.questions if not q.when and q.sms]
+    total = max(len(numbered), int(v["total"]))
+    out.append(("sms_scripts.preamble", messages.survey_preamble(total, c)))
+    longest = ""
+    for i, q in enumerate(numbered):
+        text = messages.question(i + 1, total, q.sms, c)
+        out.append((f"questions.{q.id}.sms", text))
+        longest = max(longest, q.sms, key=len)
+    for q in c.questions:
+        if q.when and q.sms:
+            out.append((f"questions.{q.id}.sms", q.sms))
+            longest = max(longest, q.sms, key=len)
+        for f in _SMS_QUESTION_KEYS[1:]:
+            if getattr(q, f):
+                out.append((f"questions.{q.id}.{f}", getattr(q, f).format(site=v["site"])))
+    scripts = c.sms_scripts
+    out.append(("sms_scripts.unclear_answer", messages.unclear_answer(longest, c)))
+    for key in ("ask_question", "another_question", "cut_short", "file_failed"):
+        if key in scripts:
+            out.append((f"sms_scripts.{key}", scripts[key]))
+    if "question_noted" in scripts:
+        out.append(("sms_scripts.question_noted", messages.question_noted(v["question"], c)))
+    if "question_noted_last" in scripts:
+        out.append(
+            ("sms_scripts.question_noted_last", messages.question_noted_last(v["question"], c))
+        )
+    for key, fn in (
+        ("closing_routine", messages.survey_done_routine),
+        ("closing_urgent", messages.survey_done_urgent),
+    ):
+        if key in scripts:
+            out.append((f"sms_scripts.{key}", fn(True, c)))
+    return out
+
+
+def sms_segment_report(pack: Pack, campaign: Campaign) -> list[dict[str, Any]]:
+    """Encoding and segments of every text (``sms_messages``), for the lint, the
+    console and docs/HANDOFF.md. Empty when the SMS wording is incomplete."""
+    from . import sms_copy
+
+    if _sms_shape_problems(pack, campaign):
+        return []
+    rows = []
+    for name, text in sms_messages(pack, campaign):
+        seg = sms_copy.segments(text)
+        rows.append(
+            {
+                "name": name,
+                "encoding": seg.encoding,
+                "characters": seg.units,
+                "segments": seg.segments,
+            }
+        )
+    return rows
+
+
+def _sms_shape_problems(pack: Pack, campaign: Campaign) -> list[str]:
+    from . import sms_copy
+
+    out: list[str] = []
+    english = sms_copy.ENGLISH
+    for key in sorted(set(pack.sms_copy) - set(english)):
+        out.append(f"sms_copy.{key}: not a shared SMS text (see voa_core/sms_copy.py)")
+    for key, en_text in english.items():
+        text = pack.sms_copy.get(key, "")
+        if not str(text).strip():
+            out.append(f"sms_copy.{key}: missing")
+            continue
+        if p := _placeholder_problem(f"sms_copy.{key}", text, en_text):
+            out.append(p)
+        out += _literal_problems(f"sms_copy.{key}", text, en_text)
+    for key, digit in (("menu_call_now", "1"), ("menu_pick_time", "2"), ("menu_by_text", "3")):
+        text = pack.sms_copy.get(key, "")
+        if text and not re.match(rf"\s*{digit}\b", text):
+            out.append(f'sms_copy.{key}: must start with the digit "{digit}" (replies are digits)')
+    for key, n in (("weekdays", 7), ("months", 12)):
+        text = pack.sms_copy.get(key, "")
+        if text and len(text.split()) != n:
+            out.append(f"sms_copy.{key}: must be {n} space-separated words")
+    for key in ("ask_dob", "dob_unreadable"):
+        text = pack.sms_copy.get(key, "")
+        if text and "DD/MM/" not in text:
+            out.append(
+                f"sms_copy.{key}: must ask for the date day first (DD/MM/...): "
+                "a non-English patient's date is read day first"
+            )
+
+    if "sms" not in campaign.channels:
+        return out
+    for key, en_text in campaign.sms_scripts.items():
+        text = pack.sms_scripts.get(key, "")
+        if not text.strip():
+            out.append(f"sms_scripts.{key}: missing")
+            continue
+        out += _literal_problems(f"sms_scripts.{key}", text, en_text)
     for q in campaign.questions:
         pq = pack.questions.get(q.id)
-        for f in ("sms", *_SMS_QUESTION_KEYS[1:]):
-            if getattr(q, f) and not (pq and getattr(pq, f).strip()):
-                return False
-    return True
+        for f in _SMS_TEXT_KEYS:
+            en_text = getattr(q, f)
+            if not en_text:
+                continue
+            text = getattr(pq, f) if pq is not None else ""
+            if not text.strip():
+                out.append(f"questions.{q.id}.{f}: missing (the text questionnaire sends it)")
+                continue
+            out += _literal_problems(f"questions.{q.id}.{f}", text, en_text)
+    return out
+
+
+def sms_problems(pack: Pack, campaign: Campaign) -> list[str]:
+    """Every problem with the pack's SMS wording, one line each. Empty = texts
+    can be sent in this language once the pack is approved (with the voice lint
+    clean too: ``sms_complete``). Checks: every shared text (``sms_copy``), every
+    questionnaire line and question text present; the English placeholders; 911,
+    tel:911, STOP and the reply letter C kept; the menu digits; a day-first DOB
+    prompt; and no text above ``FAIL_ABOVE_SEGMENTS`` segments in its encoding."""
+    from . import sms_copy
+
+    out = _sms_shape_problems(pack, campaign)
+    if out:
+        return out
+    for row in sms_segment_report(pack, campaign):
+        if row["segments"] > sms_copy.FAIL_ABOVE_SEGMENTS:
+            out.append(
+                f"{row['name']}: {row['segments']} segments ({row['encoding']}, "
+                f"{row['characters']} characters with long sample values); "
+                f"the most is {sms_copy.FAIL_ABOVE_SEGMENTS}: shorten it"
+            )
+    return out
+
+
+def sms_warnings(pack: Pack, campaign: Campaign) -> list[str]:
+    """Texts above ``WARN_ABOVE_SEGMENTS`` segments: allowed, but each segment
+    is billed and long texts arrive less reliably."""
+    from . import sms_copy
+
+    return [
+        f"{row['name']}: {row['segments']} segments ({row['encoding']})"
+        for row in sms_segment_report(pack, campaign)
+        if sms_copy.WARN_ABOVE_SEGMENTS < row["segments"] <= sms_copy.FAIL_ABOVE_SEGMENTS
+    ]
+
+
+def sms_complete(pack: Pack, campaign: Campaign) -> bool:
+    """Every SMS text translated and lint-clean (``sms_problems``), and the voice
+    lint clean. With ``status: approved`` this makes texts available."""
+    if "sms" not in campaign.channels or pack_problems(pack, campaign):
+        return False
+    return not sms_problems(pack, campaign)
 
 
 def channel_ready(pack: Pack, campaign: Campaign, channel: str) -> bool:
     if channel == "voice":
         return voice_complete(pack, campaign)
     if channel == "sms":
-        return SMS_PACKS_ENABLED and sms_complete(pack, campaign)
+        return sms_complete(pack, campaign)
     raise ValueError(f"unknown channel {channel!r}")
 
 
@@ -395,6 +613,60 @@ def localize(campaign: Campaign, pack: Pack) -> Campaign:
             continue
         questions.append(q.model_copy(update={"ask": pq.ask or q.ask, "note": pq.note or q.note}))
     return campaign.model_copy(update={"scripts": scripts, "questions": questions})
+
+
+def localize_sms(campaign: Campaign, pack: Pack) -> Campaign:
+    """The English spec with the pack's SMS wording (``sms_scripts`` and the
+    questions' ``sms`` / ``sms_if_*``) in place. Wording only, like ``localize``."""
+    sms_scripts = {k: pack.sms_scripts.get(k) or v for k, v in campaign.sms_scripts.items()}
+    questions = []
+    for q in campaign.questions:
+        pq = pack.questions.get(q.id)
+        if pq is None:
+            questions.append(q)
+            continue
+        questions.append(
+            q.model_copy(update={f: getattr(pq, f) or getattr(q, f) for f in _SMS_TEXT_KEYS})
+        )
+    return campaign.model_copy(update={"sms_scripts": sms_scripts, "questions": questions})
+
+
+_SMS_READY: dict[tuple[str, int], bool] = {}
+
+
+def sms_pack(
+    campaign_id: str | None,
+    language: Any,
+    *,
+    allow_drafts: bool = False,
+    config_dir: Path | None = None,
+) -> Pack | None:
+    """The pack whose SMS wording a conversation in ``language`` uses, or None.
+
+    Approved and SMS-complete (``sms_complete``); a draft or in-review pack only
+    with ``allow_drafts``, which only the dry-run simulator passes (it sends
+    nothing). English, an unknown language or a missing pack: None. The readiness
+    check is cached per file version (the lint renders every text)."""
+    from . import languages
+
+    code = languages.normalize(language) if language else None
+    if code is None or code in languages.ENGLISH:
+        return None
+    cid = campaign_id or DEFAULT_CAMPAIGN_ID
+    pack = load_pack(cid, code, config_dir)
+    if pack is None:
+        return None
+    if not (pack.approved or (allow_drafts and pack.status in ("draft", "in_review"))):
+        return None
+    path = pack_path(cid, code, config_dir)
+    try:
+        key = (str(path), path.stat().st_mtime_ns)
+    except OSError:
+        return None
+    if key not in _SMS_READY:
+        campaign = _campaign_for(cid, config_dir)
+        _SMS_READY[key] = campaign is not None and sms_complete(pack, campaign)
+    return pack if _SMS_READY[key] else None
 
 
 def drafts_allowed(environ: Mapping[str, str] | None = None) -> bool:
@@ -478,6 +750,7 @@ def summary(config_dir: Path | None = None) -> list[dict[str, Any]]:
                 pack = None
         status = pack.status if pack else "invalid"
         voice = bool(pack) and not problems
+        sms_issues = sms_problems(pack, campaign) if pack and campaign else []
         sms = bool(pack) and voice and campaign is not None and sms_complete(pack, campaign)
         rows.append(
             {
@@ -492,7 +765,9 @@ def summary(config_dir: Path | None = None) -> list[dict[str, Any]]:
                 "voice": {"complete": voice, "available": voice and status == "approved"},
                 "sms": {
                     "complete": sms,
-                    "available": sms and SMS_PACKS_ENABLED and status == "approved",
+                    "available": sms and status == "approved",
+                    "problems": sms_issues[:20],
+                    "warnings": sms_warnings(pack, campaign) if sms else [],
                 },
                 "problems": problems[:20],
                 "needs": _needs(status, problems),

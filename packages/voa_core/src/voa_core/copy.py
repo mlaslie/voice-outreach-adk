@@ -157,6 +157,17 @@ def booked(when_text: str, adjusted: bool, site: SiteCopy) -> str:
     return f"{lead}{tail} Reply C to cancel."
 
 
+def confirm_time_prompt(when_text: str, adjusted: bool) -> str:
+    """Read the time interpreter's reading back (``voa_agents.sms``). Nothing is
+    booked until the patient says YES."""
+    lead = (
+        f"The closest we can do is {when_text}."
+        if adjusted
+        else f"Just to check - did you mean {when_text}?"
+    )
+    return f"{lead} Reply YES to book it, or send another day and time."
+
+
 def already_booked(when_text: str) -> str:
     return f"You're already set for {when_text}. Reply C to cancel, or send a new day and time."
 

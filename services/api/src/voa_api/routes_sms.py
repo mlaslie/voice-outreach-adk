@@ -79,6 +79,9 @@ class SettingInput(_In):
 class SimStartInput(_In):
     phone: str = Field(max_length=20)
     diabetic: bool = False
+    #: One of the 24 codes (default English). Another language uses its pack's
+    #: SMS wording, a draft included: the simulator sends nothing.
+    language: str | None = Field(default=None, max_length=20)
 
 
 class SimReplyInput(_In):
@@ -202,7 +205,11 @@ async def simulator_start(body: SimStartInput, request: Request):
     api: Api = request.app.state.api
     try:
         return await sms_simulator.start(
-            api, body.phone, diabetic=body.diabetic, by=acting_user(request)
+            api,
+            body.phone,
+            diabetic=body.diabetic,
+            by=acting_user(request),
+            language=body.language,
         )
     except sms_simulator.SimulatorError as exc:
         raise HTTPException(exc.status, exc.detail) from None

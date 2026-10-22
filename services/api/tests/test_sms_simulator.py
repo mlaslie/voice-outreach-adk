@@ -206,3 +206,74 @@ def test_a_simulator_consent_only_counts_in_dry_run(dry_run):
         )
     )
     assert (run(sms.active_consent(api, PHONE)) is not None) is dry_run
+
+
+# --------------------------------------------------------------------------- languages (step 5)
+
+
+def test_a_spanish_test_uses_the_draft_wording_and_says_so():
+    from voa_core.translate import FakeTranslator
+
+    client, api = make()
+    api.translator = FakeTranslator({"bastante bien": ("es", "pretty good"), "sí": ("es", "yes")})
+    r = start(client, language="es-US")
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["wording"] == {
+        "language": "es-US",
+        "name": "Spanish (US)",
+        "status": "draft",
+        "approved": False,
+        "label": "Draft wording, not approved",
+    }
+    invite_text = out["messages"][0]["body"]
+    assert invite_text.startswith("Acme Health tiene un mensaje de seguimiento para Jordan.")
+    assert invite_text.endswith("Responda STOP para cancelar.")
+    s = run(api.store.get("sms_sessions", PHONE))
+    assert s["sms_language"] == "es-US" and s["sms_draft_wording"] is True
+    assert s["patient_context"]["language"] == "es-US"
+
+    assert "DD/MM/AAAA" in outbound(reply(client, "3"))[-1]
+    r = reply(client, "15/03/1950")
+    assert r.json()["state"] == st.STATE_SURVEY
+    assert outbound(r)[-1].endswith("¿Cómo se siente en general desde su procedimiento?")
+    # The reply takes the real path: translated to English, read, original kept.
+    r = reply(client, "bastante bien")
+    assert outbound(r)[-1].endswith("¿Tiene algún dolor ahora? Responda SÍ o NO.")
+    answers = run(api.store.get("sms_sessions", PHONE))["survey_answers"]
+    assert answers["overall_feeling"] == "pretty good"
+    assert answers["_original"]["overall_feeling"] == "bastante bien"
+    assert api.translator.calls == [["bastante bien"]]
+    # Spanish STOP words are refused like STOP (they would opt the number out).
+    assert reply(client, "ALTO").status_code == 400
+    assert isinstance(api.sms, CountingDryRun)
+
+
+def test_english_is_the_default_and_unchanged():
+    client, api = make()
+    out = start(client).json()
+    assert out["wording"]["language"] == "en-US" and out["wording"]["label"] == ""
+    assert "sms_language" not in run(api.store.get("sms_sessions", PHONE))
+    assert out["messages"][0]["body"].startswith("Acme Health has a follow-up message")
+
+
+def test_a_language_without_text_wording_or_not_supported_is_refused():
+    client, api = make()
+    r = start(client, language="vi-VN")
+    assert r.status_code == 409 and "Vietnamese" in r.json()["detail"]
+    assert start(client, language="xx-XX").status_code == 400
+    assert api.sms.sent == [] and run(api.store.query("sms_sessions")) == []
+
+
+def test_the_draft_wording_never_leaves_through_a_real_provider():
+    # The same staged session, but the live provider is not the dry-run one: the
+    # simulator refuses up front, and send_sms refuses the draft wording too.
+    client, api = make(provider=FakeSms())
+    assert start(client, language="es-US").status_code == 409
+    s = {
+        "sms_language": "es-US",
+        "sms_draft_wording": True,
+        "patient_context": {sms.SIMULATOR_FLAG: True, "language": "es-US"},
+    }
+    assert sms.wording_block(api, s) == "No approved Spanish (US) text wording."
+    assert api.sms.sent == []

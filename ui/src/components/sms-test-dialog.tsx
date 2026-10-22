@@ -6,6 +6,12 @@ import { MessageSquareText, RotateCcw, Send, ShieldAlert } from "lucide-react";
 import { api, ApiError, type SmsTestStartResponse } from "@/lib/api";
 import { fetchMessages, type SmsMessage } from "@/lib/followups";
 import { formatTime } from "@/lib/format";
+import {
+  DEFAULT_LANGUAGE,
+  textTestWording,
+  type LanguageInfo,
+  type LanguagePackInfo,
+} from "@/lib/languages";
 import { cn } from "@/lib/utils";
 import type { AllowlistEntry } from "@/lib/types";
 import {
@@ -33,10 +39,14 @@ function errorText(e: unknown, fallback: string): string {
   return e instanceof ApiError || e instanceof Error ? e.message : fallback;
 }
 
-/** "1950-03-15" -> "03/15/1950", the way a patient would type it. */
-function usDate(iso: string): string {
+/**
+ * "1950-03-15" -> "03/15/1950", the way a patient would type it; day first
+ * ("15/03/1950") for a patient in another language, as their texts ask.
+ */
+function typedDate(iso: string, dayFirst = false): string {
   const [y, m, d] = iso.split("-");
-  return y && m && d ? `${m}/${d}/${y}` : iso;
+  if (!(y && m && d)) return iso;
+  return dayFirst ? `${d}/${m}/${y}` : `${m}/${d}/${y}`;
 }
 
 /**
@@ -57,6 +67,9 @@ export function SmsTestDialog({
   const [numbers, setNumbers] = useState<AllowlistEntry[] | null>(null);
   const [phone, setPhone] = useState("");
   const [diabetic, setDiabetic] = useState(false);
+  const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
+  const [langs, setLangs] = useState<LanguageInfo[]>([]);
+  const [packs, setPacks] = useState<LanguagePackInfo[] | undefined>(undefined);
   const [session, setSession] = useState<SmsTestStartResponse | null>(null);
   const [messages, setMessages] = useState<SmsMessage[]>([]);
   const [state, setState] = useState<string | null>(null);
@@ -82,6 +95,25 @@ export function SmsTestDialog({
         if (!alive) return;
         setNumbers([]);
         setError(errorText(e, "Could not load the approved numbers."));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
+  // The 24 languages and which have text wording (a draft is allowed here).
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    api
+      .getLanguages()
+      .then((r) => {
+        if (!alive) return;
+        setLangs(r.languages);
+        setPacks(r.packs);
+      })
+      .catch(() => {
+        if (alive) setLangs([]);
       });
     return () => {
       alive = false;
@@ -132,7 +164,7 @@ export function SmsTestDialog({
     setBusy(true);
     setError(null);
     try {
-      const r = await api.startSmsTest(phone, diabetic);
+      const r = await api.startSmsTest(phone, diabetic, language);
       setSession(r);
       setMessages(r.messages);
       setState(r.state);
@@ -164,6 +196,10 @@ export function SmsTestDialog({
   }
 
   const closed = state === "closed" || state === "expired" || state === "opted_out";
+  const chosen = textTestWording(language, packs);
+  const wordingLabel = session?.wording?.label || "";
+  const dayFirst = (session?.wording?.language ?? DEFAULT_LANGUAGE) !== DEFAULT_LANGUAGE
+    && session?.wording?.language !== "en-IN";
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -213,6 +249,34 @@ export function SmsTestDialog({
                 </Select>
               )}
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="sms-test-language">Patient language</Label>
+              <Select value={language} onValueChange={setLanguage}>
+                <SelectTrigger id="sms-test-language">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(langs.length
+                    ? langs
+                    : [{ code: DEFAULT_LANGUAGE, name: "English (US)", native: "English (US)", available: true }]
+                  ).map((l) => {
+                    const w = textTestWording(l.code, packs);
+                    return (
+                      <SelectItem key={l.code} value={l.code} disabled={w === null}>
+                        {l.name}
+                        {w === null ? " (no text wording yet)" : w.label ? " (draft wording)" : ""}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+              {chosen?.label ? (
+                <p className="text-xs font-medium text-brand-red-dark">
+                  {chosen.label}: a machine draft no translator has reviewed. Real texts never use
+                  it; this test sends nothing.
+                </p>
+              ) : null}
+            </div>
             <div className="flex items-center gap-2.5">
               <Checkbox
                 id="sms-test-diabetic"
@@ -224,10 +288,11 @@ export function SmsTestDialog({
               </Label>
             </div>
             <p className="text-xs text-ink-soft">
-              Fictional test patient: Jordan Rivera, TEST-0001, born 03/15/1950. Starting a test
-              replaces any earlier test conversation on this number.
+              Fictional test patient: Jordan Rivera, TEST-0001, born{" "}
+              {language === DEFAULT_LANGUAGE || language === "en-IN" ? "03/15/1950" : "15/03/1950"}.
+              Starting a test replaces any earlier test conversation on this number.
             </p>
-            <Button onClick={start} disabled={busy || !phone} className="w-full">
+            <Button onClick={start} disabled={busy || !phone || chosen === null} className="w-full">
               {busy ? "Starting…" : "Start"}
             </Button>
           </div>
@@ -235,7 +300,11 @@ export function SmsTestDialog({
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-2 text-xs text-ink-soft">
               <span>
-                {session.patient.patient_name} · born {usDate(session.patient.patient_dob)}
+                {session.patient.patient_name} · born{" "}
+                {typedDate(session.patient.patient_dob, dayFirst)}
+                {session.wording && session.wording.language !== DEFAULT_LANGUAGE
+                  ? ` · ${session.wording.name ?? session.wording.language}`
+                  : ""}
                 {session.patient.is_diabetic ? " · diabetic" : ""}
               </span>
               <button
@@ -246,6 +315,15 @@ export function SmsTestDialog({
                 <RotateCcw className="h-3.5 w-3.5" /> New test
               </button>
             </div>
+            {wordingLabel ? (
+              <p
+                role="note"
+                className="rounded-lg border border-brand-red/40 bg-brand-red/10 px-3 py-1.5 text-xs font-semibold text-brand-red-dark"
+              >
+                {wordingLabel}. Real texts in this language stay off until a translator reviews it
+                and it is approved.
+              </p>
+            ) : null}
             {!session.survey_enabled ? (
               <p className="text-xs text-ink-soft">
                 Answering the questions by text (option 3) is switched off on this deployment.

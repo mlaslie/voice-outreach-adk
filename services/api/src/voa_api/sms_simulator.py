@@ -22,6 +22,17 @@ Guards (each one is enough on its own to keep a text off a phone):
 * The consent is recorded with ``source = SIMULATOR_SOURCE`` and only counts
   while dry-run is on (``sms_service.active_consent``).
 
+Languages (docs/LANGUAGES-PLAN.md step 5): ``start(language=...)`` plays a
+patient whose language is one of the 24. A non-English conversation uses the
+language pack's SMS wording, and may use a **draft** pack: nothing is sent, and
+the response says so (``wording.approved`` false, "Draft wording, not
+approved"). ``sms_service.send_sms`` allows a draft only for this simulator's
+own session in dry-run with the dry-run provider; every real send refuses one.
+The simulated patient's replies take the real inbound path, so STOP/HELP and
+red flags are checked on the original, then the text is translated to English
+(the configured translator, Gemini when deployed) before the state machine
+reads it.
+
 Logs carry masked numbers and no message bodies.
 """
 
@@ -32,8 +43,7 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
-from voa_core import copy as messages
-from voa_core import intent
+from voa_core import intent, language_packs, languages
 from voa_core.logging import mask_phone
 from voa_core.sms import states as st
 
@@ -90,9 +100,44 @@ async def thread(api: Api, phone: str, call_id: str) -> list[dict]:
     return await sms.list_messages(api, phone, call_sid=call_id)
 
 
-async def start(api: Api, phone: str, *, diabetic: bool, by: str) -> dict[str, Any]:
+DRAFT_LABEL = "Draft wording, not approved"
+
+
+def _language(language: str | None) -> tuple[str | None, language_packs.Pack | None]:
+    """(code, pack) for a non-English simulation; (None, None) for English.
+    Raises SimulatorError for an unknown language or one with no complete SMS
+    wording (a draft is allowed here: nothing is sent)."""
+    code = languages.normalize(language) if language else languages.DEFAULT
+    if code is None:
+        raise SimulatorError(400, languages.unsupported_message(language))
+    if code in languages.ENGLISH:
+        return None, None
+    pack = language_packs.sms_pack(None, code, allow_drafts=True)
+    if pack is None:
+        raise SimulatorError(
+            409, f"There is no {languages.name(code)} text wording yet, so it cannot be tested."
+        )
+    return code, pack
+
+
+def _wording(code: str | None, pack: language_packs.Pack | None) -> dict[str, Any]:
+    if code is None or pack is None:
+        return {"language": languages.DEFAULT, "status": "approved", "approved": True, "label": ""}
+    return {
+        "language": code,
+        "name": languages.name(code),
+        "status": pack.status,
+        "approved": pack.approved,
+        "label": "" if pack.approved else DRAFT_LABEL,
+    }
+
+
+async def start(
+    api: Api, phone: str, *, diabetic: bool, by: str, language: str | None = None
+) -> dict[str, Any]:
     """Stage a missed call for the test patient and send the invite now."""
     _require_dry_run(api)
+    code, pack = _language(language)
     await _require_number(api, phone)
     await sms.refresh_org(api)
     if await sms.is_opted_out(api, phone):
@@ -120,6 +165,8 @@ async def start(api: Api, phone: str, *, diabetic: bool, by: str) -> dict[str, A
     call_id = CALL_PREFIX + uuid.uuid4().hex[:16]
     now = sms._ts(api)
     ctx = {**TEST_PATIENT, "is_diabetic": bool(diabetic), sms.SIMULATOR_FLAG: True}
+    if code:
+        ctx.update(language=code, call_in_english=False)
     await api.store.set(
         CALLS,
         call_id,
@@ -137,6 +184,7 @@ async def start(api: Api, phone: str, *, diabetic: bool, by: str) -> dict[str, A
             "amd_requested": False,
             "channel": "sms",
             "test": True,
+            **({"language": code} if code else {}),
         },
     )
     # The same conversation send_invite opens, minus cooldown and quiet hours.
@@ -150,6 +198,11 @@ async def start(api: Api, phone: str, *, diabetic: bool, by: str) -> dict[str, A
             "patient_context": ctx,
             "patient_name": TEST_PATIENT["patient_name"],
             "patient_id": TEST_PATIENT["patient_id"],
+            **(
+                {"sms_language": code, "sms_draft_wording": not pack.approved}
+                if code and pack
+                else {}
+            ),
             "state": st.STATE_AWAITING_CHOICE,
             "retry_count": 0,
             "message_count": 0,
@@ -166,10 +219,11 @@ async def start(api: Api, phone: str, *, diabetic: bool, by: str) -> dict[str, A
     )
     try:
         # Not ``unsolicited``: the simulator ignores quiet hours (nothing is sent).
+        session = await sms.get_session(api, phone)
         await sms.send_sms(
             api,
             phone,
-            messages.invite(TEST_PATIENT["patient_name"], sms.site_copy(api)),
+            sms.session_copy(session).invite(TEST_PATIENT["patient_name"], sms.site_copy(api)),
             call_id=call_id,
         )
     except sms.SendBlocked as exc:
@@ -184,6 +238,7 @@ async def start(api: Api, phone: str, *, diabetic: bool, by: str) -> dict[str, A
             "to": mask_phone(phone),
             "consent": consent,
             "diabetic": bool(diabetic),
+            "language": code or languages.DEFAULT,
         },
     )
     return {
@@ -192,6 +247,7 @@ async def start(api: Api, phone: str, *, diabetic: bool, by: str) -> dict[str, A
         "dry_run": True,
         "survey_enabled": api.cfg.sms.survey_enabled,
         "consent": consent,
+        "wording": _wording(code, pack),
         "patient": {
             "patient_name": TEST_PATIENT["patient_name"],
             "patient_id": TEST_PATIENT["patient_id"],

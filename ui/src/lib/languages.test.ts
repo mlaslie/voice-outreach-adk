@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  LanguagesResponse, callLanguage, holdReason, isAvailable, languageChip, normalizeLanguage, optionLabel, packChannelLines, parseYesNo,
+  LanguagesResponse, callLanguage, holdReason, isAvailable, languageChip, normalizeLanguage, optionLabel, packChannelLines, parseYesNo, textTestWording,
 } from "./languages";
 import sample from "./languages-sample.json";
 
@@ -89,8 +89,27 @@ describe("packChannelLines", () => {
     expect(packChannelLines({ ...base, status: "approved", needs: "", voice: { complete: true, available: true } })[0])
       .toBe("Voice: approved, in use");
   });
+  it("says drafted texts need review", () => {
+    expect(packChannelLines({ ...base, sms: { complete: true, available: false } })[1])
+      .toBe("Texts: draft, needs translator review");
+    expect(packChannelLines({ ...base, sms: { complete: true, available: true } })[1])
+      .toBe("Texts: approved, in use");
+  });
   it("matches the sample data", () => {
     const es = RESP.packs?.find((p) => p.campaign_id === "post_op" && p.language === "es-US");
-    expect(es && packChannelLines(es)[0]).toBe("Voice: draft, needs translator review");
+    expect(es && packChannelLines(es)).toEqual([
+      "Voice: draft, needs translator review",
+      "Texts: draft, needs translator review",
+    ]);
+  });
+});
+
+describe("textTestWording", () => {
+  it("allows English, labels a draft, refuses a language with no text wording", () => {
+    expect(textTestWording("en-US", RESP.packs)).toEqual({ approved: true, label: "" });
+    expect(textTestWording("es-US", RESP.packs)).toEqual({
+      approved: false, label: "Draft wording, not approved",
+    });
+    expect(textTestWording("vi-VN", RESP.packs)).toBeNull();
   });
 });

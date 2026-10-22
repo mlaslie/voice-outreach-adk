@@ -3,14 +3,15 @@
 # and cannot be changed here. Format, lint and approval: docs/EDITING-QUESTIONS.md
 # ("Language packs") and voa_core/language_packs.py.
 #
-# THIS IS A MACHINE DRAFT. No patient is called in Spanish until a qualified
+# THIS IS A MACHINE DRAFT. No patient is called or texted in Spanish until a qualified
 # medical translator has reviewed it and a named approver has set
 # status: approved with reviewed_by, approved_by and approved_at
 # (docs/HANDOFF.md, "How to approve a pack").
 #
 # Keep exactly the English {placeholders}. The emergency line must keep 911
-# ("nueve uno uno") and "cuelgue ... y llame". Numbers are written in words,
-# because the voice agent reads these lines aloud.
+# ("nueve uno uno") and "cuelgue ... y llame". In the voice lines numbers are
+# written in words, because the voice agent reads them aloud; the texts
+# (sms_*, at the end) use digits and keep STOP, 911, tel:911 and C literal.
 # Check after any edit: uv run pytest -q -p no:warnings packages/voa_core
 
 language: es-US
@@ -29,7 +30,16 @@ notes: >
   "cien punto cuatro grados Fahrenheit" (the English says "one hundred point
   four", without the unit); "incisión" is used for the surgical wound;
   "equipo de cuidados" for "care team"; the voicemail says no name or clinical
-  detail. Voice only: the SMS wording is step 5.
+  detail. Texts (added 22 Oct 2026, step 5, also a machine draft): short
+  messages in formal "usted"; STOP, 911, tel:911 and the reply letter C stay
+  literal (carriers require the English STOP keyword to work and be advertised,
+  so the invite says "Responda STOP para cancelar"); replies are "SÍ" / "NO";
+  the date of birth is asked as DD/MM/AAAA (a Spanish patient's date is read day
+  first); booked times are written "jue 13 ago, 3:00 PM". Accented letters
+  (á, í, ó, ú) make a text UCS-2 (70 characters a segment, not 160), so the
+  wording is kept short: see docs/HANDOFF.md (step 5) for the segments per
+  text. The reviewer should also check the consent and opt-out lines in the
+  invite and HELP text against the carrier (A2P 10DLC) registration.
 
 scripts:
   opener: "Hola, esta es una llamada automatizada de {org_name}. ¿Podría hablar con {patient_first_name} {patient_last_name}, por favor?"
@@ -53,34 +63,112 @@ scripts:
 questions:
   overall_feeling:
     ask: "¿Cómo se siente?"
+    sms: "¿Cómo se siente en general desde su procedimiento?"
   pain_present:
     ask: "¿Tiene algún dolor?"
+    sms: "¿Tiene algún dolor ahora? Responda SÍ o NO."
   pain_severity:
     ask: "En una escala del cero al diez, ¿qué tan fuerte es el dolor?"
     note: "For a range, record the higher number."
+    sms: "Del 0 al 10, donde 10 es el peor dolor imaginable, ¿qué número le daría ahora?"
   pain_location:
     ask: "¿Me puede describir el dolor, por ejemplo, dónde lo tiene y cómo se siente?"
     note: "If they already said where it hurts, do not ask where again: say \"Usted mencionó dolor en <lugar>. ¿Tiene dolor en algún otro lugar?\" and record both."
+    sms: "Describa el dolor: ¿dónde lo tiene y cómo se siente?"
+    sms_if_known: "Mencionó dolor en {site}. ¿Le duele en otro lugar? Responda NO, o díganos dónde y cómo se siente."
   pain_trend:
     ask: "¿El dolor está mejorando, sigue igual o está empeorando?"
+    sms: "¿El dolor está mejorando, sigue igual o está empeorando?"
   fever_reported:
     ask: "¿Ha tenido fiebre, es decir, una temperatura de más de cien punto cuatro grados Fahrenheit, desde que regresó a casa?"
+    sms: "¿Ha tenido fiebre o una temperatura de más de 100.4F desde que salió del hospital? Responda SÍ o NO."
   incision_concerns:
     ask: "¿Ha notado algo fuera de lo normal en su incisión, como enrojecimiento que se extiende, líquido que sale, calor o que se esté abriendo?"
+    sms: "¿Nota algo raro en su incisión o vendaje, como enrojecimiento que se extiende, líquido, calor, que se abra o mal olor? Responda SÍ o NO."
   incision_description:
     ask: "¿Me puede describir lo que ve?"
+    sms: "¿Puede describir lo que ve?"
   legs_swollen:
     ask: "¿Tiene las piernas o los pies hinchados?"
+    sms: "¿Tiene las piernas o los pies hinchados? Responda SÍ o NO."
   swelling_description:
     ask: "¿Es en una pierna o en las dos, y está empeorando?"
     note: "Ask only the part they have not already told you (which side, or whether it is getting worse); if they told you both, record what they said without asking."
+    sms: "¿Es en una pierna o en las dos, y está empeorando?"
+    sms_if_side_known: "¿La hinchazón está empeorando? Responda SÍ o NO."
+    sms_if_trend_known: "¿Es en una pierna o pie, o en los dos?"
   sleeping_well:
     ask: "¿Está durmiendo bien?"
+    sms: "¿Está durmiendo bien? Responda SÍ o NO."
   blood_sugar_status:
     ask: "¿En qué rango han estado sus niveles de azúcar en la sangre?"
     note: "Record the numbers or words they say, in English, e.g. \"120 to 250\"."
+    sms: "¿En qué rango ha tenido el azúcar en la sangre? Responda con sus números, por ejemplo \"110 a 160\", o diga si ha estado alta o baja."
   has_questions:
     ask: "¿Tiene alguna pregunta para el equipo de cuidados?"
+    sms: "¿Tiene alguna pregunta para el equipo de cuidados? Responda NO, o escriba su pregunta."
 
 # Transcription hints for the caller's Spanish (added to the spec's own list).
 custom_vocabulary: [incisión, herida, supuración, enrojecimiento, hinchazón, hinchado, Tylenol, ibuprofeno, oxicodona, insulina, azúcar]
+
+# --------------------------------------------------------------------------- texts
+# The questionnaire's own lines (keys and {placeholders} of post_op.yaml's
+# sms_scripts). Keep 911 and the reply letter C literal.
+sms_scripts:
+  preamble: "Gracias, quedó verificado. Le enviaré {total} preguntas cortas, una a la vez. Responda cada una. Responda C en cualquier momento para parar."
+  numbered_question: "({number}/{total}) {question}"
+  unclear_answer: "Disculpe, no entendí. {question}"
+  ask_question: "¿Cuál es su pregunta? Escríbala en un solo mensaje."
+  another_question: "¿Alguna otra pregunta? Escríbala, o responda NO si es todo."
+  question_noted: "Anotado: \"{question}\". {another_question}"
+  question_noted_last: "Anotado: \"{question}\". Es lo más que podemos recibir por texto; su equipo de cuidados le ayudará con lo demás."
+  closing_routine: "Es todo, gracias. Su equipo de cuidados tiene sus respuestas. {questions_follow_up}{closing_extra} Si algo empeora, llame a su equipo o al 911."
+  closing_urgent: "Gracias, es todo. Por sus respuestas, su equipo le contactará. {questions_follow_up}{closing_extra} Si empeora, llame a su equipo o al 911."
+  questions_follow_up: "Le responderán sus preguntas."
+  closing_extra: "Lleve una lista de sus medicamentos a su cita de seguimiento."
+  cut_short: "Gracias, vamos a parar aquí. Su equipo de cuidados tiene lo que nos dijo y puede comunicarse con usted. En una emergencia, llame al 911."
+  file_failed: "Gracias por sus respuestas. Hubo un problema al guardarlas. Llame al número de sus documentos para que su equipo de cuidados las tenga."
+
+# The shared texts (voa_core/sms_copy.py ENGLISH: same keys, same
+# {placeholders}). Sent before identity is checked, so nothing clinical.
+# STOP stays in English (carriers require it); Spanish STOP words (ALTO, PARAR...)
+# also work (config/languages/keywords.yaml). Digits 1/2/3 and C stay as they are.
+sms_copy:
+  you: "usted"
+  invite_intro: "{org_name} tiene un mensaje de seguimiento para {name}."
+  reply_header: "Responda:"
+  menu_call_now: "1 = llamarme ahora"
+  menu_pick_time: "2 = elegir una hora"
+  menu_by_text: "3 = responder por texto"
+  calls_come_from: "Las llamadas vienen del {voice_number}."
+  opt_out_line: "Responda STOP para cancelar."
+  unclear_choice: "Disculpe, no entendí. Responda {options}."
+  gave_up_choice: "No hay problema. Si desea hablar con alguien, comuníquese con su equipo de cuidados. En una emergencia, llame al 911."
+  calling_now: "Gracias, le llamaremos en breve."
+  calling_now_from: "Gracias, le llamaremos en breve desde el {voice_number}."
+  cannot_call_back: "Lo sentimos, no podemos hacer esa llamada automáticamente. Comuníquese con su equipo de cuidados y le ayudarán."
+  ask_for_time: "¿Qué día y hora le conviene? Responda, por ejemplo, \"mañana 3pm\" o \"jueves en la mañana\"."
+  unclear_time: "Disculpe, no entendí la hora. Intente algo como \"mañana 3pm\" o \"jue 10am\"."
+  gave_up_time: "No hay problema. Si desea hablar con alguien, comuníquese con su equipo de cuidados. En una emergencia, llame al 911."
+  booked: "Su llamada queda para el {when}."
+  booked_adjusted: "Lo más pronto que podemos es el {when}."
+  booked_calls_from: "Le llamaremos desde el {voice_number}."
+  booked_cancel: "Responda C para cancelar."
+  already_booked: "Ya tiene una llamada programada: {when}. Responda C para cancelar, o envíe otro día y hora."
+  your_callback: "su llamada"
+  booking_canceled: "Cancelado: no le llamaremos. Para reprogramar, escriba a {support_email}."
+  nothing_to_cancel: "No hay ninguna llamada programada para cancelar."
+  emergency: "Si es una emergencia médica, llame al 911 ahora (toque: tel:911) o vaya a la sala de emergencias más cercana. Esta línea de texto no se vigila para emergencias."
+  opted_out: "Ya no recibirá mensajes de seguimiento de {org_name}."
+  help: "Seguimiento de {org_name}. Responda STOP para cancelar. Ayuda: {support_email}. En una emergencia, llame al 911. Pueden aplicar tarifas de mensajes y datos."
+  session_closed: "Gracias por su respuesta. Este seguimiento ya terminó. Si nos necesita, escriba a {support_email}. En una emergencia, llame al 911."
+  ask_dob: "Antes de empezar, confirmemos la identidad de {name}. Responda con su fecha de nacimiento en formato DD/MM/AAAA."
+  dob_unreadable: "Disculpe, no pude leer esa fecha. Responda con su fecha de nacimiento en formato DD/MM/AAAA."
+  dob_failed: "Gracias. No podemos continuar por texto. Si necesita comunicarse con el equipo de cuidados, llame al número de sus documentos."
+  survey_stopped: "No hay problema, ya no le haremos más preguntas. Su equipo de cuidados puede comunicarse con usted directamente."
+  confirm_time: "Para confirmar: ¿quiso decir el {when}?"
+  confirm_time_adjusted: "Lo más pronto que podemos es el {when}."
+  confirm_time_reply: "Responda SÍ para reservarla, o envíe otro día y hora."
+  weekdays: "lun mar mié jue vie sáb dom"
+  months: "ene feb mar abr may jun jul ago sep oct nov dic"
+  when_format: "{weekday} {day} {month}{year}, {time}"

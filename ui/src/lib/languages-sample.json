@@ -171,8 +171,21 @@
         "available": false
       },
       "sms": {
-        "complete": false,
-        "available": false
+        "complete": true,
+        "available": false,
+        "problems": [],
+        "warnings": [
+          "emergency: 3 segments (UCS-2)",
+          "session_closed: 3 segments (UCS-2)",
+          "questions.incision_concerns.sms: 3 segments (UCS-2)",
+          "questions.blood_sugar_status.sms: 3 segments (UCS-2)",
+          "sms_scripts.unclear_answer: 3 segments (UCS-2)",
+          "sms_scripts.cut_short: 3 segments (UCS-2)",
+          "sms_scripts.file_failed: 3 segments (UCS-2)",
+          "sms_scripts.question_noted_last: 3 segments (UCS-2)",
+          "sms_scripts.closing_routine: 3 segments (UCS-2)",
+          "sms_scripts.closing_urgent: 3 segments (UCS-2)"
+        ]
       },
       "needs": "needs translator review"
     },
@@ -190,7 +203,30 @@
       },
       "sms": {
         "complete": false,
-        "available": false
+        "available": false,
+        "problems": [
+          "sms_copy.you: missing",
+          "sms_copy.invite_intro: missing",
+          "sms_copy.reply_header: missing",
+          "sms_copy.menu_call_now: missing",
+          "sms_copy.menu_pick_time: missing",
+          "sms_copy.menu_by_text: missing",
+          "sms_copy.calls_come_from: missing",
+          "sms_copy.opt_out_line: missing",
+          "sms_copy.unclear_choice: missing",
+          "sms_copy.gave_up_choice: missing",
+          "sms_copy.calling_now: missing",
+          "sms_copy.calling_now_from: missing",
+          "sms_copy.cannot_call_back: missing",
+          "sms_copy.ask_for_time: missing",
+          "sms_copy.unclear_time: missing",
+          "sms_copy.gave_up_time: missing",
+          "sms_copy.booked: missing",
+          "sms_copy.booked_adjusted: missing",
+          "sms_copy.booked_calls_from: missing",
+          "sms_copy.booked_cancel: missing"
+        ],
+        "warnings": []
       },
       "needs": "needs translator review"
     }

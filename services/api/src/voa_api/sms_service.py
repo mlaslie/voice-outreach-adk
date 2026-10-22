@@ -46,7 +46,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
-from voa_core import budget, compliance, lifecycle, reports, review, survey, timeparse
+from voa_core import budget, compliance, languages, lifecycle, reports, review, survey, timeparse
 from voa_core import copy as messages
 from voa_core.config import resolve_secret
 from voa_core.copy import SiteCopy
@@ -59,6 +59,7 @@ from voa_core.sms.conversation import (
     asked_questions,
     campaign_of,
     session_campaign_id,
+    session_copy,
 )
 from voa_core.store import Where, new_id, now_iso
 from voa_core.timeparse import SchedulingPolicy
@@ -559,6 +560,48 @@ async def list_messages(api: Api, phone: str, call_sid: str | None = None) -> li
 # --------------------------------------------------------------------------- the choke point
 
 
+def budget_units(body: str) -> int:
+    """What one text costs the hourly budget: 1 for GSM-7 (unchanged: English
+    texts always counted one each), the segment count for UCS-2."""
+    from voa_core.sms_copy import segments
+
+    seg = segments(body)
+    return seg.segments if seg.unicode else 1
+
+
+def simulator_may_use_drafts(api: Api, session: dict | None) -> bool:
+    """A draft pack's wording may be "sent" only into the dry-run simulator's own
+    conversation, while SMS is in dry-run and the provider is the dry-run one."""
+    ctx = (session or {}).get("patient_context") or {}
+    prov = provider(api)
+    return bool(
+        ctx.get(SIMULATOR_FLAG) and api.cfg.sms.dry_run and getattr(prov, "name", None) == "dry_run"
+    )
+
+
+def wording_block(api: Api, session: dict | None) -> str | None:
+    """Why a text to this conversation must not go out, or None.
+
+    A conversation in another language (``sms_language``) may only be texted with
+    an approved, complete, lint-clean SMS pack. A draft is allowed only in the
+    dry-run simulator. Checked on every send, so a pack withdrawn mid-
+    conversation stops the texts (never English instead)."""
+    from voa_core import language_packs
+    from voa_core.sms.conversation import session_campaign_id, sms_language
+
+    lang = sms_language(session)
+    if lang is None:
+        return None
+    cid = session_campaign_id(session)
+    if language_packs.sms_pack(cid, lang) is not None:
+        return None
+    if simulator_may_use_drafts(api, session) and (
+        language_packs.sms_pack(cid, lang, allow_drafts=True) is not None
+    ):
+        return None
+    return f"No approved {languages.name(lang)} text wording."
+
+
 async def send_sms(
     api: Api,
     phone: str,
@@ -578,7 +621,13 @@ async def send_sms(
     2. SMS consent       (a live, un-withdrawn grant; read failure refuses)
     3. allowlist         (the dial allowlist, same semantics as ``dialer``)
     4. per-session cap   (a stuck loop exhausts one conversation, not the budget)
-    5. hourly budget     (``rate_limits/sms_sends``; unavailable refuses)
+    4b. wording          (a conversation in another language: only an approved
+                         SMS pack; a draft only in the dry-run simulator)
+    5. hourly budget     (``rate_limits/sms_sends``; unavailable refuses). A
+                         GSM-7 text costs one unit, as always; a UCS-2 text
+                         (accented Spanish, every non-Latin script) costs one
+                         unit per segment, since a 70-character segment is
+                         billed like a 160-character one.
     6. quiet hours       (unsolicited sends only, re-checked NOW, review S-4)
     7. provider
 
@@ -620,9 +669,14 @@ async def send_sms(
         raise SendBlocked("Session store unavailable.", retryable=True) from None
     if session is not None and int(session.get("message_count") or 0) >= s.max_messages_per_session:
         raise SendBlocked(f"Conversation reached {s.max_messages_per_session} messages.")
+    if why := wording_block(api, session):
+        raise SendBlocked(why)
 
+    units = budget_units(body)
     try:
-        ok = await budget.consume(api.store, BUDGET_NAME, s.max_sms_per_hour, now=api.now())
+        ok = await budget.consume(
+            api.store, BUDGET_NAME, s.max_sms_per_hour, now=api.now(), units=units
+        )
     except budget.BudgetUnavailable:
         raise SendBlocked("SMS budget unavailable; refusing to send.", retryable=True) from None
     if not ok:
@@ -632,7 +686,7 @@ async def send_sms(
         now_local = local_now(api)
         opens = timeparse.next_send_window(now_local, scheduling(api))
         if opens != now_local:
-            await budget.release(api.store, BUDGET_NAME, s.max_sms_per_hour)
+            await budget.release(api.store, BUDGET_NAME, s.max_sms_per_hour, units=units)
             raise SendBlocked("Outside SMS hours.", retryable=True, resume_at=opens)
 
     from voa_providers.sms import SmsSendError
@@ -640,7 +694,7 @@ async def send_sms(
     try:
         message_sid = await prov.send(phone, body)
     except SmsSendError as exc:
-        await budget.release(api.store, BUDGET_NAME, s.max_sms_per_hour)
+        await budget.release(api.store, BUDGET_NAME, s.max_sms_per_hour, units=units)
         if exc.opted_out:
             try:
                 await record_opt_out(api, phone, source="carrier:21610", set_session_state=True)
@@ -657,7 +711,7 @@ async def send_sms(
             retryable=not exc.permanent,
         ) from None
     except Exception:
-        await budget.release(api.store, BUDGET_NAME, s.max_sms_per_hour)
+        await budget.release(api.store, BUDGET_NAME, s.max_sms_per_hour, units=units)
         log.exception("sms send failed", extra={"event": "sms.send_error"})
         raise SendBlocked("Send failed.", retryable=True) from None
 
@@ -749,7 +803,7 @@ async def _book(api: Api, phone: str, session: dict, when: datetime, base: dict)
         **base,
         "callback_id": callback_id,
         "scheduled_for": _ts(api, when_utc),
-        "scheduled_for_text": timeparse.humanize(when, local_now(api)),
+        "scheduled_for_text": session_copy(session).humanize(when, local_now(api)),
         # Outlive the booking: the 48 h TTL is shorter than the booking horizon,
         # and an expired session cannot reason about "C" or a new time.
         "expires_at": _ts(api, when_utc + timedelta(hours=api.cfg.sms.session_ttl_h)),
@@ -857,7 +911,10 @@ async def _process_inbound(
     ):
         # Don't promise a call that cannot be placed.
         decision = Decision(
-            reply=messages.cannot_call_back(), state=st.STATE_CLOSED, retry=0, note="undialable"
+            reply=session_copy(session).cannot_call_back(),
+            state=st.STATE_CLOSED,
+            retry=0,
+            note="undialable",
         )
     log.info(
         "sms inbound decided",
@@ -944,6 +1001,8 @@ async def read_inbound(
         return InboundText(body)  # no letters ("1", "7", "05/03/1950"): nothing to translate
     if intent.classify_compliance(body) is not None or intent.is_red_flag(body):
         return InboundText(body)
+    if intent.is_cancel(body):
+        return InboundText(body)  # "C" works in every language (the texts say "C")
     if session.get("state") == st.STATE_AWAITING_DOB and (
         dobcheck.parse_dob(body, now_local.date(), day_first=lang is not None) is not None
     ):
@@ -1096,6 +1155,11 @@ def survey_snapshot(phone: str, session: dict, decision: Decision) -> dict | Non
         use_case["campaign_id"] = cid
         if session.get("spec_version"):
             use_case["spec_version"] = session["spec_version"]
+    # The closing is written in the conversation's language (step 5).
+    if session.get("sms_language"):
+        use_case["sms_language"] = session["sms_language"]
+        if session.get("sms_draft_wording"):
+            use_case["sms_draft_wording"] = True
     return {
         **use_case,
         "phone": phone,
@@ -1119,6 +1183,17 @@ def survey_snapshot(phone: str, session: dict, decision: Decision) -> dict | Non
 
 def _snap_campaign(snap: dict):
     return survey.campaign_for(snap.get("campaign_id"))
+
+
+def _snap_wording(snap: dict):
+    """The spec whose SMS wording the closing uses: the conversation's language."""
+    return campaign_of(
+        {
+            "campaign_id": snap.get("campaign_id"),
+            "sms_language": snap.get("sms_language"),
+            "sms_draft_wording": snap.get("sms_draft_wording"),
+        }
+    ) or _snap_campaign(snap)
 
 
 def _report_payload(snap: dict) -> dict:
@@ -1215,7 +1290,7 @@ async def submit_survey(api: Api, snap: dict) -> dict:
                 await send_sms(
                     api,
                     phone,
-                    messages.survey_file_failed(_snap_campaign(snap)),
+                    messages.survey_file_failed(_snap_wording(snap)),
                     call_id=snap["call_id"],
                 )
             except SendBlocked:
@@ -1326,7 +1401,7 @@ async def submit_survey(api: Api, snap: dict) -> dict:
     # medication-list reminder); one that recorded questions also says the care
     # team will follow up on them.
     asked = asked_questions(snap.get("answers") or {})
-    spec = _snap_campaign(snap)
+    spec = _snap_wording(snap)
     closing = (
         messages.survey_done_urgent(asked_questions=asked, campaign=spec)
         if follow_up in (survey.FOLLOW_UP_URGENT, survey.FOLLOW_UP_EMERGENCY)
@@ -1490,6 +1565,11 @@ async def send_invite(api: Api, payload: dict) -> dict:
         return await _defer_invite(api, payload, opens)
 
     ctx = await _patient_context(api, call)
+    # The language of this conversation, fixed now (step 5). None = English, which
+    # missed_call_text_block above already allowed for this patient.
+    text_lang = languages.text_language(
+        ctx.get("language"), ctx.get("campaign_id"), ctx.get("call_in_english")
+    )
     settings = await get_settings(api)
     cooldown_on = settings["invite_cooldown_enabled"]
     if not cooldown_on:
@@ -1529,6 +1609,7 @@ async def send_invite(api: Api, payload: dict) -> dict:
                 if ctx.get("campaign_id")
                 else {}
             ),
+            **({"sms_language": text_lang} if text_lang else {}),
             "state": st.STATE_AWAITING_CHOICE,
             "retry_count": 0,
             "message_count": 0,  # per conversation, not per handset
@@ -1561,13 +1642,10 @@ async def send_invite(api: Api, payload: dict) -> dict:
     await cancel_callbacks(api, phone, status="superseded", reason="new follow-up started")
 
     try:
-        await send_sms(
-            api,
-            phone,
-            messages.invite(ctx.get("patient_name"), site_copy(api)),
-            call_id=call_id,
-            unsolicited=True,
+        invite_text = session_copy({"sms_language": text_lang, **ctx}).invite(
+            ctx.get("patient_name"), site_copy(api)
         )
+        await send_sms(api, phone, invite_text, call_id=call_id, unsolicited=True)
     except SendBlocked as exc:
         await _patch_quietly(
             api,
@@ -1704,7 +1782,12 @@ async def dispatch_recall(api: Api, payload: dict) -> dict:
         await _patch_quietly(api, phone, {"state": st.STATE_CLOSED, "last_error": exc.detail[:300]})
         # They were told "we'll call you shortly": say it is not going to happen.
         try:
-            await send_sms(api, phone, messages.cannot_call_back(), call_id=claimed.get("call_sid"))
+            await send_sms(
+                api,
+                phone,
+                session_copy(claimed).cannot_call_back(),
+                call_id=claimed.get("call_sid"),
+            )
         except SendBlocked:
             pass
         log.error("recall refused", extra={"event": "sms.recall_refused", "status": exc.status})

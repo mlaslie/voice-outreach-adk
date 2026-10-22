@@ -187,7 +187,7 @@ US carriers register sample messages for business texting. If you change the wor
 
 Every call, call-list entry, run and ingest tranche can name a use case with `campaign_id` (ingest: `"campaign"`); without one it is post-op. The call stores `campaign_id` and `spec_version`, the gateway runs that spec, and a missed call's text follow-up uses it too. Nothing in the dashboard offers another use case yet.
 
-## Language packs (calls in another language)
+## Language packs (calls and texts in another language)
 
 A use case is written in English. A **language pack** gives the same use case's wording in one other language: `config/campaigns/i18n/<campaign>.<language>.yaml`, for example `post_op.es-US.yaml`. Plan: `docs/LANGUAGES-PLAN.md` §3.2. Code: `packages/voa_core/src/voa_core/language_packs.py`.
 
@@ -213,10 +213,13 @@ questions:                      # every question id of the English spec
   pain_severity:
     ask: "..."
     note: "For a range, record the higher number."  # optional; only where the English has a note
+    sms: "¿Tiene algún dolor ahora? Responda SÍ o NO."  # texts: every question's sms / sms_if_*
 custom_vocabulary: [incisión, ...]  # optional: words the caller's speech recognition should expect
-# Optional until texts in other languages are built (LANGUAGES-PLAN step 5):
-# sms_scripts: {...} and a question's sms / sms_if_* wording.
+sms_scripts: {...}              # texts: every key of the English spec's sms_scripts
+sms_copy: {...}                 # texts: the shared texts (invite, menu, DOB gate, STOP/HELP...), below
 ```
+
+The texts (`sms_scripts`, the questions' `sms` / `sms_if_*`, `sms_copy`) are needed only for texting in the language; a pack without them can still be approved for voice.
 
 **To add a language or a pack:**
 1. Copy an existing pack, rename it `<campaign>.<code>.yaml`, and set `language`, `campaign`, `status: draft`, `translated_by`.
@@ -227,18 +230,58 @@ custom_vocabulary: [incisión, ...]  # optional: words the caller's speech recog
 
 **To edit a pack:** change the wording only. A change to an approved pack's wording should go back through the translator.
 
-**The lint** (`language_packs.pack_problems`, run by `packages/voa_core/tests/test_language_packs.py` on every pack in the repo) fails on:
+**The lint** (`language_packs.pack_problems` for voice, run by `packages/voa_core/tests/test_language_packs.py` on every pack in the repo; `language_packs.sms_problems` for texts, below) fails on:
 - a missing script or question wording;
 - a `{placeholder}` that differs from the English line's (keep `{org_name}`, `{patient_first_name}`, `{patient_last_name}` exactly as in English);
 - an emergency line without 911 (or "nueve uno uno") or without the instruction to hang up and call;
 - any extra key: a script, question, note or field the English spec does not have (a pack cannot carry `type`, `rules` or anything else);
 - `status: approved` without `reviewed_by`, `approved_by` and `approved_at`.
 
+### Texts in another language (`sms_copy`)
+
+English texts that are not part of a use case live in code (`packages/voa_core/src/voa_core/copy.py`) and stay there. A pack translates them in `sms_copy:`, with exactly the keys and `{placeholders}` of `packages/voa_core/src/voa_core/sms_copy.py` (`ENGLISH`, which is the English cut into these keys; a test proves it rebuilds `copy.py` byte for byte).
+
+| Key | What it is | Placeholders |
+|---|---|---|
+| `you` | Used instead of a first name when the record has none ("usted") | |
+| `invite_intro` | The invite's first line | `{org_name}`, `{name}` (first name only) |
+| `reply_header` | "Reply:", above the menu | |
+| `menu_call_now`, `menu_pick_time`, `menu_by_text` | The menu lines. Must start with 1, 2, 3 | |
+| `calls_come_from` | The caller ID line (only when the site has one) | `{voice_number}` |
+| `opt_out_line` | The invite's consent/opt-out line. Must keep **STOP** in English ("Responda STOP para cancelar.") | |
+| `unclear_choice` | A reply to the menu we could not read | `{options}` (the menu lines joined with ", ") |
+| `gave_up_choice`, `gave_up_time` | After one failed re-ask. Keep **911** | |
+| `calling_now`, `calling_now_from` | "We'll call you shortly" (without / with the caller ID) | `calling_now_from`: `{voice_number}` |
+| `cannot_call_back` | The call cannot be placed automatically | |
+| `ask_for_time`, `unclear_time` | Asking for a day and time, with examples in the language ("mañana 3pm") | |
+| `booked`, `booked_adjusted` | The booked time read back (the safeguard on time parsing) | `{when}` |
+| `booked_calls_from` | Added after it when the site has a caller ID | `{voice_number}` |
+| `booked_cancel` | "Reply C to cancel". Keep the letter **C** | |
+| `already_booked` | A new message while a call is booked. Keep **C** | `{when}` |
+| `your_callback` | `{when}` above when the booked time was not kept | |
+| `booking_canceled` | After C | `{support_email}` |
+| `nothing_to_cancel` | C with nothing booked | |
+| `emergency` | The red-flag reply. Keep **911** and **tel:911** | |
+| `opted_out` | After STOP (only when we answer keywords ourselves) | `{org_name}` |
+| `help` | After HELP. Keep **STOP** and **911** | `{org_name}`, `{support_email}` |
+| `session_closed` | A reply after the conversation ended. Keep **911** | `{support_email}` |
+| `ask_dob`, `dob_unreadable` | The date-of-birth gate. Must ask for **DD/MM/...** (a non-English patient's date is read day first) | `ask_dob`: `{name}` |
+| `dob_failed` | After two mismatches or three unreadable dates | |
+| `survey_stopped` | After C during the questions | |
+| `confirm_time`, `confirm_time_adjusted`, `confirm_time_reply` | The model-read time read back, then "Reply YES to book it…" | the first two: `{when}` |
+| `weekdays`, `months` | 7 and 12 short names, space separated, Monday and January first ("lun mar mié…") | |
+| `when_format` | How a booked time is written ("{weekday} {day} {month}{year}, {time}" gives "jue 13 ago, 3:00 PM") | `{weekday}`, `{day}`, `{month}`, `{year}`, `{time}` |
+
+Rules for every text in a pack (`sms_copy`, `sms_scripts`, questions' `sms*`): keep **911** in digits, **tel:911**, **STOP** and the reply letter **C** wherever the English has them; keep the digits 1/2/3. The patient's replies are translated to English before they are read, so "sí", "no", "ALTO", "AYUDA" and "mañana 3pm" all work; "C" and digits are never translated.
+
+**Length and encoding.** Accented letters outside the GSM-7 set (á, í, ó, ú; é, ñ, ¿ and ¡ are fine) and every non-Latin script make the whole text UCS-2: 70 characters for one segment, 67 a segment when longer, against 160/153. The lint renders every text as it is sent, with long sample values (a long first name and org name, the longest booked-time shape, a 60-character question), and **fails above 3 segments** and **warns above 2**. English texts keep their own rule (plain GSM-7). Keep texts short.
+
 **What a pack's status does:**
-- `draft`, `in_review`, `retired`: nothing. Patients in that language stay **held** (not called), unless an admin ticks "Call in English" for them. The patient form shows the language as "(not available yet)".
+- `draft`, `in_review`, `retired`: nothing. Patients in that language stay **held** (not called), unless an admin ticks "Call in English" for them. The patient form shows the language as "(not available yet)". They get no missed-call text either.
 - `approved` (and lint-clean): the language becomes available for **voice** calls of that use case. Patients in it are called in their language, and the voicemail is said in it.
-- **Texts stay English-only in this step.** A patient whose language is not English (and who is not set to "Call in English") gets no missed-call text: it is skipped with the reason "no approved Spanish (US) text wording" on the call.
-- The admin console shows each pack and its status under Display → Languages (read-only).
+- `approved`, with the texts complete and lint-clean (`language_packs.sms_problems`): the language is available for **texts** too. A missed call's text, the 1/2/3 menu and the text questionnaire go out in the patient's language. Without approved text wording, a patient whose language is not English (and who is not set to "Call in English") gets no missed-call text: it is skipped with the reason "no approved Spanish (US) text wording" on the call. Patients on "Call in English" get the English texts.
+- The admin console shows each pack and its status under Display → Languages (read-only), one line for voice and one for texts.
+- Admin → Testing → **Test by text** can play a conversation in any language whose pack has complete text wording, a draft included (nothing is sent); it says "Draft wording, not approved". A real text never uses a draft.
 
 **Evals only:** `VOA_ALLOW_DRAFT_PACKS=1` lets the gateway speak a draft pack, and only when `VOA_ENV` is set to `dev` or `test`. It is refused in demo and prod, and it never makes a patient callable.
 

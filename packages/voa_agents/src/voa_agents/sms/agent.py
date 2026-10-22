@@ -64,14 +64,10 @@ _UNREAD_NOTES = frozenset({"reask", "gave-up"})
 def confirm_time_prompt(when_text: str, adjusted: bool) -> str:
     """Read the model's reading back. Nothing is booked until the patient says YES.
 
-    GSM-7 only, no clinical content (same rules as ``voa_core.copy``).
+    GSM-7 only, no clinical content (same rules as ``voa_core.copy``, where the
+    wording now lives so a language pack can translate it).
     """
-    lead = (
-        f"The closest we can do is {when_text}."
-        if adjusted
-        else f"Just to check - did you mean {when_text}?"
-    )
-    return f"{lead} Reply YES to book it, or send another day and time."
+    return messages.confirm_time_prompt(when_text, adjusted)
 
 
 class TimeCandidate(BaseModel):
@@ -134,6 +130,7 @@ class SmsConversation:
         if not session or session.get("state") != st.STATE_AWAITING_TIME:
             return d
         pending = session.get(PENDING_TIME)
+        m = conversation.session_copy(session)  # the conversation's language
 
         if d.note not in _UNREAD_NOTES:
             # The deterministic path acted (booked, cancelled, STOP, red flag...).
@@ -149,15 +146,13 @@ class SmsConversation:
                 if resolved is None:
                     # Time has moved on since we asked (or it never was valid).
                     return Decision(
-                        reply=messages.ask_for_time(),
+                        reply=m.ask_for_time(),
                         retry=0,
                         session_patch={PENDING_TIME: None},
                         note="llm-candidate-stale",
                     )
                 return Decision(
-                    reply=messages.booked(
-                        timeparse.humanize(resolved.when, now), resolved.adjusted, self.site
-                    ),
+                    reply=m.booked(m.humanize(resolved.when, now), resolved.adjusted, self.site),
                     state=st.STATE_SCHEDULED,
                     effect=Effect.BOOK,
                     when=resolved.when,
@@ -167,7 +162,7 @@ class SmsConversation:
                 )
             if answer == "no":
                 return Decision(
-                    reply=messages.ask_for_time(),
+                    reply=m.ask_for_time(),
                     retry=0,
                     session_patch={PENDING_TIME: None},
                     note="llm-candidate-declined",
@@ -187,7 +182,7 @@ class SmsConversation:
         if resolved is None:
             return _with_patch(d, {LLM_ATTEMPTS: attempts + 1})
         return Decision(
-            reply=confirm_time_prompt(timeparse.humanize(resolved.when, now), resolved.adjusted),
+            reply=m.confirm_time_prompt(m.humanize(resolved.when, now), resolved.adjusted),
             state=st.STATE_AWAITING_TIME,
             retry=0,
             session_patch={PENDING_TIME: resolved.when.isoformat(), LLM_ATTEMPTS: attempts + 1},

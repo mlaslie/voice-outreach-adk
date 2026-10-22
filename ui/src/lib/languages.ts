@@ -34,7 +34,11 @@ export interface LanguagePackInfo {
   approved_by: string;
   approved_at: string;
   voice: { complete: boolean; available: boolean };
-  sms: { complete: boolean; available: boolean };
+  /**
+   * Texts (step 5): complete = every SMS text translated and lint-clean
+   * (encoding-aware segment limits); available = also approved.
+   */
+  sms: { complete: boolean; available: boolean; problems?: string[]; warnings?: string[] };
   /** What it still needs, e.g. "needs translator review"; "" when approved. */
   needs: string;
 }
@@ -62,7 +66,7 @@ export function packChannelLines(p: LanguagePackInfo): string[] {
   const texts = p.sms.available
     ? "Texts: approved, in use"
     : p.sms.complete
-      ? "Texts: translated, not in use yet (texts in other languages are a later step)"
+      ? `Texts: ${p.status.replace("_", " ")}${p.needs ? `, ${p.needs}` : ""}`
       : "Texts: not translated yet (English texts are never sent instead)";
   return [voice, texts];
 }
@@ -169,4 +173,22 @@ export function parseYesNo(v: string | null | undefined): boolean | undefined {
   if (!k || ["no", "n", "false", "0"].includes(k)) return false;
   if (["yes", "y", "true", "1"].includes(k)) return true;
   return undefined;
+}
+
+/**
+ * The admin "Test by text" simulator's language choice (step 5). English always
+ * works; another language needs its pack's text wording, and a draft is allowed
+ * there (nothing is sent) but labelled. `null` = cannot be tested yet.
+ */
+export function textTestWording(
+  code: string,
+  packs: LanguagePackInfo[] | undefined,
+  campaignId: string = DEFAULT_CAMPAIGN,
+): { approved: boolean; label: string } | null {
+  if (code === "en-US" || code === "en-IN") return { approved: true, label: "" };
+  const p = packs?.find((x) => x.campaign_id === campaignId && x.language === code);
+  if (!p || !p.sms.complete || p.status === "retired" || p.status === "invalid") return null;
+  return p.sms.available
+    ? { approved: true, label: "" }
+    : { approved: false, label: "Draft wording, not approved" };
 }

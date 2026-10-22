@@ -1,8 +1,10 @@
 """The EHR feed: idempotent call batches with per-item results."""
 
+import json
 from datetime import timedelta
 
 from test_nurse_console_api import NOW, PHONE, PHONE2, make, run
+from voa_api import routes_ingest
 
 URL = "/api/v1/call-batches/epic-test/2026-03-03"
 LATER = (NOW + timedelta(hours=2)).isoformat()  # 12:00 New York, inside hours
@@ -28,17 +30,37 @@ def statuses(r):
     return {i["external_id"]: i["status"] for i in r.json()["items"]}
 
 
+def without_ids(r) -> str:
+    """The response with its random ids removed. An entry id is a uuid4 hex and,
+    about once in 1,300 runs, contains "1950": a PHI check on the raw text then
+    fails with no PHI in it (the flaky failure of 22 Oct 2026)."""
+    body = r.json()
+    body.pop("runs", None)
+    for i in body.get("items", []):
+        i.pop("entry_id", None)
+    return json.dumps(body)
+
+
 def test_a_batch_creates_patients_and_a_run_without_echoing_patient_data():
     client, api, _ = make()
     r = client.put(URL, json=batch(call("e1"), call("e2", phone=PHONE2)))
     assert r.status_code == 200, r.text
     assert statuses(r) == {"e1": "created", "e2": "created"}
-    assert "Test Patient" not in r.text and "1950" not in r.text  # no PHI back
+    assert "Test Patient" not in r.text and "1950" not in without_ids(r)  # no PHI back
     (rid,) = r.json()["runs"]
     run_doc = run(api.store.get("call_runs", rid))
     assert len(run_doc["entry_ids"]) == 2 and run_doc["source"] == "epic-test"
     entry = run(api.store.get("call_list", run_doc["entry_ids"][0]))
     assert entry["source"] == "epic-test" and entry["external_id"] in ("e1", "e2")
+
+
+def test_the_phi_check_ignores_an_entry_id_that_happens_to_contain_the_birth_year(monkeypatch):
+    # Regression for the 22 Oct flake: pin the "random" id to one containing 1950.
+    monkeypatch.setattr(routes_ingest, "new_id", lambda: "0" * 12 + "41950" + "0" * 15)
+    client, api, _ = make()
+    r = client.put(URL, json=batch(call("e1")))
+    assert statuses(r) == {"e1": "created"} and "1950" in r.text  # the id, not PHI
+    assert "Test Patient" not in r.text and "1950" not in without_ids(r)
 
 
 def test_the_same_batch_again_changes_nothing():

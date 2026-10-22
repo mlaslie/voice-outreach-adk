@@ -28,6 +28,7 @@ from voa_core import patient_questions as pq
 from voa_core import survey as survey_mod
 from voa_core.copy import SiteCopy
 from voa_core.sms import states as store
+from voa_core.sms_copy import ENGLISH_COPY, EnglishCopy, PackCopy
 from voa_core.timeparse import DEFAULT_SCHEDULING, SchedulingPolicy
 
 
@@ -97,13 +98,13 @@ class _Ctx:
     #: (docs/LANGUAGES-PLAN.md §3.5), and the language they were in.
     original: str | None = None
     original_lang: str | None = None
+    #: The shared copy in the conversation's language (``session_copy``).
+    m: EnglishCopy | PackCopy = ENGLISH_COPY
 
 
 def _book(resolved: timeparse.Resolved, ctx: _Ctx, *, rebook: bool) -> Decision:
     return Decision(
-        reply=messages.booked(
-            timeparse.humanize(resolved.when, ctx.now), resolved.adjusted, ctx.site
-        ),
+        reply=ctx.m.booked(ctx.m.humanize(resolved.when, ctx.now), resolved.adjusted, ctx.site),
         state=store.STATE_SCHEDULED,
         effect=Effect.REBOOK if rebook else Effect.BOOK,
         when=resolved.when,
@@ -148,11 +149,57 @@ def session_campaign_id(session: dict | None) -> str | None:
 
 def campaign_of(session: dict | None):
     """The session's spec, or None if it cannot be loaded (then nothing clinical
-    is sent: the caller stops the questions)."""
+    is sent: the caller stops the questions). For a conversation in another
+    language (``sms_language``) the spec carries the pack's SMS wording
+    (``language_packs.localize_sms``); ids, rules and triage are the English spec's."""
     try:
-        return survey_mod.campaign_for(session_campaign_id(session))
+        c = survey_mod.campaign_for(session_campaign_id(session))
     except (OSError, ValueError):
         return None
+    pack = _sms_pack(session)
+    if pack is None:
+        return c
+    from voa_core import language_packs
+
+    return language_packs.localize_sms(c, pack)
+
+
+def sms_language(session: dict | None) -> str | None:
+    """The language this conversation's texts are written in, when it is not
+    English: stamped on the session when it opened (``sms_language``), from the
+    patient's language and an approved SMS pack (``languages.text_language``),
+    or by the dry-run simulator."""
+    from voa_core import languages
+
+    code = languages.normalize((session or {}).get("sms_language"))
+    return code if code and code not in languages.ENGLISH else None
+
+
+def _sms_pack(session: dict | None):
+    lang = sms_language(session)
+    if lang is None:
+        return None
+    from voa_core import language_packs
+
+    return language_packs.sms_pack(
+        session_campaign_id(session),
+        lang,
+        allow_drafts=bool((session or {}).get("sms_draft_wording")),
+    )
+
+
+def session_copy(session: dict | None) -> EnglishCopy | PackCopy:
+    """The shared texts (invite, menu, DOB gate, STOP/HELP...) for this
+    conversation: the pack's for a conversation in another language, else English.
+
+    A conversation whose pack is no longer usable (retired, edited into a lint
+    failure) gets the English object here, and ``sms_service.send_sms`` then
+    refuses every text to it (its language has no approved wording): such a
+    patient is never texted in English, nor in unapproved wording."""
+    pack = _sms_pack(session)
+    if pack is None:
+        return ENGLISH_COPY
+    return PackCopy(pack.sms_copy, pack.language, approved=pack.approved)
 
 
 def _no_campaign() -> Decision:
@@ -286,7 +333,7 @@ def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
         # would turn a patient into an urgent identity case in two messages.
         if intent_mod.is_cancel(body):
             return Decision(
-                reply=messages.survey_stopped(),
+                reply=c.m.survey_stopped(),
                 state=store.STATE_CLOSED,
                 retry=0,
                 note="survey-declined-at-dob",
@@ -294,7 +341,7 @@ def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
         choice = intent_mod.classify_choice(body, c.now)
         if choice is intent_mod.Intent.CALL_NOW:
             return Decision(
-                reply=messages.calling_now(c.site),
+                reply=c.m.calling_now(c.site),
                 state=store.STATE_RECALL_DISPATCHED,
                 effect=Effect.DISPATCH_RECALL,
                 retry=0,
@@ -311,14 +358,14 @@ def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
                 if resolved is not None:
                     return _book(resolved, c, rebook=False)
                 return Decision(
-                    reply=messages.ask_for_time(),
+                    reply=c.m.ask_for_time(),
                     state=store.STATE_AWAITING_TIME,
                     retry=0,
                     note="ask-time-from-dob",
                 )
         elif choice is intent_mod.Intent.PICK_TIME:
             return Decision(
-                reply=messages.ask_for_time(),
+                reply=c.m.ask_for_time(),
                 state=store.STATE_AWAITING_TIME,
                 retry=0,
                 note="ask-time-from-dob",
@@ -328,13 +375,13 @@ def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
             # Not an identity failure -- we simply cannot read what they are
             # sending. Close politely rather than looping to the message cap.
             return Decision(
-                reply=messages.dob_failed(),
+                reply=c.m.dob_failed(),
                 state=store.STATE_CLOSED,
                 retry=0,
                 note="dob-unreadable-exhausted",
             )
         return Decision(
-            reply=messages.dob_unreadable(),
+            reply=c.m.dob_unreadable(),
             session_patch={"dob_unreadable": unreadable},
             note="dob-unreadable",
         )
@@ -366,7 +413,7 @@ def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
     if attempts < 2:
         return Decision(
             # Never say it did not match: that confirms a record exists.
-            reply=messages.dob_unreadable(),
+            reply=c.m.dob_unreadable(),
             session_patch={"dob_attempts": attempts},
             note="dob-mismatch",
         )
@@ -375,7 +422,7 @@ def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
     # and promoting the origin call to success would close the real patient's
     # follow-up because someone else held the handset.
     return Decision(
-        reply=messages.dob_failed(),
+        reply=c.m.dob_failed(),
         state=store.STATE_CLOSED,
         effect=Effect.SUBMIT_SURVEY,
         retry=0,
@@ -506,11 +553,13 @@ def _record_question(
     # translation (``text``), and the patient's own words are kept with it.
     entry = pq.record_translated(orig[0], text, orig[1]) if orig else pq.record(text)
     qs = [*_questions_so_far(answers), entry]
+    # The acknowledgement echoes the patient's own words, not our translation.
+    echo = orig[0] if orig and orig[0] else text
     answers[survey_mod.F_PATIENT_QUESTIONS] = qs
     if len(qs) >= pq.MAX_QUESTIONS:
         rest = [p for p in pending if p != survey_mod.F_PATIENT_QUESTIONS]
         return _advance(
-            session, answers, plan, rest, index, said=messages.question_noted_last(text, c), c=c
+            session, answers, plan, rest, index, said=messages.question_noted_last(echo, c), c=c
         )
     loop = (
         pending
@@ -520,7 +569,7 @@ def _record_question(
             *pending,
         ]
     )
-    return _advance(session, answers, plan, loop, index, said=messages.question_noted(text, c), c=c)
+    return _advance(session, answers, plan, loop, index, said=messages.question_noted(echo, c), c=c)
 
 
 def _handle_question_loop(
@@ -584,7 +633,10 @@ def _keep_original(answers: dict, field: str, orig: tuple[str, str | None] | Non
 
 
 def _handle_survey(
-    session: dict, body: str, orig: tuple[str, str | None] | None = None
+    session: dict,
+    body: str,
+    orig: tuple[str, str | None] | None = None,
+    m: EnglishCopy | PackCopy = ENGLISH_COPY,
 ) -> Decision:
     plan = list(session.get("survey_plan") or [])
     pending = list(session.get("survey_pending") or [])
@@ -617,7 +669,7 @@ def _handle_survey(
         # The word CANCEL is a carrier STOP keyword and is handled far above
         # this line -- it must never be offered as a survey exit.
         return Decision(
-            reply=messages.survey_stopped(),
+            reply=m.survey_stopped(),
             state=store.STATE_CLOSED,
             effect=Effect.SUBMIT_SURVEY
             if survey_mod.has_urgent_finding(answers, c)
@@ -720,6 +772,7 @@ def decide(
     now = now or timeparse.now_local(scheduling)
     # The menu must offer exactly what this function will honour.
     site = dataclasses.replace(site, survey_enabled=policy.survey_enabled)
+    m = session_copy(session)
     c = _Ctx(
         now=now,
         policy=policy,
@@ -727,6 +780,7 @@ def decide(
         scheduling=scheduling,
         original=original,
         original_lang=original_lang,
+        m=m,
     )
 
     # --- 1. Compliance keywords. Whole-message match, checked first, in every
@@ -734,7 +788,7 @@ def decide(
     compliance = intent_mod.classify_compliance(body)
     if compliance is intent_mod.Intent.STOP:
         return Decision(
-            reply=messages.opted_out(site) if policy.reply_to_compliance_keywords else None,
+            reply=m.opted_out(site) if policy.reply_to_compliance_keywords else None,
             state=store.STATE_OPTED_OUT,
             effect=Effect.OPT_OUT,
             note="stop",
@@ -743,7 +797,7 @@ def decide(
         return Decision(effect=Effect.OPT_IN, note="start")
     if compliance is intent_mod.Intent.HELP:
         return Decision(
-            reply=messages.help_message(site) if policy.reply_to_compliance_keywords else None,
+            reply=m.help_message(site) if policy.reply_to_compliance_keywords else None,
             note="help",
         )
 
@@ -760,13 +814,13 @@ def decide(
         # nothing but still cancels.
         if (session or {}).get("state") in store.SURVEY_STATES:
             return Decision(
-                reply=messages.emergency(),
+                reply=m.emergency(),
                 state=store.STATE_CLOSED,
                 effect=Effect.FILE_EMERGENCY,
                 note="red-flag-mid-survey",
             )
         return Decision(
-            reply=messages.emergency(),
+            reply=m.emergency(),
             state=store.STATE_CLOSED,
             effect=Effect.CANCEL_ALL,
             note="red-flag",
@@ -785,11 +839,11 @@ def decide(
         # tell the patient the follow-up is closed and then ring them anyway.
         if session.get("callback_id") and intent_mod.is_cancel(body):
             return Decision(
-                reply=messages.booking_canceled(site),
+                reply=m.booking_canceled(site),
                 effect=Effect.CANCEL_BOOKING,
                 note="cancel-after-expiry",
             )
-        return Decision(reply=messages.session_closed(site), note="closed")
+        return Decision(reply=m.session_closed(site), note="closed")
     if state == store.STATE_OPTED_OUT:
         return Decision(note="opted-out")
 
@@ -799,7 +853,7 @@ def decide(
 
         if choice is intent_mod.Intent.CALL_NOW:
             return Decision(
-                reply=messages.calling_now(site),
+                reply=m.calling_now(site),
                 state=store.STATE_RECALL_DISPATCHED,
                 effect=Effect.DISPATCH_RECALL,
                 retry=0,
@@ -813,7 +867,7 @@ def decide(
             if resolved is not None:
                 return _book(resolved, c, rebook=False)
             return Decision(
-                reply=messages.ask_for_time(),
+                reply=m.ask_for_time(),
                 state=store.STATE_AWAITING_TIME,
                 retry=0,
                 note="ask-time",
@@ -821,7 +875,7 @@ def decide(
 
         if choice is intent_mod.Intent.PICK_TIME:
             return Decision(
-                reply=messages.ask_for_time(),
+                reply=m.ask_for_time(),
                 state=store.STATE_AWAITING_TIME,
                 retry=0,
                 note="ask-time",
@@ -837,13 +891,13 @@ def decide(
                 or not str(ctx.get("patient_id") or "").strip()
             ):
                 return Decision(
-                    reply=messages.ask_for_time(),
+                    reply=m.ask_for_time(),
                     state=store.STATE_AWAITING_TIME,
                     retry=0,
                     note="by-text-no-context",
                 )
             return Decision(
-                reply=messages.ask_dob(ctx.get("patient_name")),
+                reply=m.ask_dob(ctx.get("patient_name")),
                 state=store.STATE_AWAITING_DOB,
                 retry=0,
                 session_patch={"dob_attempts": 0},
@@ -852,15 +906,15 @@ def decide(
 
         return _unclear(
             session,
-            first=messages.unclear_choice(site),
-            final=messages.gave_up_choice(),
+            first=m.unclear_choice(site),
+            final=m.gave_up_choice(),
             closing_state=store.STATE_CLOSED,
         )
 
     if state == store.STATE_AWAITING_TIME:
         if intent_mod.is_cancel(body):
             return Decision(
-                reply=messages.gave_up_time(),
+                reply=m.gave_up_time(),
                 state=store.STATE_CLOSED,
                 retry=0,
                 note="cancel-during-scheduling",
@@ -880,15 +934,15 @@ def decide(
             return _book(resolved, c, rebook=False)
         return _unclear(
             session,
-            first=messages.unclear_time(),
-            final=messages.gave_up_time(),
+            first=m.unclear_time(),
+            final=m.gave_up_time(),
             closing_state=store.STATE_CLOSED,
         )
 
     if state == store.STATE_SCHEDULED:
         if intent_mod.is_cancel(body):
             return Decision(
-                reply=messages.booking_canceled(site),
+                reply=m.booking_canceled(site),
                 state=store.STATE_CLOSED,
                 effect=Effect.CANCEL_BOOKING,
                 retry=0,
@@ -897,15 +951,15 @@ def decide(
         resolved = _time_or_none(body, c)
         if resolved is not None:
             return _book(resolved, c, rebook=True)
-        booked_for = session.get("scheduled_for_text") or "your callback"
-        return Decision(reply=messages.already_booked(booked_for), note="already-booked")
+        booked_for = session.get("scheduled_for_text") or m.your_callback()
+        return Decision(reply=m.already_booked(booked_for), note="already-booked")
 
     if state == store.STATE_AWAITING_DOB:
         return _handle_dob(session, body, c)
 
     if state == store.STATE_SURVEY:
         orig = (original, original_lang) if original else None
-        return _handle_survey(session, body, orig)
+        return _handle_survey(session, body, orig, m)
 
     if state == store.STATE_DIALING:
         # The proxy has been asked to dial and may already be ringing. Saying

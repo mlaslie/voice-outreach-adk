@@ -201,7 +201,9 @@ def test_the_languages_endpoint_lists_the_packs_read_only():
     es = next(p for p in body["packs"] if (p["campaign_id"], p["language"]) == ("post_op", "es-US"))
     assert es["status"] == "draft" and es["needs"] == "needs translator review"
     assert es["voice"] == {"complete": True, "available": False}
-    assert es["sms"] == {"complete": False, "available": False}
+    # Step 5: the texts are drafted and lint-clean, but not approved: not available.
+    assert es["sms"]["complete"] is True and es["sms"]["available"] is False
+    assert es["sms"]["problems"] == []
     # A draft pack never makes Spanish callable.
     assert body["available_by_campaign"]["post_op"] == ["en-IN", "en-US"]
     assert next(x for x in body["languages"] if x["code"] == "es-US")["available"] is False

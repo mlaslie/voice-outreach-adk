@@ -50,6 +50,18 @@ export interface SmsTestStartResponse {
   survey_enabled: boolean;
   /** "simulator": a test-only consent was recorded; "existing": one was on file. */
   consent: "simulator" | "existing";
+  /**
+   * The language of the texts (step 5). Another language uses its pack's text
+   * wording; the simulator may use a draft (nothing is sent), labelled here.
+   */
+  wording?: {
+    language: string;
+    name?: string;
+    status: string;
+    approved: boolean;
+    /** "Draft wording, not approved", or "" */
+    label: string;
+  };
   patient: SmsTestPatient;
   state: string;
   messages: SmsMessage[];
@@ -292,8 +304,15 @@ export const api = {
   // numbers on the outbound allowlist. Read the thread with fetchMessages
   // (lib/followups.ts) scoped to the returned call_sid.
 
-  startSmsTest(phone: string, diabetic: boolean): Promise<SmsTestStartResponse> {
-    return request<SmsTestStartResponse>("/sms/test/start", json("POST", { phone, diabetic }));
+  startSmsTest(
+    phone: string,
+    diabetic: boolean,
+    language: string = "en-US",
+  ): Promise<SmsTestStartResponse> {
+    return request<SmsTestStartResponse>(
+      "/sms/test/start",
+      json("POST", { phone, diabetic, language }),
+    );
   },
 
   replySmsTest(phone: string, body: string): Promise<SmsTestReplyResponse> {

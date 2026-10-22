@@ -179,7 +179,10 @@ def test_sms_wording_is_optional_but_checked_when_present():
 
 
 def test_an_approved_voice_pack_is_available_for_voice_not_for_texts(tmp_path):
-    write(tmp_path, approved())
+    # Without its SMS wording (sms_copy), an approved pack is voice-only.
+    doc = approved()
+    doc.pop("sms_copy")
+    write(tmp_path, doc)
     assert languages.available("post_op", tmp_path) == {"en-US", "en-IN", "es-US"}
     assert languages.available("post_op", tmp_path, channel="voice") == {"en-US", "en-IN", "es-US"}
     assert languages.available("post_op", tmp_path, channel="sms") == {"en-US", "en-IN"}
@@ -214,7 +217,9 @@ def test_summary_rows_for_the_console():
     es = rows[("post_op", "es-US")]
     assert es["status"] == "draft" and es["needs"] == "needs translator review"
     assert es["voice"] == {"complete": True, "available": False}
-    assert es["sms"] == {"complete": False, "available": False}
+    # Step 5: the Spanish texts are drafted (complete, lint-clean) but not approved.
+    assert es["sms"]["complete"] is True and es["sms"]["available"] is False
+    assert es["sms"]["problems"] == []
     assert es["name"] == "Spanish (US)" and es["problems"] == []
 
 

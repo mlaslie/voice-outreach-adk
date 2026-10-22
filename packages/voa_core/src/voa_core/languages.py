@@ -4,7 +4,7 @@ A patient's preferred language is one of the 24 languages the live voice model
 speaks. A language is *available* for a use case only when the call can be made
 in it today: English (both English codes use the English wording), plus any
 language with an approved, complete language pack (``voa_core.language_packs``;
-step 4 ships a draft Spanish pack, which does not count). A patient whose
+the repo ships a draft Spanish pack, which does not count). A patient whose
 language is not available is **held**: never auto-dialled and never called in
 English silently, unless an admin turns on ``call_in_english`` for them.
 
@@ -169,8 +169,10 @@ def available(
     campaign_id: str | None, config_dir: Path | None = None, channel: str = "voice"
 ) -> set[str]:
     """The languages a use case can be called (``voice``) or texted (``sms``) in
-    today. In step 4 an approved voice pack makes a language available for voice
-    only; texts stay English-only until step 5."""
+    today: English, plus every language whose pack is approved and complete for
+    that channel. For texts that means the SMS wording too (``sms_copy``,
+    ``sms_scripts``, question ``sms*``), lint-clean within the segment limits
+    (``language_packs.sms_problems``, step 5). Drafts never count."""
     from .campaign import DEFAULT_CAMPAIGN_ID
 
     return set(ENGLISH) | approved_packs(campaign_id or DEFAULT_CAMPAIGN_ID, config_dir, channel)
@@ -198,6 +200,26 @@ def text_block(
     if code in available(campaign_id, config_dir, channel="sms"):
         return None
     return f"no approved {name(code)} text wording"
+
+
+def text_language(
+    language: Any,
+    campaign_id: str | None,
+    call_in_english: Any = False,
+    config_dir: Path | None = None,
+) -> str | None:
+    """The language a new text conversation is written in: the patient's, when
+    it is not English, the admin has not chosen "Call in English", and texts are
+    available in it (an approved, complete SMS pack). None means English, which
+    is only right when ``text_block`` is None too."""
+    from .compliance import coerce_bool
+
+    if coerce_bool(call_in_english) or not language:
+        return None
+    code = normalize(language)
+    if code is None or code in ENGLISH:
+        return None
+    return code if code in available(campaign_id, config_dir, channel="sms") else None
 
 
 # --------------------------------------------------------------------------- the hold

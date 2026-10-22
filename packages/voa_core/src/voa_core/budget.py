@@ -19,9 +19,16 @@ class BudgetUnavailable(RuntimeError):
 
 
 async def consume(
-    store: DocStore, name: str, limit: int, *, window_s: int = 3600, now: datetime | None = None
+    store: DocStore,
+    name: str,
+    limit: int,
+    *,
+    window_s: int = 3600,
+    now: datetime | None = None,
+    units: int = 1,
 ) -> bool:
-    """Reserve one unit. False when the window's budget is spent. ``limit <= 0`` = unlimited."""
+    """Reserve ``units`` (one by default). False when the window's budget cannot
+    hold them. ``limit <= 0`` = unlimited."""
     if limit <= 0:
         return True
     now = now or datetime.now(UTC)
@@ -33,10 +40,12 @@ async def consume(
         start_dt = datetime.fromisoformat(start) if start else None
         if start_dt is None or now - start_dt >= timedelta(seconds=window_s):
             doc = {"window_start": now.isoformat(), "count": 0}
-        if int(doc.get("count", 0)) >= limit:
+        n = max(1, int(units))
+        count = int(doc.get("count", 0))
+        if count >= limit or (n > 1 and count + n > limit):
             result["ok"] = False
             return None
-        doc["count"] = int(doc.get("count", 0)) + 1
+        doc["count"] = count + n
         result["ok"] = True
         return doc
 
@@ -47,15 +56,16 @@ async def consume(
     return result["ok"]
 
 
-async def release(store: DocStore, name: str, limit: int) -> None:
-    """Give a unit back after a failure that never reached the outside world. Best effort."""
+async def release(store: DocStore, name: str, limit: int, *, units: int = 1) -> None:
+    """Give units back after a failure that never reached the outside world. Best effort."""
     if limit <= 0:
         return
+    n = max(1, int(units))
 
     def mutate(doc):
         if not doc or int(doc.get("count", 0)) <= 0:
             return None
-        return {**doc, "count": int(doc["count"]) - 1}
+        return {**doc, "count": max(0, int(doc["count"]) - n)}
 
     try:
         await store.transact(COLLECTION, name, mutate)
