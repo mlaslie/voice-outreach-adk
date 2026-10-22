@@ -472,7 +472,7 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
   - Smoke passes.
   - The first smoke rerun hung locally with no output, and the cause was not found. gcloud auth was fine, and a rerun with visible output passed in under 4 minutes.
 
-## 22 Oct: bilingual transcripts (step 2; not deployed)
+## 22 Oct: bilingual transcripts (step 2; deployed 22 Oct)
 
 **Why now:** Gemini Live follows a patient who switches language mid-call, so a Spanish speaker on an English call already produces Spanish turns. Before this, a turn wholly in a non-Latin script was emptied by the gateway, `caller_turns` stayed 0, and `submit_report` refused to file.
 
@@ -499,7 +499,7 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
 
 **Parity:** the goldens and tool declarations are unchanged.
 
-## 22 Oct: language safety layer (step 3; not deployed)
+## 22 Oct: language safety layer (step 3; deployed 22 Oct)
 
 **Why now:** Gemini Live follows a patient who switches language mid-call, so Spanish answers already arrive on English calls. A survey proved seven ways today's English-only code read them less safely (`docs/LANGUAGES-PLAN.md` §2). **The rule:** a patient's language never makes a call or text less safe; what can't be read goes to a nurse; re-checks only raise.
 
@@ -540,3 +540,4 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
   - **The one failure (dob_retry) was not the new DOB rule.** The model *invented* a date of birth ("January first, nineteen eighty") in the same turn as its question, before the patient spoke, and checked it. That used one of the two attempts, and the persona's deliberately wrong first answer then ended the check.
   - **Proposed hardening:** `verify_identity` refuses to check unless the caller has spoken since the DOB question (`call_facts` already counts caller turns). That would stop a model-invented date from costing an attempt.
 - **Live `make eval-languages` rerun before deploy:** every metric 1.0, all gates passed.
+- **Deployed 22 Oct:** all six services healthy, smoke passes, no errors in the logs. **Not yet seen live:** the transcript-translate task on a real call (the smoke softphone call doesn't save a transcript), and the `config/languages` lists loading in the images. Place one test call with a Spanish reply, then check the transcript toggle and `translation.status`.
