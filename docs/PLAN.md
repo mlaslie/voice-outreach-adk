@@ -2,7 +2,7 @@
 
 Status: **draft v2**. Decisions from the first review are applied (see §12). Nothing has been built yet.
 Target GCP project: a new, dedicated demo project (its id lives only in the gitignored `config/site.yaml` and `infra/envs/demo/terraform.tfvars`; see §13).
-Source system analysed: the original GE CX + Twilio proxy repository (branch `ge-a2ui-agent`, 16 Oct 2026),
+Source system analysed: the original CX Agent Studio + Twilio proxy repository (16 Oct 2026),
 including `docs/HANDOFF.md`, `docs/F1`–`F9` designs, `docs/KNOWN_ISSUES.md`,
 `docs/agent_instructions_v4.md`, and `docs/ARCHITECTURE_REVIEW_2026-10-16.md`.
 
@@ -41,10 +41,10 @@ A hospital (brand name from config) calls patients after surgery.
 | Component | Tech | Role |
 |---|---|---|
 | `twilio-proxy-v2` | FastAPI on Cloud Run, 4.8k-line `main.py` | Twilio ↔ CES audio bridge, AMD hold/drop, closing drain, call lifecycle, call list and runner, REST + SSE for the UI, survey webhook, allowlist and budget |
-| GE CX (CES) agent | Managed (console-configured) | Conversation, STT, TTS, recording, BigQuery transcripts |
+| CX Agent Studio agent | Managed (console-configured) | Conversation, STT, TTS, recording, BigQuery transcripts |
 | `sms-followup-svc` | FastAPI on Cloud Run + Scheduler tick | SMS state machine, survey by text, action queue |
 | `twilio-proxy-ui` | Next.js 15 / React 19 / Tailwind 4 behind IAP | Dashboard and nurse console |
-| `ge-a2ui-agent` | raw `a2a-sdk` + `google-genai` (not ADK) | Nurse assistant in Gemini Enterprise |
+| previous nurse-assistant agent | raw `a2a-sdk` + `google-genai` (not ADK) | Nurse assistant in Gemini Enterprise |
 | State | Firestore, GCS (recordings), BigQuery (CES transcripts) | |
 
 ### 1.3 What the rewrite changes
@@ -56,7 +56,7 @@ A hospital (brand name from config) calls patients after surgery.
   - optional Gemini transcribe-live for a second transcript track.
 - Twilio is hidden behind **provider interfaces**, so another VoIP or SMS vendor is an adapter plus config.
 - Two services take over the proxy and SMS sidecar logic: one **voice gateway** and one **outreach API**. Both share a domain library.
-- The nurse assistant is rebuilt on **ADK** and keeps today's pattern: **Cloud Run + A2A + A2UI cards**, registered in Gemini Enterprise. It is **not in v1**; the existing `ge-a2ui-agent` is still being refined. v1 only keeps the API it needs stable.
+- The nurse assistant is rebuilt on **ADK** and keeps today's pattern: **Cloud Run + A2A + A2UI cards**, registered in Gemini Enterprise. It is **not in v1**; the previous nurse-assistant agent is still being refined. v1 only keeps the API it needs stable.
 - Cross-cutting behaviour moves into **ADK plugins**: logging, transcript capture, safety, budget and audit.
 - Domain knowledge moves into **ADK skills**: survey, DOB, red flags and SMS scheduling.
 - Everything deployment-specific comes from **config files**.
@@ -103,7 +103,7 @@ A hospital (brand name from config) calls patients after surgery.
 |---|---|---|
 | **voice-gateway** | Cloud Run: `--no-cpu-throttling --session-affinity --timeout=3600 --concurrency=<N>`, min-instances 1 | Must expose a public WebSocket to the telephony provider. It runs `run_live()` in-process, which avoids a second streaming hop. Agent Runtime bidi streaming is still **Preview, EXPERIMENTAL server mode** only. Google's own Gemini Live telephony sample uses this Cloud Run shape. |
 | **outreach-api** | Cloud Run, private (`--no-allow-unauthenticated`). Only the signed provider webhooks are reachable from outside, through a separate public ingress path or service. | REST and SSE for the UI and the assistant; webhooks; Cloud Tasks handlers. Merges the proxy REST surface with the SMS sidecar. |
-| **nurse-assistant** (post-v1) | Cloud Run, ADK agent exposed over A2A (`to_a2a` / A2A executor) with A2UI cards, registered in Gemini Enterprise. Same pattern as today's `ge-a2ui-agent`. | Keeps the working A2UI button/card pattern. Session state and pending proposals move to a persistent ADK session service (Firestore- or Vertex-backed), so `max-instances=1` goes away. |
+| **nurse-assistant** (post-v1) | Cloud Run, ADK agent exposed over A2A (`to_a2a` / A2A executor) with A2UI cards, registered in Gemini Enterprise. Same pattern as the previous nurse-assistant agent. | Keeps the working A2UI button/card pattern. Session state and pending proposals move to a persistent ADK session service (Firestore- or Vertex-backed), so `max-instances=1` goes away. |
 | **ui** | Cloud Run behind IAP (reused Next.js app) | BFF pattern: the browser never calls the backend directly. |
 | **sms agent** | In-process inside outreach-api (ADK `Runner.run_async`). | Short text turns, triggered by webhooks or tasks; a hop would add nothing. |
 
@@ -239,14 +239,14 @@ This keeps the reviewed clinical behaviour and still meets the ADK requirement.
 
 ### 4.5 Nurse assistant (post-v1)
 
-Out of v1 scope. The existing `ge-a2ui-agent` keeps evolving in the old repo. v1 only commits to two things:
+Out of v1 scope. The previous nurse-assistant agent keeps evolving in the old repo. v1 only commits to two things:
 
 1. outreach-api exposes everything the assistant's `backend.py` calls today, plus call-runs and settings;
 2. the API accepts a service-to-service caller that forwards the signed-in nurse's email.
 
 When it is ported, it keeps the **Cloud Run + A2A + A2UI** pattern:
 
-- Ported from `ge-a2ui-agent` to ADK. About 70% of the code carries over:
+- Ported from the previous nurse-assistant agent to ADK. About 70% of the code carries over:
   - `triage.py`, `cards.py` and `backend.py` almost unchanged;
   - `actions.py` refactored;
   - the 21 tool schemas become `FunctionTool`s;
@@ -374,7 +374,7 @@ config/
 | `twilio_utils.py`, `logging_setup.py` | `providers/twilio/`, `voa_core/logging.py` | Reuse and extend. |
 | `agent_instructions_v4.md` | `prompts/post_op.md.j2` + skills | Port. Remove the parts now enforced in code. |
 | `twilio-proxy-ui` (whole app, including the untracked nurse console) | `ui/` | Copy. Change config and the `api.ts` base; replace direct browser reads with BFF routes; add SMS route paths. The pure libs (`triage.ts`, `status.ts`, `nurse/model.ts`, …) are kept. |
-| `ge-a2ui-agent` | `agents/nurse/` | About 70%; see 4.5. |
+| previous nurse-assistant agent | `agents/nurse/` | About 70%; see 4.5. |
 | Next.js `instrumentation.ts` localStorage fix, deploy-ui IAP audit | `ui/`, `infra/` | Reuse. |
 
 ---

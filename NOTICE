@@ -1,0 +1,11 @@
+Voice Outreach
+Copyright 2026 The Voice Outreach Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It is a reference implementation for automated patient outreach. It is not a
+medical device, and it is provided without warranty of any kind. Organisations
+that deploy it are responsible for clinical validation, regulatory compliance
+(including HIPAA, telephone and SMS consent rules, carrier registration and
+language-access obligations), and the agreements required with their cloud,
+telephony and SMS providers.

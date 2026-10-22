@@ -6,7 +6,7 @@ was readmitted") or press buttons; the assistant answers with **A2UI v0.9 cards*
 (plain text on clients that don't render A2UI). It reads and acts through the private
 outreach API (`services/api`), always with the signed-in nurse's identity forwarded.
 
-Ported from the previous `ge-a2ui-agent`, rebuilt on ADK, with the review findings
+Ported from the previous nurse-assistant agent, rebuilt on ADK, with the review findings
 fixed (see "Review findings" below).
 
 ## How it fits together

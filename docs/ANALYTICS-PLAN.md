@@ -10,8 +10,8 @@
 
 | Source | What it offers | What we take from it |
 |---|---|---|
-| **GE-CX app** (the other system) | No analytics screen of its own. Its numbers come from the platform under it. | Room to do better than the comparison system. |
-| **CX Agent Studio / Dialogflow CX** (GE-CX's platform) | Conversation history metrics: sessions, escalation rate, turns per session, tool failures and latency, abandonment. Outcome counts over time. Filters by source. | Outcome funnel, escalation rate, tool reliability and latency. |
+| **The previous system's app** | No analytics screen of its own. Its numbers come from the platform under it. | Room to do better than the comparison system. |
+| **CX Agent Studio / Dialogflow CX** (the previous system's platform) | Conversation history metrics: sessions, escalation rate, turns per session, tool failures and latency, abandonment. Outcome counts over time. Filters by source. | Outcome funnel, escalation rate, tool reliability and latency. |
 | **CX Insights / Quality AI** | Sentiment per side, topic modelling, QA scorecards with human review, AI summaries, audio playback alongside the transcript. | Later phase: AI scoring of calls against a rubric, with a human able to override it. |
 | **Twilio Voice Insights** | Connection rate, answering-machine detection outcomes, call length and answer rate over time, who hung up, audio-quality flags, CSV export. | Connectivity and AMD panel; CSV export. |
 | **Post-discharge outreach programmes** (e.g. UCSF's care-transitions programme, CipherHealth) | Reach rate, overall and by patient group; escalation share; an "unreached" list for fallback outreach; response and escalation trends. | Reach rate as the headline number, an unreached list, and the warning that an average can hide gaps between patient groups. |

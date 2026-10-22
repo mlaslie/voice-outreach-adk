@@ -1,186 +1,251 @@
-# Integration guide
+# Integrating with your environment
 
-This guide is for engineers connecting the system to their own environment. It covers three topics:
+This guide is for engineers connecting Voice Outreach to an EHR or integration engine. It covers three things:
 
-1. **Telephony.** How to run on a provider other than Twilio: an enterprise PBX, Cisco or another contact-center platform.
-2. **Calls in.** How to fill the call queue from an EHR or any other system, with no clicking.
-3. **Results out.** How to send call results (answers, triage, nurse sign-off, transcript, recording) back to an EHR.
+1. **Calls in:** loading call lists programmatically.
+2. **Auditing the call list:** what happened to each patient you sent.
+3. **Results out:** sending results back to your EHR.
 
-Read `docs/ARCHITECTURE.md` first. Each section separates what is **built today** from what you would **build**.
+Telephony and SMS providers have their own guide: [TELEPHONY-PROVIDERS.md](TELEPHONY-PROVIDERS.md). For the overall picture, read [ARCHITECTURE.md](ARCHITECTURE.md) first.
+
+![Integration points: calls in through the scheduling API; results out through the EHR outbox and your exporter; telephony and SMS through a provider adapter.](images/integration.png)
 
 ---
 
-## 1. Telephony: using a provider other than Twilio
+## Authentication: service accounts, no API keys
 
-### How telephony is abstracted
+The API (`voa-api`) is private. Every call needs a Google-signed **ID token** whose audience is the API's URL, issued to a service account the API recognises. Two checks apply:
+1. Cloud Run IAM verifies the token.
+2. The API's route table (`services/api/src/voa_api/auth.py`, `ROUTE_POLICY`) allows each identity only its own routes.
 
-Vendor SDKs live only in `packages/voa_providers`. The rest of the system talks to three small interfaces in `packages/voa_providers/src/voa_providers/base.py`.
-
-| Interface | Methods | Used for |
+| Identity | Terraform name | May call |
 |---|---|---|
-| `VoiceProvider` | `place_call(PlaceCallRequest(to, answer_url, status_url, amd)) -> PlacedCall(call_id, status)`; raises `ProviderRejected(code, message)` | Starting an outbound call. `hangup(call_id)` and `answer_response(...)` exist but the current code does not call them. |
-| `MediaSession` | `codec`; `frames()` yields `StreamStart`, `Audio`, `MarkAck`, `Dtmf` or `StreamStop`; `send_audio(bytes)`; `mark(name)`; `clear()`; `close()` | The live, two-way audio for one call. |
-| `SmsProvider` (`sms.py`) | `send(to, body) -> message_id`; raises `SmsSendError(code, permanent, opted_out)` | Missed-call texts and the text questionnaire. Optional. |
+| **EHR feed** | `voa-ingest` | `PUT`, `GET` and `DELETE /api/v1/call-batches/{source}/{batch_id}`, and nothing else |
+| Admin console | `voa-admin` | Configuration, `GET /api/v1/call-batches` (list), `GET /api/audit` |
+| Nurse console, nurse agent | `voa-ui`, `voa-nurse` | Calls, call list, sign-off; no configuration |
 
-**What the conversation depends on:**
+**Getting a token:**
+- **Inside Google Cloud** (Cloud Run, GKE, Composer, a VM): run your integration *as* `voa-ingest`. The client libraries fetch the token from the metadata server.
+- **Outside Google Cloud** (an on-premises integration engine, another cloud): use [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation) to exchange your platform's identity (OIDC, SAML, AWS, Azure or X.509) for short-lived credentials that impersonate `voa-ingest`.
+  - The federation pool and provider are **not** in this repository's Terraform yet; add them in `infra/envs/<env>`.
+- **On a developer laptop:** impersonate it with `roles/iam.serviceAccountTokenCreator` on `voa-ingest`. Terraform grants that to the `operators` list.
 
-- **Two-way, real-time audio.** The gateway converts whatever the provider sends to the model's format, and back (`voa_providers/audio.py`). Supported today: mu-law 8 kHz (Twilio) and PCM16 16/24 kHz (the browser softphone). Add a `Codec` if yours differs.
-- **Playback acknowledgement (`mark` → `MarkAck`).** The agent hangs up only after its last words have actually played. Without it, the goodbye gets cut off.
-- **Flush (`clear`).** When the patient interrupts, queued agent audio is dropped immediately.
-- **Hang up by closing the stream (`close`).**
-- **Call progress events:** ringing, answered, completed, no answer, busy, failed. The provider's own events must be mapped onto the neutral `lifecycle.CallEventKind`.
-- **Optional: answering-machine detection.** Write `answered_by` on the call (`human`, or `machine_*`) and the gateway plays the voicemail. Without it, set `amd.enabled: false`; the agent then recognises a voicemail greeting itself, which is less reliable.
-- **Not needed from the provider:**
-  - Recording: the gateway records its own stereo WAV.
-  - TTS and speech recognition: Gemini Live does both.
+**Python helper used by every example below:**
 
-### Three ways to connect enterprise telephony
+```python
+# pip install google-auth requests
+import google.auth
+import google.auth.transport.requests
+import google.oauth2.id_token
+import requests
+from google.auth import impersonated_credentials
 
-| Option | What you do | Code change | When to choose it |
-|---|---|---|---|
-| **A. Keep Twilio as the media edge; bring your numbers or PBX over SIP** | Connect your carrier, PBX or SBC to Twilio with a SIP trunk (Twilio Elastic SIP Trunking or "bring your own carrier"), and call from your own numbers. | None | You need your enterprise caller ID or routing but can keep a cloud media edge. Fastest. |
-| **B. A media server you run, on your SIP trunk** | Put a programmable media server between your SIP infrastructure and the gateway, e.g. Asterisk (ARI to originate, AudioSocket for audio), FreeSWITCH (ESL to originate, a WebSocket audio module), or jambonz. It originates the call and streams the call's audio to the gateway over a WebSocket. | A new adapter (below) | Calls must stay on your network and your PBX is SIP-capable. This is the usual path for Cisco CUCM or other SIP PBXs: a SIP trunk to the media server. |
-| **C. A contact-center platform's own streaming API** | If your CCaaS platform can deliver a call's audio as a real-time, **bidirectional** stream and originate calls through an API, write an adapter for it. Check this capability with the vendor: many platforms stream audio *out* for analytics but can't play audio *back in*. | A new adapter | The calls must originate inside that platform: its queues, its reporting, its numbers. |
+API = "https://voa-api-<hash>-<region>.a.run.app"  # terraform -chdir=infra/envs/<env> output -raw api_url
+INGEST_SA = "voa-ingest@<project>.iam.gserviceaccount.com"
 
-### Writing a new adapter (options B and C)
 
-1. **Voice provider.** Create `voa_providers/<name>.py` with `class <Name>Voice(VoiceProvider)`. `place_call` originates the call through your platform's API and returns its call id.
-   - The call must, once answered, connect its audio to the gateway's WebSocket URL for your adapter.
-   - It must report progress to a status URL.
-   - Map rejections to `ProviderRejected`.
-2. **Media session.** `class <Name>MediaSession(MediaSession)` speaks your media server's stream protocol:
-   - Emit `StreamStart(stream_id, call_id, params)` first, then `Audio(bytes)` frames in your codec, and `StreamStop` at the end.
-   - `send_audio` writes playout audio.
-   - `mark`/`MarkAck`: if your protocol has no playout acknowledgement, emulate it. Track the bytes sent and the elapsed time, and emit `MarkAck` once the audio queued before the mark has had time to play.
-   - `clear` must drop queued audio.
-   - `close` must end the call.
-   - **Template:** `browser.py` (the softphone adapter) is a complete, small second implementation. `twilio.py` (`TwilioMediaSession`) is the production one.
-3. **Gateway routes.** In `services/gateway/src/voa_gateway/app.py`, add:
-   - the answer or connect step your platform needs (Twilio's is `/twilio/answer` returning TwiML);
-   - the media WebSocket route that wraps the socket in your `MediaSession` and runs `CallSession` (copy `/twilio/media`);
-   - a status webhook that maps your events with `lifecycle.call_event_patch` and queues `/tasks/call-terminal` on a terminal state (copy `/twilio/status`).
+def id_token(audience: str = API, impersonate: str | None = None) -> str:
+    """An ID token for the API.
 
-   **Every public route must authenticate its caller,** e.g. with a signature, mutual TLS or a token. The gateway is the only public service.
-4. **Selection.**
-   - Add your name to `TelephonyConfig.voice_provider` (`voa_core/config.py`).
-   - Build it in the API's `context._build_voice`.
-   - Choose it with `VOA__TELEPHONY__VOICE_PROVIDER`.
-   - Add its secrets to `infra/envs/<env>/main.tf` (module `secrets`), never as plain env values.
-5. **SMS** (optional): implement `SmsProvider.send` and an inbound-message route like `/twilio/sms`, or keep Twilio for texts only.
-6. **Test.**
-   - Use the fakes (`fake.py`) for unit tests.
-   - `make eval-voice` runs simulated patients through the real Gemini Live agent; point it at your adapter's audio format.
-   - Then place real calls to test handsets on the authorized-numbers list.
+    Running as the service account (Cloud Run, GKE, Workload Identity Federation):
+        id_token()
+    From a laptop with gcloud application-default credentials:
+        id_token(impersonate=INGEST_SA)
+    """
+    req = google.auth.transport.requests.Request()
+    if impersonate is None:
+        return google.oauth2.id_token.fetch_id_token(req, audience)
+    source, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    target = impersonated_credentials.Credentials(
+        source_credentials=source,
+        target_principal=impersonate,
+        target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    creds = impersonated_credentials.IDTokenCredentials(
+        target, target_audience=audience, include_email=True
+    )
+    creds.refresh(req)
+    return creds.token
 
-### Twilio-specific code outside the provider package
 
-These places still assume Twilio and need generalising when a second provider lands. Each is small:
+def api(method: str, path: str, **kw) -> requests.Response:
+    r = requests.request(
+        method,
+        f"{API}{path}",
+        timeout=60,
+        headers={
+            "Authorization": f"Bearer {id_token(impersonate=INGEST_SA)}",
+            "X-Acting-User": "ehr-feed:epic-prod",
+        },  # the name shown in the audit log
+        **kw,
+    )
+    r.raise_for_status()
+    return r
+```
 
-| Where | Assumption |
-|---|---|
-| `gateway/app.py`: `signed_form`, the media WebSocket | `X-Twilio-Signature` validation; the auth token from `providers.twilio` |
-| `gateway/app.py` `/twilio/answer` | TwiML built inline (`<Connect><Stream>`) |
-| `gateway/app.py` `_TWILIO_KIND`, `/twilio/status` | Twilio status names and form fields (`CallSid`, `CallStatus`, `AnsweredBy`, `ErrorCode`…) |
-| `voa_core/config.py` AMD settings, `session.py` | Twilio's AMD mode names and `AnsweredBy` values (`machine_end_beep`…) |
-| `api/dialer.py` | Answer and status URLs hard-coded as `/twilio/answer` and `/twilio/status`; caller ID read from `providers.twilio.from_number`; Twilio error codes treated as non-retryable |
-| `api/context.py` `CALL_ID_RE`, `gateway/app.py` | Call ids assumed to be Twilio's `CA` + 32 hex |
-| `sms_service.py` | Twilio error texts in messages to staff; inbound fields `MessageSid`, `From`, `Body` |
-| Infrastructure | Twilio secrets and `VOA__PROVIDERS__TWILIO__*` env |
+`scripts/sample_ehr_feed.py` is a complete, runnable feed that uses the same pattern with fictional patients.
 
 ---
 
-## 2. Calls in: filling the call queue programmatically
+## 1. Calls in: loading call lists
 
-### Built today: the EHR scheduling API (recommended)
+### The model
+- **A batch** is one list from one source, e.g. tomorrow's discharges from `epic-prod`, identified by `(source, batch_id)`.
+- **A batch has tranches.** Each tranche becomes one **call run** that starts dialling at `scheduled_for`, within the clinic's calling hours, with automatic retries and missed-call texts as configured.
+- **Each patient** is matched on `(source, external_id)`. Use the encounter id, so a re-send updates the patient instead of duplicating them.
+- **Re-sending is safe.**
+  - The identical batch is a no-op (`"replay": true`).
+  - A patient missing from a re-sent batch is cancelled, if not called yet.
+  - Changed details update the patient.
 
-`PUT /api/v1/call-batches/{source}/{batch_id}`. The full contract is in `docs/INGEST-API.md`.
+### Create or replace a batch
+
+```python
+batch = {
+    "tranches": [
+        {
+            "label": "Morning",
+            "scheduled_for": "2026-11-03T10:00:00-05:00",  # timezone required
+            "campaign": "post_op",  # use case; default post_op
+            "calls": [
+                {
+                    "external_id": "enc-1001",  # your stable id for this encounter
+                    "mrn": "A1234567",
+                    "name": "Jordan Rivera",
+                    "dob": "1950-03-15",
+                    "phone": "+12025550123",  # E.164
+                    "procedure": "Total knee replacement",
+                    "procedure_date": "2026-11-01",
+                    "is_diabetic": False,
+                    "care_setting": "outpatient",  # inpatient | outpatient (optional)
+                    "language": "es-US",  # one of 24 codes, or "es", "Spanish"; default en-US
+                },
+            ],
+        },
+        {"label": "Afternoon", "scheduled_for": "2026-11-03T14:00:00-05:00", "calls": []},
+    ]
+}
+
+r = api("PUT", "/api/v1/call-batches/epic-prod/2026-11-03", json=batch)
+out = r.json()
+print(out["status"], out["counts"], "replay" if out["replay"] else "")
+for item in out["items"]:
+    # created | updated | unchanged | cancelled | rejected (+ reason)
+    print(
+        f"{item['external_id']:>10}  {item['tranche']:<9} {item['status']:<9} {item.get('reason') or ''}"
+    )
+```
+
+**Response:**
 
 ```json
 {
-  "tranches": [
-    {
-      "label": "Morning",
-      "scheduled_for": "2026-10-22T10:00:00-04:00",
-      "campaign": "post_op",
-      "calls": [
-        {"external_id": "enc-123", "mrn": "A1234567", "name": "First Last",
-         "dob": "1950-03-15", "phone": "+13145550123",
-         "procedure": "Total knee replacement", "procedure_date": "2026-10-20",
-         "is_diabetic": false, "care_setting": "outpatient"}
-      ]
-    }
-  ]
+  "source": "epic-prod", "batch_id": "2026-11-03", "status": "active", "replay": false,
+  "counts": {"created": 1},
+  "runs": ["<run id>"],
+  "items": [{"external_id": "enc-1001", "tranche": "Morning", "entry_id": "<id>",
+             "status": "created", "reason": null}]
 }
 ```
 
-- **One batch is a day's list** (or any unit you choose). Each **tranche** becomes a scheduled call run that dials at `scheduled_for`, within the clinic's calling hours, with the normal retries and missed-call texts.
-- **Idempotent:**
-  - Sending the same batch again changes nothing.
-  - Patients upsert on `(source, external_id)`.
-  - A patient missing from a re-sent batch is cancelled, if not yet called.
-- **Per-item results:** each patient comes back as `created`, `updated`, `unchanged`, `cancelled`, or `rejected` with a reason. One bad record never fails the batch.
-- **Use case:** `campaign` on a tranche or a call (e.g. `post_op`, `pre_op`), checked against `config/campaigns/`.
-- **Reconcile and withdraw:**
-  - `GET` the same path returns each item's queue status and attempt count.
-  - `DELETE` cancels what hasn't been dialled.
+**Rules worth knowing:**
+- **One bad record never fails the batch.** It comes back `rejected` with a reason: invalid phone or date of birth, number not authorized, tranche in the past or outside calling hours, unsupported language, unknown use case.
+- **No patient details are echoed back.**
 - **Limits:** 20 tranches, 500 calls per batch.
+- **Language.** A patient whose language isn't available yet (no approved language pack) is **held**: accepted, but not dialled until the language is approved or an admin chooses "Call in English" for them.
+- **Demo environments only dial authorized numbers.** Production deployments replace that allowlist with a policy; see [ADMIN-PLAN.md §3](ADMIN-PLAN.md).
 
-### Authentication
+### Withdraw a batch
 
-There are no API keys. The API accepts only Google-signed identity tokens and checks the caller's service account against a role table.
+```python
+api("DELETE", "/api/v1/call-batches/epic-prod/2026-11-03")
+# Cancels every patient in the batch who hasn't been called yet, and removes its pending runs.
+```
 
-- **Inside Google Cloud** (Cloud Run job, GKE, Composer…): run as the `voa-ingest` service account and request an ID token for the API's URL. Example: `scripts/sample_ehr_feed.py`.
-- **Outside Google Cloud** (an on-prem integration engine such as Rhapsody, Cloverleaf, Mirth or Epic Bridges, or another cloud): use **Workload Identity Federation** to exchange your platform's identity (OIDC, AWS, Azure, or a certificate) for a short-lived token as `voa-ingest`.
-  - **Not built yet:** the federation pool and provider are not in Terraform. Add them per environment.
-- **Scope:** `voa-ingest` may call only the `/api/v1/call-batches` routes. It can't read calls or change configuration.
-
-### Typical feed patterns
-
-| EHR side | How it reaches the API |
-|---|---|
-| HL7 v2 ADT (A03 discharge) through an integration engine | The engine collects the day's discharges, maps them to a batch, and PUTs it once or several times a day. Re-sending is safe. |
-| FHIR R4 (Encounter/Procedure search) | A small scheduled job queries discharges and procedures since the last run, and PUTs a batch. |
-| A nightly extract (CSV/SFTP to Cloud Storage) | A Cloud Run job, triggered by the file landing, converts it and PUTs a batch. |
-| Bursty or unreliable feeds | A Pub/Sub topic with a push subscription to the same endpoint, and a dead-letter topic (planned, not built). |
-
-### Other ways in
-
-- **Admin console → Patients:** add one patient, or import a CSV (columns `phone, patient_name, patient_id, patient_dob, operation_name, operation_date, is_diabetic, care_setting`, plus optional `language` (a code or English name) and `call_in_english` (yes/no)). Then start or schedule a run under Schedules.
-- **Nurse console → New call:** one patient, dialled now.
-- **`/api/call-list` REST routes:** these belong to the consoles' identities, not to integrations. Use the ingest API.
-
-### Known gaps
-- ~~`language` is accepted on ingest calls but not stored or used yet.~~ Fixed 21 Oct: `language` is validated (one of 24), stored on the entry and call, and shown to nurses. Calls are still English only: a patient in another language is held until their language is supported, or an admin chooses "Call in English" (`docs/LANGUAGES-PLAN.md`).
-- The CSV import has no use-case (`campaign_id`) column.
+The full contract is in [INGEST-API.md](INGEST-API.md).
 
 ---
 
-## 3. Results out: sending call data back to an EHR
+## 2. Auditing the call list
+
+### Per patient: what happened to the people you sent
+
+```python
+r = api("GET", "/api/v1/call-batches/epic-prod/2026-11-03")
+for item in r.json()["items"]:
+    print(
+        item["external_id"],
+        item["status"],  # what the batch did with it
+        item["list_status"],
+        item["attempts"],
+    )  # where it is in the queue now
+```
+
+| `list_status` | Meaning |
+|---|---|
+| `pending` | Waiting for its run, for a retry, or held for its language |
+| `calling` | A call is in progress |
+| `completed` | Reached: the questionnaire was completed, or the call ended with a final outcome |
+| `blocked` | Can't be dialled, e.g. the number isn't authorized or the provider refused it permanently |
+| `canceled` | Cancelled: withdrawn, removed from a re-sent batch, or cancelled by a nurse |
+
+`attempts` counts dial attempts, including automatic retries.
+
+### Across batches and changes (admin identity)
+These two routes belong to the **admin console's identity**, not the feed's. Call them from an admin tool, or read them in the admin console (Patients and Audit log).
+
+```python
+ADMIN_SA = "voa-admin@<project>.iam.gserviceaccount.com"
+
+
+def admin(method, path, **kw):
+    r = requests.request(
+        method,
+        f"{API}{path}",
+        timeout=60,
+        headers={"Authorization": f"Bearer {id_token(impersonate=ADMIN_SA)}"},
+        **kw,
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+for b in admin("GET", "/api/v1/call-batches?limit=20")["batches"]:  # recent batches, with counts
+    print(b["source"], b["batch_id"], b["status"], b["counts"], b["updated_at"])
+
+for e in admin("GET", "/api/audit?limit=50")["entries"]:  # every write by the feed and admins
+    print(e["at"], e["by"], e["action"], e.get("target"))
+```
+
+Every write by the feed is in the audit log, with the `X-Acting-User` you sent, the route and the target (phone numbers masked; request bodies never stored).
+
+> **Not built yet: per-patient results for the feed.** Today the feed's identity sees queue status, not outcomes. The natural extension is to add each item's latest call id, outcome, follow-up tier and sign-off status to `GET /api/v1/call-batches/{source}/{batch_id}`, or to add a `GET /api/v1/results?since=` cursor. Either is a small change in `routes_ingest.py`, with an entry in `ROUTE_POLICY`.
+
+---
+
+## 3. Results out: sending results to your EHR
 
 ### What exists for every call
 
 | Data | Where | Contents |
 |---|---|---|
-| Call record | Firestore `calls/{call_id}` | Times (ringing, answered, ended); call status (completed, voicemail, no answer, busy, failed); outcome (questionnaire completed, voicemail left, wrong person, identity not verified, declined, call back later, emergency); use case and spec version; how it was placed (run, EHR batch, nurse) and its queue entry. **No DOB.** |
-| Answers | `calls.survey_responses` | Each question's normalised answer (e.g. `pain_severity: 7`), the patient's own words for free-text questions, and the patient's questions to the care team with category and priority. |
-| Triage | `calls.follow_up`, `follow_up_reason`, `follow_up_reasons[]` | Tier (emergency, urgent same day, next business day, informational, none), plus every finding with its own tier and source. |
-| Nurse review | `calls.review`, `follow_up_override`, `follow_up_history` | Sign-off (who, when, note), any tier change by a nurse, resolution. |
-| Report | Firestore `reports/{patient_id}_{timestamp}` | The validated report as filed by the agent, voice or text. |
-| Transcript | Firestore `transcripts/{call_id}` | Turns `{role, text, at_ms}`. |
-| Recording | `gs://<project>-voa-recordings/recordings/{call_id}.wav` | Stereo WAV, caller on the left, agent on the right. Retention 90 days by default. |
-| Timeline | Firestore `call_events/{call_id}` | Millisecond events (engineering). |
-| Texts | Firestore `sms_sessions`, `sms_messages` | The missed-call text, the questionnaire by text, booked callbacks. |
-| **EHR outbox** | Firestore `ehr_outbox/{call_id}` | **One FHIR-shaped record per signed-off call.** See below. |
+| Call record | Firestore `calls/{call_id}` | Times; line status; outcome (completed, voicemail, wrong person, identity not verified, declined, call back later, emergency); use case; language asked for and spoken; how it was placed. **No date of birth.** |
+| Answers | `calls.survey_responses` | Typed answers (e.g. `pain_severity: 7`), the patient's own words for free-text questions, and patient questions with category and priority. |
+| Triage | `calls.follow_up`, `follow_up_reasons[]` | The tier, plus every finding with its own tier and source. |
+| Nurse review | `calls.review`, `follow_up_override` | Sign-off (who, when, note) and any tier change. |
+| Transcript | Firestore `transcripts/{call_id}` | Turns with `text` (original), `text_en` (translation) and `lang`. |
+| Recording | `gs://<project>-voa-recordings/recordings/{call_id}.wav` | Stereo: caller left, agent right. |
+| **EHR outbox** | Firestore `ehr_outbox/{call_id}` | **One FHIR-shaped record per signed-off call.** |
 
-### Built today: the EHR outbox
+### The EHR outbox record
 
-When a nurse signs off a call (`POST /api/calls/{id}/sign-off`), the API writes `ehr_outbox/{call_id}`. Code: `voa_core/review.py` `ehr_payload`.
+Written when a nurse signs off. Code: `packages/voa_core/src/voa_core/review.py` `ehr_payload`.
 
 ```json
 {
   "call_sid": "CA…",
-  "patient":   {"mrn": "A1234567", "name": "First Last"},
-  "encounter": {"date": "2026-10-21T14:05:12Z", "channel": "phone", "identity_check": "verified"},
+  "patient":   {"mrn": "A1234567", "name": "Jordan Rivera"},
+  "encounter": {"date": "2026-11-03T15:05:12Z", "channel": "phone", "identity_check": "verified"},
   "questionnaire_response": {
     "resourceType": "QuestionnaireResponse", "status": "completed",
     "item": [{"linkId": "pain_severity", "answer": 7}, {"linkId": "fever_reported", "answer": "no"}]
@@ -188,58 +253,78 @@ When a nurse signs off a call (`POST /api/calls/{id}/sign-off`), the API writes 
   "disposition": {"follow_up": "urgent_same_day", "reason": "Patient reports pain 7/10 …",
                   "agent_follow_up": "urgent_same_day", "changed_by_nurse": null},
   "review": {"status": "signed_off", "by": "nurse@example.org", "at": "…", "note": "…", "resolved": true},
-  "task": {"resourceType": "Task", "status": "completed", "description": "Post-op RN follow-up",
-           "note": "…", "owner": "nurse@example.org", "lastModified": "…"},
-  "status": "pending_export",
-  "created_at": "…"
+  "task": {"resourceType": "Task", "status": "completed", "description": "Post-op RN follow-up", "…": "…"},
+  "status": "pending_export"
 }
 ```
 
-- `task` is present only when the nurse resolved the follow-up.
-- `status` becomes `withdrawn` if the sign-off is reopened, or if a later report replaces this one.
-- The outbox never contains the date of birth.
+- `status` becomes `withdrawn` if the sign-off is reopened.
+- **The record never contains the date of birth.**
 
-**Not built:** nothing reads the outbox yet, and there is no API for it. That is the integration point to build.
+### Build an exporter
 
-### Recommended: an outbox exporter
+Nothing reads the outbox yet; that's the piece you build. Give it **its own service account** with Firestore read/write and nothing else, and your EHR credentials through Secret Manager. Run it on a Firestore trigger (Eventarc) or every few minutes from Cloud Scheduler.
 
-```mermaid
-flowchart LR
-  S[Nurse sign-off] --> O[(ehr_outbox<br/>pending_export)]
-  O -- "Firestore trigger (Eventarc)<br/>or scheduled job" --> X[voa-ehr-export<br/>Cloud Run]
-  X -- "FHIR R4 REST" --> F[EHR FHIR API]
-  X -- "or HL7 v2 ORU/MDM" --> E[Integration engine]
-  X --> O2[(status: exported / failed,<br/>attempts, last_error)]
+```python
+# pip install google-cloud-firestore requests
+from datetime import UTC, datetime
+from google.cloud import firestore
+
+db = firestore.Client(project="<project>")
+FHIR = "https://fhir.example.org/R4"  # your EHR's FHIR endpoint
+
+
+def to_fhir(rec: dict, patient_ref: str) -> dict:
+    qr = dict(rec["questionnaire_response"])
+    qr["subject"] = {"reference": patient_ref}
+    qr["identifier"] = {
+        "system": "urn:voice-outreach:call",
+        "value": rec["call_sid"],
+    }  # idempotency key
+    qr["questionnaire"] = "Questionnaire/post-op-check"  # your canonical form
+    qr["authored"] = rec["encounter"]["date"]
+    return qr
+
+
+def export_pending(fhir_session, limit: int = 50) -> None:
+    q = db.collection("ehr_outbox").where("status", "==", "pending_export").limit(limit)
+    for snap in q.stream():
+        rec = snap.to_dict()
+        try:
+            patient_ref = resolve_patient_by_mrn(fhir_session, rec["patient"]["mrn"])  # your lookup
+            r = fhir_session.put(  # conditional update on the identifier = idempotent
+                f"{FHIR}/QuestionnaireResponse?identifier=urn:voice-outreach:call|{rec['call_sid']}",
+                json=to_fhir(rec, patient_ref),
+                timeout=30,
+            )
+            r.raise_for_status()
+            snap.reference.update(
+                {
+                    "status": "exported",
+                    "exported_at": datetime.now(UTC).isoformat(),
+                    "ehr_ref": r.headers.get("Location"),
+                }
+            )
+        except Exception as exc:  # retried on the next run
+            snap.reference.update(
+                {"export_attempts": firestore.Increment(1), "last_error": str(exc)[:300]}
+            )
 ```
 
-**How the exporter should behave:**
+**Production checklist for the exporter:**
+- **Idempotency:** use `call_sid` as the FHIR `identifier` (or the HL7 message control id), so a retry never duplicates.
+- **Withdrawals:** a `withdrawn` record means the earlier export no longer stands. Mark it `entered-in-error`, or send a correction.
+- **Mapping:** map each `linkId` to your questionnaire's item ids. The ids come from the use-case file (`config/campaigns/<id>.yaml`).
+- **HL7 v2:** send an ORU^R01 (observations) or MDM^T02 (a summary document) through your integration engine instead.
+- **Transcripts and recordings contain PHI.** Decide with your privacy office whether they go to the EHR. If they do:
+  - send them as `DocumentReference`s;
+  - copy the recording into the EHR's storage, because links from this system expire after 15 minutes and recordings are deleted after the retention period.
+- **Emergencies:** the agent sends the patient to 911 during the call, and nurses see the call at the top of the console. **Don't rely on an EHR export for urgent escalation.**
 
-1. **Trigger:** on each new or changed `ehr_outbox` document (an Eventarc Firestore trigger), or every few minutes, query `status == "pending_export"`.
-2. **Map.** Map the record to your EHR's format:
-   - **FHIR R4:**
-     - `QuestionnaireResponse`, with `subject` = the patient (resolved by MRN) and `questionnaire` = your canonical post-op questionnaire. Map each `linkId` to your questionnaire's item ids; the ids come from the use-case spec (`config/campaigns/<id>.yaml`).
-     - `Task` for the nurse follow-up.
-     - Optionally a `Communication` or `DocumentReference` for the call summary.
-   - **HL7 v2:** an ORU^R01 (observations) or MDM^T02 (a document with the summary) through your integration engine.
-3. **Write back.** `status: exported`, the EHR's resource ids and the time. On failure: `status: failed`, `attempts`, `last_error`, retried with backoff.
-4. **Idempotency.** Use `call_sid` as your external identifier (FHIR `identifier`, or an HL7 message control id) so a retry never creates a duplicate.
-5. **Withdrawals.** A `withdrawn` record means the earlier export no longer stands. Mark it `entered-in-error` in FHIR, or send a correction.
-6. **Identity.** Give the exporter its own service account with Firestore access and nothing else. Grant it EHR credentials through Secret Manager.
+### Other patterns
 
-**Transcripts and recordings contain PHI.** Decide with your privacy office whether they go to the EHR at all. If they do:
-- send the transcript as a `DocumentReference` (text attachment);
-- send the recording as a `DocumentReference` whose attachment is copied into the EHR's own storage. Don't link to it: the system's recording links expire after 15 minutes, and recordings are deleted after the retention period.
-
-### Other patterns (not built)
-
-| Pattern | When | What to build |
+| Pattern | When | What to add |
 |---|---|---|
-| **Pull API** | The EHR side prefers to poll | `GET /api/v1/results?since=<cursor>` for the ingest identity: outbox records in order, with a cursor. Add it to the role table as FEED. Today `voa-ingest` can read only its own batches' queue status. |
-| **Events** | Several consumers, real-time | Publish to Pub/Sub on "report filed" (`gateway/persist.py`, `sms_service.py`), "signed off" (`routes_calls.py` sign-off), and "call finished" (`/tasks/call-terminal`). Consumers subscribe. |
-| **Results by batch** | The feed wants per-patient results for what it sent | Extend `GET /api/v1/call-batches/{source}/{batch_id}` with each item's latest call id, outcome, tier and sign-off status. |
-
-### Which result to send, and when
-
-- **Send after nurse sign-off, which is what the outbox does,** if the EHR record should reflect clinical review.
-- **Send the agent's report immediately** (Pub/Sub on "report filed") if the EHR should show the raw answers before review. Mark them as unreviewed, patient-reported data.
-- **Emergencies:** the agent sends the patient to 911 during the call, and nurses see the call at the top of the console. Do not rely on an EHR export for urgent escalation.
+| **Pull API** | The EHR side prefers to poll | `GET /api/v1/results?since=<cursor>` for the feed identity, returning outbox records in order |
+| **Events** | Several consumers, near real-time | Publish to Pub/Sub on "report filed" (`services/gateway/.../persist.py`, `sms_service.py`), "signed off" (`routes_calls.py`) and "call finished" (`/tasks/call-terminal`) |
+| **Raw answers before review** | The EHR should show patient-reported data at once | Export on "report filed", marked as unreviewed and patient-reported |

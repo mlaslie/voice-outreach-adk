@@ -9,7 +9,7 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 | Voice agent | **Built.** ADK live agent on `gemini-3.8-live`. Its instruction is generated from `config/campaigns/post_op.yaml`. Tools verify the DOB server-side, normalize answers with the shared survey parsers, triage deterministically, and validate the report before telling the model "ok". | `packages/voa_agents/voice` |
 | Gateway | **Deployed** (public). Signed Twilio webhooks, media streams, AMD hold and voicemail drop, barge-in, closing drain, stereo recording, the two guards (exit gate and auto-hangup), and the browser softphone with HMAC tokens. | `services/gateway` |
 | API | **Deployed** (private). Dashboard REST/SSE, Cloud Tasks dialing (call-slot guard), scheduled runs, auto-recall, allowlist, budgets, follow-up overrides, recordings, test calls, the SMS follow-up and the expiry cron. | `services/api` |
-| Dashboard | **Deployed** behind Cloud Run IAP. Pure BFF: the browser only talks to its own origin; the server calls the API with an ID token. Matches the GE-CX console as of 19 Oct (palette, Overdue chip, clinic-time pickers, run dialog, report sign-off; Follow-ups tab removed). The logo and org name come from gitignored `ui/public/brand/` and `NEXT_PUBLIC_LOGO_URL` / `org_name`. | `ui/` |
+| Dashboard | **Deployed** behind Cloud Run IAP. Pure BFF: the browser only talks to its own origin; the server calls the API with an ID token. Matches the previous system's console as of 19 Oct (palette, Overdue chip, clinic-time pickers, run dialog, report sign-off; Follow-ups tab removed). The logo and org name come from gitignored `ui/public/brand/` and `NEXT_PUBLIC_LOGO_URL` / `org_name`. | `ui/` |
 | SMS follow-up | **Built and deployed in dry-run.** It logs instead of sending until `sms_dry_run = false`. | `services/api/src/voa_api/sms_service.py` |
 | Nurse assistant | **Deployed** (private, A2A + A2UI v0.9, Cloud Run). ADK agent with 25 tools over the API; sessions and proposals in Firestore; confirm-by-id only. Not yet registered in Gemini Enterprise. The API now has report sign-off endpoints; the nurse agent has no sign-off tools yet. | `services/nurse` |
 | Infrastructure | **All Terraform.** One root (`infra/envs/demo`), with modules for project services, IAM, Firestore, storage, secrets, Artifact Registry, Cloud Run, queues, scheduler and observability. | `infra/` |
@@ -74,9 +74,9 @@ The state of the system as of 19 Oct 2026, and what a new owner needs to know.
 - Register the nurse assistant in Gemini Enterprise and live-test it there (heartbeats, card rendering, identity).
 - Add sign-off tools to the nurse agent (the API endpoints exist since 19 Oct).
 
-## 19 Oct: UI parity with the GE-CX console
+## 19 Oct: UI parity with the previous system's console
 
-- **Why:** the GE-CX console was redesigned; this dashboard has to look and behave the same so demos are comparable.
+- **Why:** the previous system's console was redesigned; this dashboard has to look and behave the same so demos are comparable.
 - **Backend it needed:** report sign-off (`voa_core/review.py`, sign-off routes in `routes_calls.py`), `follow-ups/open`, any patient can be put in a run, and a patient who books by text is dropped from auto-recall.
 - **Shared code changed:** `voa_core` lifecycle and compliance, so gateway, api, ui and nurse were deployed together (see trap 8).
 - **Not the same:** the sidebar logo and org name, because brand assets are not in git.
@@ -423,22 +423,22 @@ The shared-number switch that was built here was removed on 21 Oct (see "21 Oct:
 
 ## 21 Oct: ADK owns the number (switch removed; deployed 21 Oct)
 
-**Why:** the user chose to go all in on this (ADK) system. The Twilio number is no longer shared with GE-CX, so the take/give switch had nothing left to do.
+**Why:** the user chose to go all in on this (ADK) system. The Twilio number is no longer shared with the previous system, so the take/give switch had nothing left to do.
 
 **Twilio now** (checked read-only on 21 Oct): `SmsUrl` → `<gateway_url>/twilio/sms` (POST), no `VoiceUrl` (outbound calls set their own TwiML; ADK has no inbound voice), no messaging service on the number.
 
 **Removed:** `voa_api/sms_control.py`, `GET/POST /api/sms/control` and their route policies, the send gate in `send_sms` (every other check is unchanged, same order), `NumberControl` / `TwilioNumberControl` / `FakeNumberControl` in `voa_providers/sms.py`, the six `sms.*` switch settings, the four Terraform variables and `VOA__SMS__*` env lines (also removed from the real `terraform.tfvars`), the UI indicator, hook and Messaging card, and `docs/sms-number-switch.md`. The Twilio 8021 error test moved to `tests/test_sms.py`. Old `sms_control_log` rows stay in Firestore; nothing reads them.
 
-**Pending on the GE-CX side** (its own repo; not edited from here): remove its switch and its SMS sending. GE-CX was asked. Until that lands, don't trigger GE-CX texts: a reply would come here.
+**Pending on the previous system's side** (its own repo; not edited from here): remove its switch and its SMS sending. Its owners were asked. Until that lands, don't trigger the previous system's texts: a reply would come here.
 
-**Watch out:** ADK no longer detects a change to the number's `SmsUrl`. If anyone repoints it (for example the GE-CX switch, before it is removed), patients' replies silently go elsewhere and ADK keeps sending. Check it with RUNBOOK → "Check the number's webhooks" (`scripts/check_twilio_number.py demo`).
+**Watch out:** ADK no longer detects a change to the number's `SmsUrl`. If anyone repoints it (for example the previous system's switch, before it is removed), patients' replies silently go elsewhere and ADK keeps sending. Check it with RUNBOOK → "Check the number's webhooks" (`scripts/check_twilio_number.py demo`).
 
 **Deploying it:** use the normal deploy (images and env change in one `terraform apply`). Config is strict, so a new image started with the old `VOA__SMS__SWITCH_ENABLED` / `PEER_*` / `SELF_*` env vars would fail its revision (trap 8); the old images run fine without them.
-- **GE-CX side, confirmed by the GE-CX session on 21 Oct:**
+- **Previous-system side, confirmed on 21 Oct:**
   - Its number switch is removed and deployed: `/api/sms-number` returns 404, and there is no pill or card. It no longer writes SmsUrl or VoiceUrl.
   - Its texting is off: the `sms-followup-svc-tick` scheduler is paused, and the service runs `DRY_RUN=true` and `ENABLE_SMS_SURVEY=false`.
-  - **Still pending:** GE-CX's outbound calls show the 5695 caller ID until the user gives GE-CX its own Twilio number, so patients called by GE-CX who text back reach ADK.
-  - Optional, not done: a GE-CX-only Twilio API key without permission to change incoming numbers.
+  - **Still pending:** The previous system's outbound calls still show the shared caller ID until it gets its own Twilio number, so patients it calls who text back reach ADK.
+  - Optional, not done: a separate Twilio API key for the previous system without permission to change incoming numbers.
 - **New docs for outside engineers:** `docs/ARCHITECTURE.md`, and `docs/INTEGRATION-GUIDE.md` (other telephony providers, feeding the queue, results back to an EHR). The guide records the known gaps:
   - the `ehr_outbox` has no reader;
   - `voa-ingest` can't read results;
@@ -759,3 +759,15 @@ Two mutations were checked: sending the invite through the real `Api`, and remov
 - `simulator__*` collections have no Firestore TTL (`simulator__sms_inbound_seen` included). Test data accumulates slowly and is fictional. It is safe to delete at any time; a TTL can be added in `infra/envs/demo/services.tf` if it grows.
 - A filing that fails inline is not retried (its safety-net task is dropped). The dialog then shows no report; start a new test.
 - Not checked in a browser or on demo. Deploy API + UI together.
+
+## 22 Oct: documentation for outside developers
+- **README rewritten** as the entry point: what the system does, the external systems it connects to, the Google Cloud services and what each is for, components with their inputs and outputs, the life of a call, the integration points, quick start, the docs map, and safety and privacy. It also carries a "not a medical device / reference implementation" notice.
+- **New guides:**
+  - `docs/INTEGRATION-GUIDE.md`, rewritten: authentication, then Python examples to create, withdraw and audit call lists, plus an EHR outbox exporter.
+  - `docs/TELEPHONY-PROVIDERS.md`: provider requirements, three ways to connect enterprise telephony, the adapter steps, the Twilio-specific code list, compliance and testing.
+  - `docs/README.md`: an index of guides, reference, design notes and history.
+- **Diagrams** in `docs/images/` (context, services, lifecycle, integration): generated with `gemini-nano-banana-2.1` on a white background.
+  - **Each was inspected before use.** Fixed: reversed EHR arrows (context); overflowing text and a product-logo icon (services); the emergency branch drawn from "Verify" instead of "Talk" (lifecycle).
+  - Trimmed and palette-compressed to stay under the 1 MB file limit.
+- **Licensing:** Apache-2.0 `LICENSE` and `NOTICE`; `SECURITY.md`.
+- **Prior-system names made generic** in the design and history docs. The current tree and all git history were checked for project ids, URLs and personal names: none found.

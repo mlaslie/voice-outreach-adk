@@ -2,13 +2,14 @@
 
 **What this system does:** it calls patients after a procedure, talks with them by voice, records their answers, triages anything that needs a nurse, and follows up by text when they don't answer. Nurses work from a web console and from a Gemini Enterprise assistant.
 
-**Built with:** Google ADK on Gemini Live, running on Cloud Run, with the infrastructure in Terraform. Telephony is Twilio today, behind a provider interface (see `docs/INTEGRATION-GUIDE.md`).
+**Built with:** Google ADK on Gemini Live, running on Cloud Run, with the infrastructure in Terraform. Telephony is Twilio today, behind a provider interface (see `docs/TELEPHONY-PROVIDERS.md`).
 
 This page is the map. Detail lives in:
 
 | Topic | Doc |
 |---|---|
-| Plug in another telephony provider, feed the call queue from an EHR, send results back | `docs/INTEGRATION-GUIDE.md` |
+| Feed the call queue from an EHR, audit it, send results back | `docs/INTEGRATION-GUIDE.md` |
+| Plug in another telephony or SMS provider | `docs/TELEPHONY-PROVIDERS.md` |
 | Deploy into an empty GCP project | `docs/DEPLOY.md` |
 | Operate it (logs, troubleshooting) | `docs/RUNBOOK.md` |
 | Every configuration key | `docs/CONFIG.md` |
@@ -19,6 +20,12 @@ This page is the map. Detail lives in:
 | A visual walk-through of a call | `docs/architecture.html` |
 
 ## 1. The pieces
+
+![System context](images/context.png)
+
+![Google Cloud services map](images/services.png)
+
+The same picture as a diagram you can edit:
 
 ```mermaid
 flowchart LR
@@ -101,6 +108,8 @@ flowchart LR
 | Secret Manager | Twilio credentials, the softphone token key, the analytics hash key | Never in Terraform state. |
 
 ## 2. One call, end to end
+
+![The life of one call](images/lifecycle.png)
 
 ```mermaid
 sequenceDiagram
@@ -186,7 +195,7 @@ sequenceDiagram
 | Add a use case | A new spec (`docs/USE-CASES-PLAN.md`) |
 | Change models or the voice | `config/app.yaml` → `models`, `voice` |
 | Change calling hours, auto-recall, time format, company name, branding | Admin console |
-| Use a different telephony provider | `packages/voa_providers` plus a gateway route (`docs/INTEGRATION-GUIDE.md`, §1) |
-| Feed patients from an EHR | The ingest API (`docs/INTEGRATION-GUIDE.md`, §2) |
+| Use a different telephony provider | `packages/voa_providers` plus a gateway route (`docs/TELEPHONY-PROVIDERS.md`) |
+| Feed patients from an EHR | The ingest API (`docs/INTEGRATION-GUIDE.md`, §1–2) |
 | Send results to an EHR | An `ehr_outbox` exporter (`docs/INTEGRATION-GUIDE.md`, §3) |
 | Stand up another environment | A new `infra/envs/<env>` from the same modules (`docs/DEPLOY.md`) |
