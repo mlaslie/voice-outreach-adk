@@ -1,6 +1,14 @@
 # Nurse UI and Admin UI, EHR scheduling API, branding: plan
 
-**Status:** steps 1 and 2 built and deployed (20 Oct 2026); steps 3–6 proposed.
+**Status (23 Oct 2026):**
+- **Steps 1–6 are built and deployed:**
+  1. the nurse and admin console split;
+  2. admin sections, with the classic dashboard retired;
+  3. the EHR scheduling API (`docs/INGEST-API.md`);
+  4. branding;
+  5. Analytics, in the admin console;
+  6. the knowledge base.
+- **Not built:** Pub/Sub decoupling for the feed, a real EHR connector job, multiple brands, Workload Identity Federation in Terraform.
 
 **Companion plans:**
 - `docs/ANALYTICS-PLAN.md`: its Analytics section is in the admin UI (moved from the nurse UI on 21 Oct 2026, at the user's request).

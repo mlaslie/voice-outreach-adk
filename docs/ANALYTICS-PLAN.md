@@ -2,7 +2,12 @@
 
 **21 Oct 2026:** Analytics lives in the **admin console** (`voa-admin`), not the nurse UI; only the admin console's identity may call `voa-analytics`. It now opens with **Call outcomes**: every call in the period in exactly one bucket (completed by voice, completed by text, voicemail left (+ texted), rang with no answer (+ texted), not completed (by reason), busy, could not dial), adding up to the total.
 
-**Status:** proposal (20 Oct 2026). Nothing is built yet.
+**Status (23 Oct 2026):** phase 1 built and deployed.
+- **Export:** a Cloud Run job copies de-identified rows to BigQuery every 15 minutes.
+- **Service:** a private analytics service.
+- **Admin console → Analytics:** call outcomes, outreach, clinical picture and nurse workload.
+
+Later phases below are proposals.
 
 **Goal:** add an Analytics view to the nurse console that answers the questions a clinical lead, an operations owner and an engineer ask after a demo. The design has to survive the move to a production project unchanged.
 

@@ -1,9 +1,10 @@
 # Knowledge base and grounded answers: plan (v2, hybrid)
 
-**Status:**
-- **Built (step A), 20 Oct 2026, not yet deployed:** the `voa_knowledge` package, guidelines API, settings v2 with modes, "Try it", shadow task and nurse rating, live voice tool, care setting, IAM for check-grounding (`roles/discoveryengine.viewer`), evaluation set. API contract as built: `docs/KNOWLEDGE-API.md`.
-- **20 Oct 2026:** v2 replaces the step-1 design. Built and deployed earlier the same day, step 1 answered only by reading out an approved Q&A entry word for word, and its gate was the triage keyword rules.
-- **Why v2:** clinicians should be able to put in knowledge easily: example Q&A *and* guideline text ("outpatient knee arthroscopy: lift nothing over 10 lb for two weeks"). An LLM should then answer from that material when a question is safe to answer.
+**Status (23 Oct 2026):** steps A and B are built and deployed.
+- **What's in place:** the `voa_knowledge` agent, guidelines and examples with approval, off/shadow/live modes, the nurse rating of shadow drafts, "Try it" and the check-grounding call.
+- **Demo setting:** shadow, with fictional sample content approved.
+- **Non-English questions** are always deferred to a nurse.
+- **Step C is a proposal:** texts, PDF import, a RAG Engine retriever, an analytics panel.
 
 **Related plans:**
 - `docs/ADMIN-PLAN.md`: managed in the admin UI.

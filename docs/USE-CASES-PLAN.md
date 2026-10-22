@@ -1,6 +1,8 @@
 # New use cases (pre-op, and the next ten): plan
 
-**Status:** step 1 built (21 Oct 2026): the generic engine with post-op parity, `campaign_id`/`spec_version` end to end, and a draft pre-op example. Steps 2-5 are proposals.
+**Status (23 Oct 2026):** step 1 is built and deployed.
+- **What step 1 delivered:** the generic engine with post-op parity proven by recorded tests, `campaign_id`/`spec_version` end to end, and a draft pre-op example that only the API can select.
+- **Steps 2–5 are proposals:** display and analytics from the spec; lifecycle, CLI and skill; the admin builder.
 
 **Goal:** a new outreach scenario takes **days, not a development project**:
 - A clinical lead builds it in the admin UI.
