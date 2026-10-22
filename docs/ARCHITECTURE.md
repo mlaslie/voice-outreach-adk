@@ -150,7 +150,7 @@ sequenceDiagram
    - records the call.
 
    The agent's tools verify the DOB server-side, parse every answer with deterministic parsers, triage with the spec's rules, and validate the report before the agent may say goodbye.
-5. **Persist.** The gateway writes the report, call doc, transcript, timeline and recording directly (`persist.py`).
+5. **Persist.** The gateway writes the report, call doc, transcript, timeline and recording directly (`persist.py`), then queues `/tasks/transcript-translate`: the API adds an English translation to every non-English turn (Gemini flash, `voa_api/translation.py`), sets `language_used` on the call, and leaves the original words, the triage and the answers untouched.
 6. **Status.** Twilio's status callbacks map to provider-neutral lifecycle events (`voa_core/lifecycle.py`). A terminal status queues `/tasks/call-terminal`, which:
    - updates the queue entry and the run;
    - may schedule an automatic retry;

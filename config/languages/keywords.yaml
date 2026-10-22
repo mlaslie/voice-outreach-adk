@@ -1,0 +1,216 @@
+# Per-language safety keywords (docs/LANGUAGES-PLAN.md §3.3, step 3).
+#
+# Loaded ADDITIVELY by voa_core.intent: the English lists in code always work
+# and are unchanged. Every list here is a machine-drafted starting point:
+#
+#   status: draft  -> used anyway. Being stricter is the safe direction: an
+#                     extra opt-out word or an extra emergency reply costs
+#                     little; a missed one does not.
+#   review: who must check it before it counts as reviewed.
+#
+# STOP / HELP are matched against the WHOLE message (like carriers do), after
+# lower-casing, trimming punctuation and folding accents ("ALTO", "Alto.",
+# "arrêt" == "arret"). Never add a word an English patient sends as an answer
+# (yes, no, ok, 1, 2, 3, c, later, now, text...): tests/test_language_keywords.py
+# fails on any collision.
+#
+# Red flags are regular expressions matched on lower-cased, accent-folded text
+# ("respiración" is matched as "respiracion"), so write them WITHOUT accents.
+# A match preceded, in the same clause, by one of the negators within `reach`
+# words is the patient saying what they do NOT have ("no tengo dolor en el
+# pecho"). Clauses split on punctuation and on the `clause_breaks` words.
+
+status: draft
+review: "needs qualified translator review"
+
+stop_help:
+  ar-EG:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["إيقاف", "ايقاف", "توقف", "إلغاء", "الغاء", "ستوب"]
+    help: ["مساعدة", "مساعده"]
+  bn-BD:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["বন্ধ", "থামুন", "বাতিল"]
+    help: ["সাহায্য"]
+  de-DE:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["stopp", "abmelden", "beenden", "kündigen", "abbestellen"]
+    help: ["hilfe"]
+  en-IN:
+    status: draft
+    review: "needs qualified translator review"
+    stop: []
+    help: []
+  en-US:
+    status: draft
+    review: "needs qualified translator review"
+    stop: []
+    help: []
+  es-US:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["alto", "parar", "para", "pare", "cancelar", "baja", "darme de baja", "detener", "fin"]
+    help: ["ayuda", "informacion", "información"]
+  fr-FR:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["arret", "arrêt", "arreter", "arrêter", "desabonner", "désabonner", "annuler"]
+    help: ["aide"]
+  hi-IN:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["रोकें", "रोको", "बंद", "बंद करें", "रद्द"]
+    help: ["मदद", "सहायता"]
+  id-ID:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["berhenti", "batal", "hentikan"]
+    help: ["bantuan", "tolong"]
+  it-IT:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["basta", "fermati", "annulla", "disiscriviti", "cancella"]
+    help: ["aiuto"]
+  ja-JP:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["停止", "配信停止", "ストップ", "中止"]
+    help: ["ヘルプ", "助けて"]
+  ko-KR:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["중지", "정지", "수신거부", "그만"]
+    help: ["도움말", "도움"]
+  mr-IN:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["थांबवा", "बंद", "रद्द"]
+    help: ["मदत"]
+  nl-NL:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["stoppen", "afmelden", "opzeggen"]
+    help: ["hulp"]
+  pl-PL:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["koniec", "wypisz", "rezygnuję", "rezygnuje", "anuluj"]
+    help: ["pomoc"]
+  pt-BR:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["parar", "pare", "sair", "cancelar", "descadastrar"]
+    help: ["ajuda"]
+  ro-RO:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["oprește", "opreste", "dezabonare", "anulează", "anuleaza"]
+    help: ["ajutor"]
+  ru-RU:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["стоп", "отписаться", "отмена", "хватит"]
+    help: ["помощь"]
+  ta-IN:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["நிறுத்து", "நிறுத்தவும்"]
+    help: ["உதவி"]
+  te-IN:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["ఆపు", "ఆపండి"]
+    help: ["సహాయం"]
+  th-TH:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["หยุด", "ยกเลิก"]
+    help: ["ช่วยเหลือ", "ช่วย"]
+  tr-TR:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["dur", "durdur", "iptal"]
+    help: ["yardım", "yardim"]
+  uk-UA:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["стоп", "відписатися", "скасувати"]
+    help: ["допомога"]
+  vi-VN:
+    status: draft
+    review: "needs qualified translator review"
+    stop: ["dừng", "dung lai", "dừng lại", "hủy", "ngừng"]
+    help: ["giúp", "giúp đỡ", "trợ giúp"]
+
+red_flags:
+  es-US:
+    status: draft
+    review: "needs qualified translator review"
+    # Mirrors intent._RED_FLAGS: chest pain, can't breathe, heavy bleeding,
+    # fainting, stroke signs, clot signs, suicidal thoughts.
+    negators: ["no", "nunca", "sin", "ni", "tampoco", "jamas", "niega", "niego"]
+    clause_breaks: ["pero", "aunque", "sino", "excepto"]
+    reach: 3
+    patterns:
+      # chest
+      - "dolor(es)? (de|en el|en mi|del) pecho"
+      - "dolor toracico"
+      - "me duele (el|mi) pecho"
+      - "(presion|opresion|apreton|peso) en (el|mi) pecho"
+      - "pecho (apretado|oprimido)"
+      - "ataque (al|del) corazon"
+      - "infarto"
+      # breathing
+      - "no (puedo|puede|podia|pude) respirar"
+      - "me (falta|faltaba) (el )?aire"
+      - "falta de aire"
+      - "(dificultad|problemas?) para respirar"
+      - "me (cuesta|costaba) respirar"
+      - "me (estoy )?ahog(o|ando)"
+      - "no (esta )?respira"
+      # bleeding
+      - "sangr(ado|a|ando) (mucho|abundante|fuerte|sin parar|demasiado)"
+      - "mucha sangre"
+      - "no (para|deja) de sangrar"
+      - "hemorragia"
+      - "(vomit(o|ando|e)|tos(o|iendo)) sangre"
+      - "sangre en (las heces|el excremento|la popo|la orina|el vomito)"
+      - "heces negras"
+      - "empap(a|o|ado|ada|ando) (el|la|los|las) (gasa|vendaje|venda|aposito)"
+      # fainting
+      - "me desmay(e|o)"
+      - "se desmay(o|a)"
+      - "desmayo"
+      - "perd(i|io) el conocimiento"
+      - "inconsciente"
+      - "no (responde|reacciona) (a nada|cuando le hablo)"
+      # stroke
+      - "derrame( cerebral)?"
+      - "embolia"
+      - "accidente cerebrovascular"
+      - "cara (caida|torcida|chueca|paralizada)"
+      - "(arrastr(o|a|ando) las palabras|habla arrastrada|no (puedo|puede) hablar bien)"
+      - "no (puedo|puede) mover (el|la|mi|los|las)"
+      - "no siento (el|la|mi) (brazo|pierna|cara)"
+      - "(brazo|pierna) (debil|dormid[oa]|entumecid[oa]|paralizad[oa])"
+      - "(muy|de repente) confundid[oa]"
+      - "(el )?peor dolor de cabeza"
+      # clot
+      - "pantorrilla (hinchada|inflamada|con dolor)"
+      - "(dolor|hinchazon) en la pantorrilla"
+      - "me duele la pantorrilla"
+      - "coagulo"
+      # self-harm
+      - "suicid"
+      - "matarme"
+      - "quitarme la vida"
+      - "quiero morir"
+      - "no quiero vivir"
+      - "hacerme dano"
+      - "lastimarme"
+      # emergency services
+      - "ambulancia"
+      - "(voy|vamos|fui) a (la sala de )?(emergencias?|urgencias)"

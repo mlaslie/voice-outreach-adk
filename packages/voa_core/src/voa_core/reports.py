@@ -161,7 +161,9 @@ def _questions_errors(survey: Mapping[str, Any]) -> list[str]:
 
 MAX_REASONS = 20
 MAX_REASON_CHARS = 200
-REASON_SOURCES: frozenset[str] = frozenset({"triage", "agent", "nurse"})
+#: "translation_check": raised after the call by the re-check on the English
+#: translation (docs/LANGUAGES-PLAN.md §3.3); never lowers a tier.
+REASON_SOURCES: frozenset[str] = frozenset({"triage", "agent", "nurse", "translation_check"})
 
 
 def reasons_errors(reasons: Any) -> list[str]:

@@ -284,8 +284,17 @@ class Classified:
 
 
 def classify(text: str) -> Classified:
-    """Category and follow-up priority for one patient question."""
+    """Category and follow-up priority for one patient question.
+
+    A question not in English is "other", immediate: these English keywords
+    cannot read it, and an English stem inside it ("¿Qué dieta... si tengo fiebre
+    y sangrado?") would otherwise misroute it to a next-day topic. Its English
+    translation is classified after the call (docs/LANGUAGES-PLAN.md §3.3)."""
     t = (text or "").strip()
+    from .parsers import not_english
+
+    if not_english(t):
+        return Classified(CAT_OTHER, PRIORITY_IMMEDIATE)
     for category, pattern in _IMMEDIATE:
         if pattern.search(t):
             return Classified(category, PRIORITY_IMMEDIATE)
@@ -300,6 +309,23 @@ def record(text: str) -> dict[str, str]:
     clean = " ".join((text or "").split())[:MAX_QUESTION_CHARS]
     c = classify(clean)
     return {"text": clean, "category": c.category, "priority": c.priority}
+
+
+def record_translated(original: str, english: str | None, lang: str | None) -> dict[str, str]:
+    """A question asked in another language (docs/LANGUAGES-PLAN.md §4):
+    ``text`` is the English (the original when there is no translation yet),
+    ``text_original`` and ``lang`` keep what the patient said. Classified on
+    the English; with no English it is "other", immediate (fail safe)."""
+    orig = " ".join((original or "").split())[:MAX_QUESTION_CHARS]
+    en = " ".join((english or "").split())[:MAX_QUESTION_CHARS]
+    entry = (
+        record(en) if en else {"text": orig, "category": CAT_OTHER, "priority": PRIORITY_IMMEDIATE}
+    )
+    entry["text_original"] = orig
+    entry["lang"] = lang or "und"
+    if en:
+        entry["text_en"] = en
+    return entry
 
 
 #: Knowledge agent (docs/KNOWLEDGE-PLAN.md): a question the agent answered from the

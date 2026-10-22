@@ -231,7 +231,16 @@ def merge_late_report(
     p: Doc = dict(patch)
     new_tier = p.get("follow_up")
     review = existing.get("review") or {}
-    held = bool(existing.get("follow_up_override")) or review.get("status") in CLOSED_STATUSES
+    # A tier raised by the post-call translation re-check is held the same way:
+    # a later, milder report must never lower it (docs/LANGUAGES-PLAN.md §3.3).
+    held = (
+        bool(existing.get("follow_up_override"))
+        or review.get("status") in CLOSED_STATUSES
+        or any(
+            (existing.get(k) or {}).get("held") or (existing.get(k) or {}).get("raised_to")
+            for k in ("translation_check", "text_translation_check")
+        )
+    )
     if new_tier and held:
         current = existing.get("follow_up")
         escalates = TIER_RANK.get(new_tier, 0) > TIER_RANK.get(current, 0)

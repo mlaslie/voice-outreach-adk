@@ -2,6 +2,7 @@ import { CallDoc, TranscriptTurn } from "./types";
 import { formatDuration, formatPhone } from "./format";
 import { getStatusLabel } from "./status";
 import { fmtClock, fmtDateTime } from "./time";
+import { TranscriptView, hasTranslation, turnText } from "./translation";
 
 /** Turn time with seconds, in the clinic's 12h/24h setting. */
 function stamp(iso: string): string {
@@ -12,14 +13,40 @@ function stamp(iso: string): string {
 
 const FULL_DATE = { weekday: "short", month: "short", day: "numeric", year: "numeric" } as const;
 
-/** Slug safe for a filename, derived from the patient or the call SID. */
-export function transcriptFilename(call?: CallDoc | null): string {
+/**
+ * Slug safe for a filename, derived from the patient or the call SID. Accents
+ * fold to plain letters ("José" → "jose"); letters of other scripts are kept
+ * ("王芳" stays), so a non-Latin name no longer collapses to nothing.
+ */
+export function transcriptFilename(call?: CallDoc | null, view?: TranscriptView): string {
   const who = (call?.patient_name || call?.patient_id || call?.doc_id || "call")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-|-$/g, "") || "call";
   const when = call?.initiated_at ? call.initiated_at.slice(0, 10) : "transcript";
-  return `transcript-${who}-${when}.txt`;
+  const suffix = view === "original" ? "-original" : view === "side" ? "-bilingual" : "";
+  return `transcript-${who}-${when}${suffix}.txt`;
+}
+
+export interface TranscriptTextOptions {
+  /** The use case's display title ("Post-op check"); absent = a plain title. */
+  title?: string;
+  /** Which words to write. Only matters when the transcript was translated. */
+  view?: TranscriptView;
+  /** The language the transcript was translated from, as a name ("Spanish (US)"). */
+  languageName?: string | null;
+}
+
+/** The download's title line, with the language noted when it matters. */
+export function transcriptTitle(opts: TranscriptTextOptions = {}, translated = false): string {
+  const base = opts.title ? `${opts.title} — Call Transcript` : "Call Transcript";
+  if (!translated) return base;
+  const from = opts.languageName ? ` from ${opts.languageName}` : "";
+  if (opts.view === "original") return `${base} (original language${opts.languageName ? `: ${opts.languageName}` : ""})`;
+  if (opts.view === "side") return `${base} (original and English, machine-translated${from})`;
+  return `${base} (English, machine-translated${from})`;
 }
 
 /**
@@ -29,8 +56,14 @@ export function transcriptFilename(call?: CallDoc | null): string {
  * never shows the full number, and a downloaded file shouldn't be the
  * one place it leaks.
  */
-export function transcriptToText(call: CallDoc | null | undefined, turns: TranscriptTurn[]): string {
-  const lines: string[] = ["Post-Op Wellness Check — Call Transcript", ""];
+export function transcriptToText(
+  call: CallDoc | null | undefined,
+  turns: TranscriptTurn[],
+  opts: TranscriptTextOptions = {},
+): string {
+  const translated = hasTranslation(turns);
+  const view: TranscriptView = translated ? opts.view ?? "english" : "original";
+  const lines: string[] = [transcriptTitle(opts, translated), ""];
 
   const meta: [string, string | undefined][] = [
     ["Patient", call?.patient_name],
@@ -58,7 +91,13 @@ export function transcriptToText(call: CallDoc | null | undefined, turns: Transc
   } else {
     for (const t of turns) {
       const who = t.role === "agent" ? "Agent  " : "Patient";
-      lines.push(`[${stamp(t.timestamp)}] ${who}: ${t.text}`);
+      const head = `[${stamp(t.timestamp)}] ${who}: `;
+      if (view === "side") {
+        lines.push(`${head}${t.text}`);
+        if (t.text_en) lines.push(`${" ".repeat(head.length - 5)}[EN] ${t.text_en}`);
+      } else {
+        lines.push(`${head}${turnText(t, view)}`);
+      }
     }
   }
 

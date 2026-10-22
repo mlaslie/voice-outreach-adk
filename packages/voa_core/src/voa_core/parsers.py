@@ -115,11 +115,26 @@ _SUGAR_LOW = {"low", "down", "lower", "too low"}
 
 
 def _norm(body: str) -> str:
-    return re.sub(r"[^a-z0-9 ]+", " ", (body or "").lower()).strip()
+    # Letters of every script are kept (an accented letter used to be deleted,
+    # so "sí" became "s", i.e. "same"); for plain ASCII this is unchanged.
+    return re.sub(r"[^\w ]+|_", " ", (body or "").lower()).strip()
+
+
+def not_english(body: str) -> bool:
+    """The reply is not plainly English: a letter outside ASCII, a common word of
+    another language, or a foreign "don't know" phrase ("no sé", "tal vez").
+    The typed parsers read English only (docs/LANGUAGES-PLAN.md §3.1: replies are
+    translated to English first), so such a reply is unreadable here, never a
+    guess: "no sé" is not "no" and "sí" is not "same"."""
+    from .translate import looks_english
+
+    return bool(body) and not looks_english(body)
 
 
 def parse_yes_no(body: str) -> str | None:
     """ "yes"/"no", or None if it cannot be read as either."""
+    if not_english(body):
+        return None
     t = _norm(body)
     if not t:
         return None
@@ -171,6 +186,8 @@ def parse_scale(body: str, lo: int = 0, hi: int = 10) -> int | None:
     end, matching the voice script -- under-reporting pain is the more
     dangerous error, and over-reporting only costs a phone call.
     """
+    if not_english(body):
+        return None
     raw = (body or "").lower()
     out_of = _OUT_OF_TEN if hi == 10 else re.compile(rf"\s*(?:/|\bout of\b|\bof\b)\s*{hi}\b")
     t = _norm(out_of.sub(" ", raw))
@@ -244,6 +261,8 @@ _YES_EXACT_ONLY = frozenset({"sure", "i am", "i do"})
 
 
 def parse_trend(body: str) -> str | None:
+    if not_english(body):
+        return None
     t = _norm(body)
     if not t:
         return None
@@ -354,6 +373,8 @@ def parse_free_text(body: str) -> str | None:
 def parse_choice(body: str, choices: list[str]) -> str | None:
     """One of ``choices``: an exact reply, or a sentence naming exactly one of them
     (a negated one, "not worse", does not count). None when unclear."""
+    if not_english(body):
+        return None
     t = _norm(body)
     if not t or not choices:
         return None

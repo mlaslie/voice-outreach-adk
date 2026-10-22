@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 _REGISTRY: dict[str, CallFacts] = {}
+QUESTION_MARKS = ("?", "\uff1f", "\u061f")
 
 
 @dataclass
@@ -31,7 +32,8 @@ class CallFacts:
 
     @property
     def unanswered_question(self) -> bool:
-        return "?" in self.agent_text_since_caller
+        # ASCII "?", full-width "？" (Chinese, Japanese) and the Arabic "؟".
+        return any(q in self.agent_text_since_caller for q in QUESTION_MARKS)
 
 
 def register(session_id: str) -> CallFacts:

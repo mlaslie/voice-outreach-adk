@@ -163,9 +163,9 @@ def test_bigquery_loader_job_config():
 
 
 def test_bigquery_loader_adds_new_columns_to_an_existing_table():
-    """fact_calls gained ``language`` (21 Oct): an existing table gets the column
-    by an explicit schema update before the WRITE_TRUNCATE load, on the empty
-    path too."""
+    """fact_calls gained ``language`` (21 Oct) and ``language_used`` (22 Oct): an
+    existing table gets the columns by an explicit schema update before the
+    WRITE_TRUNCATE load, on the empty path too."""
     from google.cloud import bigquery
 
     class Job:
@@ -175,7 +175,7 @@ def test_bigquery_loader_adds_new_columns_to_an_existing_table():
     old = [
         bigquery.SchemaField(c.name, c.type, mode=c.mode)
         for c in schema.FACT_CALLS.columns
-        if c.name != "language"
+        if c.name not in ("language", "language_used")
     ]
 
     class Client:
@@ -200,7 +200,7 @@ def test_bigquery_loader_adds_new_columns_to_an_existing_table():
     loader = export.BigQueryLoader("proj-123", "voa_analytics", client=client)
     loader.load(schema.FACT_CALLS, [])
     ((names, fields),) = client.updates
-    assert fields == ["schema"] and names[-1] == "language"
+    assert fields == ["schema"] and names[-2:] == ["language", "language_used"]
     assert names == list(schema.FACT_CALLS.column_names)
     # Up to date: nothing more to add.
     client.table.schema = [bigquery.SchemaField(n, "STRING") for n in names]

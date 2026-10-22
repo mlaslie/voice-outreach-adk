@@ -118,6 +118,8 @@ rules:
 
 Post-op's rules reproduce the pre-engine triage exactly: `packages/voa_core/tests/parity` compares them with outputs recorded before the engine, over several thousand cases.
 
+**Any new free-text check must also work on the translated text** (docs/LANGUAGES-PLAN.md §3.3). A patient may answer in another language. The prose checks above are English keyword rules, so they fail safe on words they cannot read (a non-English description is urgent swelling; non-English words add an "answer in another language" finding), and after the call `voa_core/language_safety.py` runs them again on the English translation and raises the tier when that is more urgent. A new check therefore needs: a fail-safe result for non-English input (`parsers.not_english`), an entry in `language_safety.english_findings` so the post-call re-check runs it on the translation, and a row in `config/languages/eval/safety.yaml`.
+
 ### `required_with` (what "complete" means)
 
 A completed report needs an answer to every top-level question that is not `optional` (questions with `when_patient` are asked by the voice agent but not required by the report check), and, for each `required_with`, its sub-answers once the parent has that answer:

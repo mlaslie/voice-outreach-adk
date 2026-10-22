@@ -117,14 +117,61 @@ def prose_field(c: Campaign, answers: dict, pattern: re.Pattern) -> str | None:
     return None
 
 
-def _prose_check(pattern: re.Pattern) -> Callable[[CheckContext], Hit | None]:
+def _not_english(text: str) -> bool:
+    from .parsers import not_english
+
+    return not_english(str(text or ""))
+
+
+def foreign_prose_field(c: Campaign, answers: dict) -> str | None:
+    """The first answer holding the patient's own words NOT in English (raw replies,
+    then free-text answers), or None. These English keyword checks cannot read it,
+    so it must not pass as "nothing found" (docs/LANGUAGES-PLAN.md §3.3)."""
+    skip = set(c.open_question_ids)
+    for field, text in raw_answers(answers).items():
+        if field not in skip and _not_english(text):
+            return field
+    for field in prose_fields(c):
+        if _not_english(answers.get(field)):
+            return field
+    return None
+
+
+#: The finding a prose check adds when the words are not in English: the check
+#: could not read them, so a nurse must (fail safe, never "nothing found").
+FOREIGN_PROSE_TEXT = {
+    "severe_language": "pain described in another language (severity not read)",
+    "asks_for_a_person": "answer in another language (may ask for a person)",
+    "expressed_worry": "answer in another language (may express worry)",
+}
+
+
+def _prose_check(pattern: re.Pattern, name: str = "") -> Callable[[CheckContext], Hit | None]:
     def check(ctx: CheckContext) -> Hit | None:
         if not pattern.search(free_text_blob(ctx.campaign, ctx.answers)):
-            return None
+            foreign = foreign_prose_field(ctx.campaign, ctx.answers) if name else None
+            if foreign is None:
+                return None
+            return Hit(text=FOREIGN_PROSE_TEXT[name], fields=(foreign,))
         field = prose_field(ctx.campaign, ctx.answers, pattern)
         return Hit(fields=(field,) if field else None)
 
     return check
+
+
+def severe_language(text: str) -> bool:
+    """The words say the pain is severe, or are not in English (unread: fail safe)."""
+    return bool(SEVERE_LANGUAGE.search(text or "")) or _not_english(text)
+
+
+def asks_for_a_person(text: str) -> bool:
+    """The words ask for a nurse or a call, or are not in English (fail safe)."""
+    return bool(WANTS_HUMAN.search(text or "")) or _not_english(text)
+
+
+def expressed_worry(text: str) -> bool:
+    """The words express worry or confusion, or are not in English (fail safe)."""
+    return bool(WORRIED.search(text or "")) or _not_english(text)
 
 
 # --- Swelling ---------------------------------------------------------------------
@@ -144,7 +191,13 @@ SWELLING_URGENT = re.compile(
 def swelling_is_urgent(description: str) -> bool:
     """One leg, worsening, or painful/red/warm swelling: same day. A negated word
     ("not painful", "no redness") does not count. Shared with the nurse agent so
-    its colouring cannot drift from this rule."""
+    its colouring cannot drift from this rule.
+
+    A description not in English cannot be read by this rule, so it is urgent
+    (fail safe): "solo la pierna izquierda, está peor" must never pass as routine.
+    The post-call re-check reads the English translation."""
+    if _not_english(description):
+        return True
     negated = _negated_words(description)
     for m in SWELLING_URGENT.finditer(description or ""):
         words = m.group(0).lower().split()
@@ -184,17 +237,17 @@ def _questions_recorded(ctx: CheckContext) -> bool:
 #: name -> (function, the number of args it takes, what it does).
 NAMED_CHECKS: dict[str, tuple[Callable[..., Any], int, str]] = {
     "severe_language": (
-        _prose_check(SEVERE_LANGUAGE),
+        _prose_check(SEVERE_LANGUAGE, "severe_language"),
         0,
         "the patient's own words say the pain is severe (terrible, unbearable, worst...)",
     ),
     "asks_for_a_person": (
-        _prose_check(WANTS_HUMAN),
+        _prose_check(WANTS_HUMAN, "asks_for_a_person"),
         0,
         "the patient's own words ask for a nurse, a doctor or a call back",
     ),
     "expressed_worry": (
-        _prose_check(WORRIED),
+        _prose_check(WORRIED, "expressed_worry"),
         0,
         "the patient's own words express worry or confusion",
     ),

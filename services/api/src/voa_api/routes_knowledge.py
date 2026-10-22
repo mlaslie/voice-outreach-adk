@@ -154,7 +154,8 @@ async def patch_item(item_id: str, body: ItemPatch, request: Request):
 @router.post("/items/{item_id}/approve")
 async def approve_item(item_id: str, request: Request):
     api: Api = request.app.state.api
-    await _get(api, kb.ITEMS, item_id, "item")
+    if problem := kb.approval_problem(await _get(api, kb.ITEMS, item_id, "item")):
+        raise HTTPException(422, problem)
     item = kb.public_item(await _transition(api, request, kb.ITEMS, item_id, kb.approve_item))
     log.info(
         "knowledge item approved",
@@ -255,6 +256,8 @@ async def approve_document(doc_id: str, request: Request):
                 f"Approved guidelines can hold at most {kb.MAX_APPROVED_CHARS:,} characters "
                 f"in total ({total:,} in use). Retire one first.",
             )
+    if problem := kb.approval_problem(cur):
+        raise HTTPException(422, problem)
     doc = await _transition(api, request, kb.DOCUMENTS, doc_id, kb.approve_item)
     log.info(
         "knowledge guideline approved",

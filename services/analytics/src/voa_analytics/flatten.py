@@ -309,6 +309,7 @@ def flatten_call(
         ),
         **timeline_metrics(events_doc),
         "language": _language(doc.get("language") or ctx.get("language")),
+        "language_used": _language_used(doc.get("language_used")),
     }
 
     reasons: list[Row] = []
@@ -332,6 +333,17 @@ def _language(value: Any) -> str:
     from voa_core import languages
 
     return languages.normalize(value) or languages.DEFAULT
+
+
+def _language_used(value: Any) -> str | None:
+    """A code (one of the 24, else the detected tag, e.g. "zh"), or None when the
+    translation task has not set it (older calls, no transcript)."""
+    from voa_core import languages
+
+    if not isinstance(value, str) or not value.strip():
+        return None
+    v = value.strip()[:16]
+    return languages.normalize(v) or (v.lower() if v.replace("-", "").isalnum() else None)
 
 
 def flatten(

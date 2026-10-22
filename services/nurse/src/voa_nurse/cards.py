@@ -26,7 +26,7 @@ import uuid
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
-from voa_core import languages, timefmt
+from voa_core import languages, timefmt, translate
 
 from . import triage
 
@@ -671,25 +671,68 @@ def shadow_line(q: dict) -> str | None:
     return f"Agent's draft answer (not said): {text}"
 
 
-def transcript_card(c: dict, t: dict, limit: int = 40) -> Card:
+def _translated_from(c: dict, t: dict) -> str | None:
+    """The non-English language a transcript was translated from (the language
+    used, else the first non-English turn), as a name: "Spanish (US)"."""
+    used = t.get("language_used") or c.get("language_used")
+    if used and languages.normalize(used) not in languages.ENGLISH:
+        return languages.name(used)
+    for turn in t.get("turns") or []:
+        lang = turn.get("lang")
+        if turn.get("text_en") and lang and not str(lang).lower().startswith("en"):
+            return languages.name(lang)
+    return None
+
+
+def transcript_card(c: dict, t: dict, limit: int = 40, original: bool = False) -> Card:
+    """The transcript, in English by default (docs/LANGUAGES-PLAN.md step 2): a
+    translated turn shows its English with "Translated from ..."; ``original``
+    shows the patient's own words. An all-English call looks as it always did."""
     card = Card(f"Call transcript: {c.get('patient_name') or c['doc_id']}", "visibility")
     card.line(when(c.get("initiated_at")), "caption")
     if not t.get("available"):
         return card.line(t.get("reason") or "No transcript is available for this call.")
     turns = t.get("turns") or []
+    translated = any(turn.get("text_en") for turn in turns)
+    status = (t.get("translation") or {}).get("status")
+    source = _translated_from(c, t)
+    if translated and source:
+        card.line(
+            f"Original language: {source}."
+            if original
+            else f"Translated from {source} (machine translation).",
+            "caption",
+        )
+    elif status == "failed":
+        card.line("Translation to English failed; showing the original words.", "caption")
+    elif (
+        status is None
+        and turns
+        and not translate.all_english([turn.get("text") or "" for turn in turns])
+    ):
+        card.line("Translating to English… showing the original words for now.", "caption")
     if not turns:
         card.line("No transcript content was captured for this call.")
     for turn in turns[:limit]:
         who = "Automated caller" if turn.get("role") == "agent" else "Patient"
-        card.put(card.col(card.text(who, "caption"), card.text(turn.get("text") or "")))
+        text = turn.get("text") or ""
+        if not original and turn.get("text_en"):
+            text = turn["text_en"]
+        card.put(card.col(card.text(who, "caption"), card.text(text)))
     if len(turns) > limit:
         card.line(
             f"{len(turns) - limit} more exchanges. Open the dashboard for the full transcript.",
             "caption",
         )
-    return card.buttons(
-        card.button("Back to call summary", event("view_call", call_sid=c["doc_id"]))
-    )
+    buttons = [card.button("Back to call summary", event("view_call", call_sid=c["doc_id"]))]
+    if translated and source:
+        buttons.append(
+            card.button(
+                "Show English" if original else f"Show original ({source})",
+                event("show_transcript", call_sid=c["doc_id"], original=not original),
+            )
+        )
+    return card.buttons(*buttons)
 
 
 LIST_STATUS = {

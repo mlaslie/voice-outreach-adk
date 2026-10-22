@@ -121,6 +121,46 @@ def _check_phi(what: str, texts: list[str]) -> None:
             )
 
 
+# --------------------------------------------------------------------------- English only
+
+#: docs/LANGUAGES-PLAN.md §3.3: the medication/symptom refusal and the agent's
+#: vetoes are English keyword rules, so content in another language would pass
+#: them unread (a Spanish medication answer would look like "other").
+ENGLISH_ONLY = "Content must be in English until language packs exist."
+
+
+def not_english_content(text: str) -> bool:
+    """True when clinic text is not plainly English (the micro sign in "µg" is
+    allowed)."""
+    from .parsers import not_english
+
+    return not_english((text or "").replace("µ", "u"))
+
+
+def _check_english(what: str, texts: list[str]) -> None:
+    for t in texts:
+        if t and not_english_content(t):
+            raise ValueError(f"The {what} is not in English. {ENGLISH_ONLY}")
+
+
+def approval_problem(doc: Mapping[str, Any]) -> str | None:
+    """Why an example or guideline may not be approved, or None. Catches content
+    saved before the English-only rule."""
+    texts = [
+        doc.get("question"),
+        doc.get("answer"),
+        doc.get("title"),
+        doc.get("body"),
+        *(doc.get("alt_questions") or []),
+        *(doc.get("procedures") or []),
+    ]
+    try:
+        _check_english("content", [str(t) for t in texts if t])
+    except ValueError as exc:
+        return str(exc)
+    return None
+
+
 # --------------------------------------------------------------------------- example Q&A
 
 
@@ -176,6 +216,9 @@ def clean_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
             if a and a not in alts:
                 alts.append(a)
         out["alt_questions"] = alts
+    _check_english("question", [out["question"]] if "question" in out else [])
+    _check_english("answer", [out["answer"]] if "answer" in out else [])
+    _check_english("other wording", out.get("alt_questions", []))
     wordings = ([out["question"]] if "question" in out else []) + out.get("alt_questions", [])
     for t in wordings:
         if (c := pq.classify(t).category) in LOCKED_CATEGORIES:
@@ -230,6 +273,9 @@ def clean_document_fields(fields: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(raw, list) or any(s not in CARE_SETTINGS for s in raw):
             raise ValueError("Care settings must be from: " + ", ".join(CARE_SETTINGS) + ".")
         out["care_settings"] = [s for s in CARE_SETTINGS if s in raw]
+    _check_english("title", [out["title"]] if "title" in out else [])
+    _check_english("text", [out["body"]] if "body" in out else [])
+    _check_english("procedure", out.get("procedures", []))
     _check_phi("title", [out["title"]] if "title" in out else [])
     _check_phi("text", [out["body"]] if "body" in out else [])
     _check_phi("procedures", out.get("procedures", []))
@@ -336,9 +382,12 @@ def edit_document(
 
 
 def approve_item(doc: Mapping[str, Any], *, by: str, at: str) -> dict[str, Any] | None:
-    """Draft or retired -> approved. None when it is already approved."""
+    """Draft or retired -> approved. None when it is already approved.
+    Raises ValueError for content not in English (:func:`approval_problem`)."""
     if doc.get("status") == APPROVED:
         return None
+    if problem := approval_problem(doc):
+        raise ValueError(problem)
     return {
         **doc,
         "status": APPROVED,

@@ -145,8 +145,18 @@ async def answer_from_knowledge(question: str, tool_context: ToolContext) -> dic
             "say": "Tell them the care team will go over the rest of their questions, "
             "then move on.",
         }
-    entry: dict[str, Any] = pq.record(question)
-    rt = runtime_for(_session_id(tool_context))
+    from voa_core.parsers import not_english
+
+    foreign = not_english(question)
+    if foreign:
+        # No language packs yet: the clinic's answers are English and checked by
+        # English rules, so a question in another language always goes to a nurse.
+        entry: dict[str, Any] = pq.record_translated(
+            question, None, tool_context.state.get("patient_language")
+        )
+    else:
+        entry = pq.record(question)
+    rt = None if foreign else runtime_for(_session_id(tool_context))
     result = None
     if rt is not None:
         try:
@@ -160,7 +170,7 @@ async def answer_from_knowledge(question: str, tool_context: ToolContext) -> dic
             log.exception("knowledge agent failed", extra={"event": "knowledge.tool_error"})
     if result is None:
         entry["outcome"] = pq.OUTCOME_DEFERRED
-        reason = "not_set_up" if rt is None else "error"
+        reason = "language" if foreign else "not_set_up" if rt is None else "error"
     else:
         reason = result.reason
         entry["outcome"] = result.outcome

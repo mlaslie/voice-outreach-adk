@@ -133,3 +133,6 @@ async def test_the_patients_language_is_kept_out_of_the_session_state():
     patient = got.value.args[0]["patient"]
     assert "language" not in patient and "call_in_english" not in patient
     assert patient["first_name"] == "Jordan" and patient["dob"] == "1950-03-15"
+    # Step 3: the tools read dates day first and keep a question's original for a
+    # patient whose language is not English (set only then).
+    assert got.value.args[0]["patient_language"] == "es-US"

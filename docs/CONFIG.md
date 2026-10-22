@@ -20,6 +20,9 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `models.knowledge_draft` | `VOA__MODELS__KNOWLEDGE_DRAFT` | str | `'gemini-2.5-flash'` |  |
 | `models.knowledge_draft_thinking_budget` | `VOA__MODELS__KNOWLEDGE_DRAFT_THINKING_BUDGET` | int | None | `0` |  |
 | `models.knowledge_location` | `VOA__MODELS__KNOWLEDGE_LOCATION` | str | `'global'` |  |
+| `models.translate` | `VOA__MODELS__TRANSLATE` | str | `'gemini-2.5-flash'` |  |
+| `models.translate_location` | `VOA__MODELS__TRANSLATE_LOCATION` | str | `'global'` |  |
+| `models.translate_thinking_budget` | `VOA__MODELS__TRANSLATE_THINKING_BUDGET` | int | None | `0` |  |
 | `voice.voice_name` | `VOA__VOICE__VOICE_NAME` | str | `'Algenib'` |  |
 | `voice.language_code` | `VOA__VOICE__LANGUAGE_CODE` | str | `'en-US'` |  |
 | `voice.custom_vocabulary` | `VOA__VOICE__CUSTOM_VOCABULARY` | list | `[]` |  |

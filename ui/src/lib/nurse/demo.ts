@@ -9,7 +9,7 @@
  * view-model code as live data (lib/nurse/model.ts).
  */
 
-import { AllowlistEntry, AllowlistResponse, CallDoc, CallRun } from "../types";
+import { AllowlistEntry, AllowlistResponse, CallDoc, CallRun, TranscriptResponse } from "../types";
 import { FollowUpSession, ScheduledCallback } from "../followups";
 import { PlannedEntry } from "./model";
 import { DEFAULT_CALLING_HOURS, DEFAULT_CLINIC_TZ, nextCallingSlot } from "./window";
@@ -144,6 +144,9 @@ export function demoData(now: Date = new Date()): NurseData {
     }),
     call({
       name: "Lucia Fernández", pid: "P-2045", op: "Spinal fusion", endedH: -2, mins: 5,
+      // Called in English; she answered in Spanish (docs/LANGUAGES-PLAN.md step 2):
+      // the drawer shows a "Spoke Spanish (US)" chip and a translated transcript.
+      language_used: "es-US", languages_spoken: ["es-US", "en-US"],
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "routine_next_business_day",
       follow_up_reason: "Patient reports question asked (appointment), question asked (activity).",
@@ -341,4 +344,54 @@ export function demoAllowlist(entries: PlannedEntry[]): {
   // One sample patient is left off the list so the "not an approved number" state shows.
   const shown = list.length > 2 ? list.filter((_, i) => i !== 1) : list;
   return { allowlist: { entries: shown, count: shown.length, mode: "list", unrestricted: false }, consent };
+}
+
+/**
+ * Sample transcripts (fictional) for the drawer's Transcript tab in sample
+ * mode: one call answered in Spanish and translated, one still waiting for its
+ * translation. Every other sample call has none.
+ */
+export function sampleTranscript(call: CallDoc): TranscriptResponse | null {
+  const t0 = new Date(call.answered_at ?? call.initiated_at).getTime();
+  const stamp = (s: number) => new Date(t0 + s * 1000).toISOString();
+  type Row = [role: "agent" | "patient", s: number, text: string, en?: string | null, lang?: string];
+  const build = (rows: Row[], translated: boolean) =>
+    rows.map(([role, s, text, en, lang]) => ({
+      role, timestamp: stamp(s), text,
+      ...(translated ? { text_en: en ?? null, lang: lang ?? "en-US" } : {}),
+    }));
+
+  if (call.patient_id === "P-2045") {
+    const rows: Row[] = [
+      ["agent", 2, "Hi, this is Sara calling from the clinic about your recent surgery. Am I speaking with Lucia?"],
+      ["patient", 8, "Sí, soy yo. ¿Podemos hablar en español?", "Yes, it's me. Can we speak in Spanish?", "es-US"],
+      ["agent", 12, "Claro que sí. Para confirmar su identidad, ¿me dice su fecha de nacimiento?", "Of course. To confirm your identity, can you tell me your date of birth?", "es-US"],
+      ["patient", 18, "El doce de mayo de mil novecientos sesenta y uno.", "The twelfth of May, nineteen sixty-one.", "es-US"],
+      ["agent", 24, "Gracias. En una escala del cero al diez, ¿cuánto dolor tiene hoy?", "Thank you. On a scale from zero to ten, how much pain do you have today?", "es-US"],
+      ["patient", 31, "Un cuatro, más o menos. Es rigidez en la espalda baja, y cada día está mejor.", "A four, more or less. It's stiffness in the lower back, and every day it's better.", "es-US"],
+      ["agent", 37, "¿Ha tenido fiebre?", "Have you had a fever?", "es-US"],
+      ["patient", 40, "No, no he tenido fiebre.", "No, I haven't had a fever.", "es-US"],
+      ["agent", 46, "¿Tiene alguna pregunta para su equipo de atención?", "Do you have any questions for your care team?", "es-US"],
+      ["patient", 52, "Sí. ¿Cuándo es mi cita con el cirujano? Nadie me ha llamado todavía. Y, ¿cuándo puedo volver a manejar?", "Yes. When is my appointment with the surgeon? Nobody has called me yet. And when can I drive again?", "es-US"],
+      ["agent", 60, "Se lo paso a una enfermera, que le llamará el próximo día hábil.", "I'll pass that to a nurse, who will call you the next business day.", "es-US"],
+      ["patient", 66, "OK, thank you.", null, "en-US"],
+    ];
+    return {
+      available: true, conversation_id: call.doc_id, turns: build(rows, true),
+      translation: { status: "done", model: "gemini-2.5-flash", at: stamp(300), languages: ["en-US", "es-US"] },
+      language: "en-US", language_used: "es-US", title: "Post-op check",
+    };
+  }
+  if (call.patient_id === "P-2052") {
+    const rows: Row[] = [
+      ["agent", 2, "Hi, this is Sara calling from the clinic about your recent surgery. Is this a good time?"],
+      ["patient", 7, "すみません、今仕事中です。午後六時以降にかけ直してもらえますか？"],
+      ["agent", 13, "Of course. I'll ask the clinic to call you back after 6 pm. Goodbye."],
+    ];
+    return {
+      available: true, conversation_id: call.doc_id, turns: build(rows, false),
+      translation: null, language: "en-US", language_used: null, title: "Post-op check",
+    };
+  }
+  return null;
 }

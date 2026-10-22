@@ -5,6 +5,9 @@
                        and hand missed calls to the SMS follow-up
 /tasks/knowledge-shadow  shadow mode: store what the knowledge agent would have said to each
                        of a filed report's questions (docs/KNOWLEDGE-PLAN.md)
+/tasks/transcript-translate  {call_id, phone?}: add English translations to a call's transcript
+                       turns (and, with phone, its text messages); set language_used
+                       (docs/LANGUAGES-PLAN.md step 2; translation.py)
 /cron/dispatch-due     every minute: dial scheduled runs and entries whose time has come;
                        close browser test calls whose link was never opened
 
@@ -445,6 +448,13 @@ async def task_knowledge_shadow(payload: dict, request: Request):
     from .routes_knowledge import run_shadow
 
     return await run_shadow(request.app.state.api, str(payload.get("call_id") or ""))
+
+
+@router.post("/tasks/transcript-translate")
+async def task_transcript_translate(payload: dict, request: Request):
+    from . import translation
+
+    return await translation.run(request.app.state.api, payload)
 
 
 async def _maybe_recall(api: Api, entry_id: str, entry: dict) -> str:

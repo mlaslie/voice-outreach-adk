@@ -150,11 +150,36 @@ async def transcript(call_id: str, request: Request):
         {
             "role": "agent" if x.get("role") == "agent" else "patient",
             "text": x.get("text", ""),
+            # Bilingual transcripts (docs/LANGUAGES-PLAN.md step 2): set by the
+            # translation task; null before it ran, and text_en is null for a
+            # turn already in English.
+            "text_en": x.get("text_en"),
+            "lang": x.get("lang"),
             "timestamp": (t0 + timedelta(milliseconds=x.get("at_ms", 0))).isoformat() if t0 else "",
         }
         for x in t["turns"]
     ]
-    return {"turns": turns, "available": True, "conversation_id": call_id}
+    return {
+        "turns": turns,
+        "available": True,
+        "conversation_id": call_id,
+        # null: not run yet (pending); else {status: done|failed|skipped, model, at, languages}
+        "translation": t.get("translation"),
+        "language": call.get("language") or (call.get("patient_context") or {}).get("language"),
+        "language_used": call.get("language_used"),
+        # The use case's display title, for the download's title line.
+        "title": _use_case_title(call.get("campaign_id")),
+    }
+
+
+def _use_case_title(campaign_id: str | None) -> str:
+    from voa_core.campaign import DEFAULT_CAMPAIGN_ID, load_campaign
+
+    try:
+        c = load_campaign(campaign_id or DEFAULT_CAMPAIGN_ID)
+    except (OSError, ValueError):
+        return ""
+    return c.display.title or c.name
 
 
 @router.get("/calls/{call_id}/recording")

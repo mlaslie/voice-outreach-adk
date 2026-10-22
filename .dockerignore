@@ -10,6 +10,7 @@ docs
 config/*
 !config/app.yaml
 !config/campaigns
+!config/languages
 *.wav
 *.ulaw
 .env*

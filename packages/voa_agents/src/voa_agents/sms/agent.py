@@ -109,9 +109,27 @@ class SmsConversation:
         self.interpreter = interpreter
         self.max_llm_attempts = max_llm_attempts
 
-    async def decide(self, session: dict | None, body: str, now: datetime.datetime) -> Decision:
+    async def decide(
+        self,
+        session: dict | None,
+        body: str,
+        now: datetime.datetime,
+        *,
+        original: str | None = None,
+        original_lang: str | None = None,
+    ) -> Decision:
+        """``body`` is what the state machine reads (the English translation for a
+        text in another language); ``original``/``original_lang`` are kept with
+        what it records (see ``conversation.decide``)."""
         d = conversation.decide(
-            session, body, now, site=self.site, policy=self.policy, scheduling=self.scheduling
+            session,
+            body,
+            now,
+            site=self.site,
+            policy=self.policy,
+            scheduling=self.scheduling,
+            original=original,
+            original_lang=original_lang,
         )
         if not session or session.get("state") != st.STATE_AWAITING_TIME:
             return d

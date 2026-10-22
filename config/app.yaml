@@ -21,6 +21,9 @@ models:
   knowledge_draft: gemini-2.5-flash           # not flash-lite: it picked the wrong guideline
   knowledge_draft_thinking_budget: 0
   knowledge_location: global
+  translate: gemini-2.5-flash                 # transcript/text translation to English, after the call
+  translate_location: global
+  translate_thinking_budget: 0
 
 voice:
   voice_name: Algenib

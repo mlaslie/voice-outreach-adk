@@ -39,6 +39,8 @@ R_LOCKED = "locked_category"
 R_OTHER = "unclassified"
 R_NOT_ALLOWED = "category_not_allowed"
 R_LOW = "low_confidence"
+#: The question is not in English: no language packs yet, so a nurse answers it.
+R_LANGUAGE = "language"
 
 VETO_KEYWORDS, VETO_LLM = "keywords", "llm"
 
@@ -120,6 +122,12 @@ def keyword_gate(question: str) -> tuple[Classification, str | None]:
         return Classification(kw, kw, red_flag=True, vetoed_by=VETO_KEYWORDS), R_RED_FLAG
     if kw in kb.LOCKED_CATEGORIES:
         return Classification(kw, kw, vetoed_by=VETO_KEYWORDS), R_LOCKED
+    from voa_core.parsers import not_english
+
+    if not_english(question):
+        # These English rules cannot read it (an English stem inside a Spanish
+        # question misroutes it), and the clinic's answers are English only.
+        return Classification(kw, kw, vetoed_by=VETO_KEYWORDS), R_LANGUAGE
     return Classification(kw, kw), None
 
 

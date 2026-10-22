@@ -48,6 +48,9 @@ class Api:
     # The knowledge agent (voa_knowledge.KnowledgeAgent); None = built from the
     # config on first use (Gemini + Vertex grounding). Tests inject fakes.
     knowledge_agent: Any = None
+    # Translation to English (voa_core.translate.Translator); None = Gemini from
+    # the config on first use. Tests inject voa_core.translate.FakeTranslator.
+    translator: Any = None
     clock: Any = field(default=lambda: datetime.now(UTC))
 
     def now(self) -> datetime:
@@ -59,6 +62,20 @@ class Api:
 
             self.knowledge_agent = KnowledgeAgent.from_config(self.cfg)
         return self.knowledge_agent
+
+    def get_translator(self) -> Any:
+        if self.translator is None:
+            if self.cfg.env == "test":
+                # Never reach a model from a test run: everything reads as English
+                # unless a test injects its own translator.
+                from voa_core.translate import FakeTranslator
+
+                self.translator = FakeTranslator()
+            else:
+                from voa_agents.translate import GeminiTranslator
+
+                self.translator = GeminiTranslator.from_config(self.cfg)
+        return self.translator
 
     @classmethod
     def build(cls, cfg: AppConfig) -> Api:

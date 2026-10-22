@@ -69,6 +69,10 @@ export interface SmsMessage {
   at: string;
   message_sid?: string | null;
   call_sid?: string | null;
+  /** English translation, set when the report was filed; null when already English. */
+  body_en?: string | null;
+  /** Detected language of the message (e.g. "es-US"). */
+  lang?: string | null;
 }
 
 export type Tone = "wait" | "good" | "alert" | "muted";

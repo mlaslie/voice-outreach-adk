@@ -1,11 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageSquare } from "lucide-react";
+import { Languages, MessageSquare } from "lucide-react";
 
 import { fetchMessages, FollowUpError, type SmsMessage } from "@/lib/followups";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatTime } from "@/lib/format";
+import { useLanguages } from "@/components/languages-provider";
+import { ViewToggle } from "@/components/transcript-viewer";
+import { TranscriptView, messageText, sourceLanguage, translatedLabel } from "@/lib/translation";
 
 /**
  * The text exchange that belongs to ONE call.
@@ -96,6 +99,15 @@ export function CallTexts({
  * right. Presentational only, so sample data can use it without a request.
  */
 export function TextThread({ messages, caption }: { messages: SmsMessage[]; caption?: string }) {
+  // Bilingual texts (docs/LANGUAGES-PLAN.md step 2): English by default when
+  // the thread was translated; an English thread looks exactly as before.
+  const [view, setView] = useState<TranscriptView>("english");
+  const langs = useLanguages()?.languages ?? [];
+  const translated = messages.some((m) => !!m.body_en);
+  const source = translated
+    ? sourceLanguage(messages.map((m) => ({ text_en: m.body_en, lang: m.lang })))
+    : null;
+  const shown: TranscriptView = translated ? view : "original";
   return (
     <div className="space-y-2">
       {caption ? (
@@ -103,6 +115,15 @@ export function TextThread({ messages, caption }: { messages: SmsMessage[]; capt
           <MessageSquare className="h-3.5 w-3.5" />
           {caption}
         </p>
+      ) : null}
+      {translated ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[12px] text-ink-soft">
+            <Languages className="h-3.5 w-3.5" />
+            {translatedLabel(source, langs)}
+          </span>
+          <ViewToggle value={view} onChange={setView} options={["english", "original"]} />
+        </div>
       ) : null}
       <ol className="space-y-2">
         {messages.map((m) => {
@@ -123,7 +144,7 @@ export function TextThread({ messages, caption }: { messages: SmsMessage[]; capt
                  * only way to tell a prompt reply from a next-day one. */}
                 <span className="tabular-nums">{formatTime(m.at)}</span>
               </span>
-              {m.body}
+              {messageText(m, shown)}
             </li>
           );
         })}

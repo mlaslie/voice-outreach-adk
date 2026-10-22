@@ -13,6 +13,8 @@ COPY spikes ./spikes
 # Only non-identifying config ships in the image; the rest arrives as VOA__* env vars.
 COPY config/app.yaml ./config/app.yaml
 COPY config/campaigns ./config/campaigns
+# Per-language STOP/HELP and red-flag keywords (docs/LANGUAGES-PLAN.md §3.3).
+COPY config/languages ./config/languages
 RUN uv sync --frozen --no-dev --package voa-${SERVICE} \
  && useradd --uid 10001 --no-create-home app
 USER app

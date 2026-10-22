@@ -93,6 +93,10 @@ class _Ctx:
     policy: ConversationPolicy
     site: SiteCopy
     scheduling: SchedulingPolicy
+    #: The patient's own words when ``body`` is their English translation
+    #: (docs/LANGUAGES-PLAN.md §3.5), and the language they were in.
+    original: str | None = None
+    original_lang: str | None = None
 
 
 def _book(resolved: timeparse.Resolved, ctx: _Ctx, *, rebook: bool) -> Decision:
@@ -259,9 +263,22 @@ _CLOCK_AT_DOB_GATE = re.compile(
 )
 
 
+def patient_language(session: dict | None) -> str | None:
+    """The patient's language when it is a supported language other than English,
+    else None (English, blank or unknown)."""
+    from voa_core import languages
+
+    s = session or {}
+    raw = (s.get("patient_context") or {}).get("language") or s.get("language")
+    code = languages.normalize(raw)
+    return code if code and code not in languages.ENGLISH else None
+
+
 def _handle_dob(session: dict, body: str, c: _Ctx) -> Decision:
     ctx = session.get("patient_context") or {}
-    parsed = dobcheck.parse_dob(body, c.now.date())
+    # A patient whose language is not English writes dates day first ("05/03/1950"
+    # is 5 March); a date in another language arrives here translated.
+    parsed = dobcheck.parse_dob(body, c.now.date(), day_first=patient_language(session) is not None)
 
     if parsed is None:
         # NOT a mismatch. Someone replying "1" or "call me instead" has
@@ -441,7 +458,9 @@ def asked_questions(answers: dict) -> bool:
 
 
 def _words(text: str) -> int:
-    return len(re.findall(r"[A-Za-z0-9']+", text or ""))
+    # Letters of every script count (a Hindi or Russian question has words too);
+    # for ASCII text this is the old [A-Za-z0-9']+.
+    return len(re.findall(r"(?:[^\W_]|')+", text or ""))
 
 
 def _read_questions_reply(body: str) -> tuple[str | None, str]:
@@ -450,12 +469,15 @@ def _read_questions_reply(body: str) -> tuple[str | None, str]:
     "yes" means a bare yes -- ask them to type it. Anything that reads as a
     question, or a sentence that is not a plain yes or no, IS the question:
     over-recording costs a nurse a minute, dropping one costs the patient an
-    answer. "No, but ..." is never a no.
+    answer. "No, but ..." is never a no. A reply not in English (one that
+    reached here untranslated) is never dropped: it is the question.
     """
     text = (body or "").strip()
     rest = _LEAD_YES_NO.sub("", text, count=1).strip()
     if _QUESTION_LIKE.search(text):
         return "question", rest or text
+    if parsers.not_english(text) and re.search(r"[^\W\d_]", text):
+        return "question", text
     yn = survey_mod.parse_yes_no(text)
     has_but = bool(_BUT.search(text))
     if not has_but:
@@ -478,8 +500,12 @@ def _record_question(
     index: int,
     text: str,
     c=None,
+    orig: tuple[str, str | None] | None = None,
 ) -> Decision:
-    qs = [*_questions_so_far(answers), pq.record(text)]
+    # By text in another language: the question is classified on its English
+    # translation (``text``), and the patient's own words are kept with it.
+    entry = pq.record_translated(orig[0], text, orig[1]) if orig else pq.record(text)
+    qs = [*_questions_so_far(answers), entry]
     answers[survey_mod.F_PATIENT_QUESTIONS] = qs
     if len(qs) >= pq.MAX_QUESTIONS:
         rest = [p for p in pending if p != survey_mod.F_PATIENT_QUESTIONS]
@@ -505,6 +531,7 @@ def _handle_question_loop(
     pending: list[str],
     index: int,
     c=None,
+    orig: tuple[str, str | None] | None = None,
 ) -> Decision:
     kind, text = _read_questions_reply(body)
     have = _questions_so_far(answers)
@@ -528,7 +555,7 @@ def _handle_question_loop(
             retry=0,
             note="survey-question-empty",
         )
-    return _record_question(session, answers, plan, pending, index, text, c)
+    return _record_question(session, answers, plan, pending, index, text, c, orig)
 
 
 def _keep_raw(answers: dict, field: str, body: str) -> None:
@@ -542,7 +569,23 @@ def _keep_raw(answers: dict, field: str, body: str) -> None:
     answers[survey_mod.RAW_KEY] = raw
 
 
-def _handle_survey(session: dict, body: str) -> Decision:
+ORIGINAL_KEY = "_original"
+
+
+def _keep_original(answers: dict, field: str, orig: tuple[str, str | None] | None) -> None:
+    """The patient's own words when the answer was read from their translation
+    (docs/LANGUAGES-PLAN.md §4: ``_original[question_id]``)."""
+    if not orig:
+        return
+    kept = answers.get(ORIGINAL_KEY)
+    kept = dict(kept) if isinstance(kept, dict) else {}
+    kept[field] = (orig[0] or "").strip()[: survey_mod.MAX_FREE_TEXT]
+    answers[ORIGINAL_KEY] = kept
+
+
+def _handle_survey(
+    session: dict, body: str, orig: tuple[str, str | None] | None = None
+) -> Decision:
     plan = list(session.get("survey_plan") or [])
     pending = list(session.get("survey_pending") or [])
     index = int(session.get("survey_index") or 0)
@@ -586,7 +629,7 @@ def _handle_survey(session: dict, body: str) -> Decision:
 
     field = pending[0] if pending else plan[index]
     if field == survey_mod.F_PATIENT_QUESTIONS:
-        return _handle_question_loop(session, body, answers, plan, pending, index, c)
+        return _handle_question_loop(session, body, answers, plan, pending, index, c, orig)
 
     q = c.question(field)
     if q is not None and q.kind == "open_questions":
@@ -597,8 +640,9 @@ def _handle_survey(session: dict, body: str) -> Decision:
             # recorded still files as "has questions" for a nurse to call.
             answers[field] = "no" if kind == "no" else "yes"
             _keep_raw(answers, field, body)
+            _keep_original(answers, field, orig)
             if kind == "question":
-                return _record_question(session, answers, plan, [], index + 1, text, c)
+                return _record_question(session, answers, plan, [], index + 1, text, c, orig)
             loop = [] if kind == "no" else [survey_mod.F_PATIENT_QUESTIONS]
             return _advance(session, answers, plan, loop, index + 1, c=c)
 
@@ -642,6 +686,7 @@ def _handle_survey(session: dict, body: str) -> Decision:
         value = survey_mod.followup_value(field, answers, value, c)
     answers[field] = value
     _keep_raw(answers, field, body)
+    _keep_original(answers, field, orig)
     if q is not None and (rf := parsers.raw_field(q)) and (body or "").strip():
         # The parsed status triages; the patient's own words are what a nurse
         # wants to read (post-op: blood sugars, "120 to 250").
@@ -662,12 +707,27 @@ def decide(
     site: SiteCopy,
     policy: ConversationPolicy = DEFAULT_POLICY,
     scheduling: SchedulingPolicy = DEFAULT_SCHEDULING,
+    original: str | None = None,
+    original_lang: str | None = None,
 ) -> Decision:
-    """Interpret one inbound message. ``session`` None means unknown sender."""
+    """Interpret one inbound message. ``session`` None means unknown sender.
+
+    ``original``/``original_lang``: when ``body`` is the English translation of
+    the patient's text (docs/LANGUAGES-PLAN.md §3.5), their own words and
+    language, kept with a recorded question or answer. Every decision is made
+    on ``body``; the caller has already checked STOP/HELP and red flags on the
+    original."""
     now = now or timeparse.now_local(scheduling)
     # The menu must offer exactly what this function will honour.
     site = dataclasses.replace(site, survey_enabled=policy.survey_enabled)
-    c = _Ctx(now=now, policy=policy, site=site, scheduling=scheduling)
+    c = _Ctx(
+        now=now,
+        policy=policy,
+        site=site,
+        scheduling=scheduling,
+        original=original,
+        original_lang=original_lang,
+    )
 
     # --- 1. Compliance keywords. Whole-message match, checked first, in every
     #        state, and never routed anywhere else.
@@ -688,7 +748,7 @@ def decide(
         )
 
     # --- 2. Red flags, before the text is read as an answer to anything.
-    if intent_mod.is_red_flag(body):
+    if intent_mod.is_red_flag(body, translated=original is not None):
         # Cancel anything queued. Telling someone this line is unmonitored
         # and then ringing them for a routine wellness check two hours later
         # is the kind of contradiction that destroys trust in the whole
@@ -844,7 +904,8 @@ def decide(
         return _handle_dob(session, body, c)
 
     if state == store.STATE_SURVEY:
-        return _handle_survey(session, body)
+        orig = (original, original_lang) if original else None
+        return _handle_survey(session, body, orig)
 
     if state == store.STATE_DIALING:
         # The proxy has been asked to dial and may already be ringing. Saying

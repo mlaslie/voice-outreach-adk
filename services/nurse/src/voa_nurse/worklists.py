@@ -1232,16 +1232,23 @@ async def view_texts(call_sid: str):
         card.line("No text messages for this call.")
     for m in sorted(msgs, key=lambda m: m.get("at") or "")[:40]:
         who_ = "Patient" if m.get("direction") == "inbound" else "Clinic (automated)"
-        card.put(
-            card.col(
-                card.text(f"{who_} · {when(m.get('at'))}", "caption"),
-                card.text(m.get("body") or ""),
-            )
-        )
+        caption = f"{who_} · {when(m.get('at'))}"
+        if m.get("body_en"):
+            # English first (docs/LANGUAGES-PLAN.md step 2), the patient's words under it.
+            caption += f" · translated from {languages.name(m.get('lang'))}"
+            body = card.col(card.text(m["body_en"]), card.text(m.get("body") or "", "caption"))
+        else:
+            body = card.text(m.get("body") or "")
+        card.put(card.col(card.text(caption, "caption"), body))
     card.buttons(card.button("Back to call", event("view_call", call_sid=call_sid)))
     return card, {
         "messages": [
-            {"from": m.get("direction"), "at": m.get("at"), "text": m.get("body")}
+            {
+                "from": m.get("direction"),
+                "at": m.get("at"),
+                "text": m.get("body"),
+                **({"text_en": m["body_en"], "lang": m.get("lang")} if m.get("body_en") else {}),
+            }
             for m in msgs[:40]
         ]
     }

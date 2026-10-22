@@ -58,6 +58,12 @@ class ModelsConfig(_Strict):
     # the general "two weeks" guideline instead of the hip one (6 weeks).
     knowledge_draft_thinking_budget: int | None = 0
     knowledge_location: str = "global"
+    # Transcript and text translation to English (docs/LANGUAGES-PLAN.md step 2;
+    # voa_agents.translate). Runs after the call, off the live path. Thinking
+    # off, the same as the drafter: a literal translation needs no reasoning.
+    translate: str = "gemini-2.5-flash"
+    translate_location: str = "global"
+    translate_thinking_budget: int | None = 0
 
 
 class VoiceConfig(_Strict):

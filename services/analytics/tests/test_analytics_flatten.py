@@ -342,3 +342,14 @@ def test_free_text_in_enum_fields_is_dropped():
 def test_key_required():
     with pytest.raises(ValueError):
         fl.flatten([], {}, key=b"", tz=TZ)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(None, None), ("", None), ("es-US", "es-US"), ("es", "es-US"), ("zh", "zh"), ("<x>", None)],
+)
+def test_language_used(value, expected):
+    doc = phi_call()
+    if value is not None:
+        doc["language_used"] = value
+    assert flat_one(doc).calls[0]["language_used"] == expected

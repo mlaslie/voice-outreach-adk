@@ -300,7 +300,9 @@ async def play_recording(call_sid: str):
     }
 
 
-async def view_transcript(call_sid: str | None = None, patient: str | None = None):
+async def view_transcript(
+    call_sid: str | None = None, patient: str | None = None, original: bool = False
+):
     c, choices = await resolve(call_sid, patient)
     if choices:
         return which_patient(patient or "", choices, "show_transcript")
@@ -311,8 +313,22 @@ async def view_transcript(call_sid: str | None = None, patient: str | None = Non
 
         return await worklists.view_texts(c["doc_id"])
     t = await backend().get_transcript(c["doc_id"])
-    turns = [{"role": x.get("role"), "text": x.get("text")} for x in t.get("turns") or []]
-    return cards.transcript_card(c, t), {"available": t.get("available"), "turns": turns[:60]}
+    # Both texts for the model (docs/LANGUAGES-PLAN.md step 2): the patient's own
+    # words and, for a translated turn, the English.
+    turns = [
+        {
+            "role": x.get("role"),
+            "text": x.get("text"),
+            **({"text_en": x["text_en"], "lang": x.get("lang")} if x.get("text_en") else {}),
+        }
+        for x in t.get("turns") or []
+    ]
+    data = {"available": t.get("available"), "turns": turns[:60]}
+    if (t.get("translation") or {}).get("status"):
+        data["translation"] = t["translation"]["status"]
+    if t.get("language_used"):
+        data["language_used"] = t["language_used"]
+    return cards.transcript_card(c, t, original=original), data
 
 
 async def view_call_list():
@@ -857,7 +873,9 @@ async def handle_click(name: str, ctx: dict):
     )
     views = {
         "view_call": lambda: view_call(call_sid=ctx.get("call_sid")),
-        "show_transcript": lambda: view_transcript(call_sid=ctx.get("call_sid")),
+        "show_transcript": lambda: view_transcript(
+            call_sid=ctx.get("call_sid"), original=ctx.get("original") is True
+        ),
         "play_recording": lambda: play_recording(ctx["call_sid"]),
         "list_calls": lambda: view_calls(**{k: ctx[k] for k in list_keys if k in ctx}),
         "follow_up_queue": view_follow_up_queue,

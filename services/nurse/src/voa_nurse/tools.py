@@ -234,15 +234,20 @@ async def get_call(call_sid: str | None = None, patient: str | None = None):
 
 
 @card_tool
-async def get_transcript(call_sid: str | None = None, patient: str | None = None):
+async def get_transcript(
+    call_sid: str | None = None, patient: str | None = None, original: bool = False
+):
     """The transcript of one call between the automated caller and the patient (or the
-    text messages, for a questionnaire completed by text).
+    text messages, for a questionnaire completed by text). A call in another language
+    shows the English translation unless ``original`` is true; each translated turn
+    in the result has both ``text`` (the original words) and ``text_en``.
 
     Args:
         call_sid: A specific call id, when known.
         patient: Patient name, MRN or phone; the latest call is used.
+        original: Show the patient's own words instead of the English translation.
     """
-    return await actions.view_transcript(call_sid=call_sid, patient=patient)
+    return await actions.view_transcript(call_sid=call_sid, patient=patient, original=original)
 
 
 # --- worklist, texts, allowlist, help ------------------------------------------------------

@@ -40,6 +40,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -505,14 +506,16 @@ async def log_message(
     body: str,
     message_sid: str | None,
     call_sid: str | None,
-) -> None:
+) -> str | None:
     """Stored for the nurse-facing thread; never written to logs (bodies can carry
-    clinical answers from the questionnaire onwards)."""
+    clinical answers from the questionnaire onwards). The message's id, or None
+    when the write failed."""
     at = _ts(api)
+    doc_id = f"{at}_{new_id()[:8]}"
     try:
         await api.store.set(
             MESSAGES,
-            f"{at}_{new_id()[:8]}",
+            doc_id,
             {
                 "phone": phone,
                 "direction": direction,
@@ -524,6 +527,8 @@ async def log_message(
         )
     except Exception:
         log.warning("message log write failed", extra={"event": "sms.log_failed"})
+        return None
+    return doc_id
 
 
 async def list_messages(api: Api, phone: str, call_sid: str | None = None) -> list[dict]:
@@ -543,6 +548,9 @@ async def list_messages(api: Api, phone: str, call_sid: str | None = None) -> li
             "at": r.get("at", ""),
             "message_sid": r.get("message_sid"),
             "call_sid": r.get("call_sid"),
+            # Set at filing time by /tasks/transcript-translate (step 2); absent
+            # until then, and body_en is null for a message already in English.
+            **{k: r[k] for k in ("lang", "body_en") if k in r},
         }
         for r in rows
     ]
@@ -827,11 +835,22 @@ async def _process_inbound(
     # S-8: the typed DOB is never stored in the dashboard thread.
     in_dob_gate = (session or {}).get("state") == st.STATE_AWAITING_DOB
     stored = DOB_REDACTED if in_dob_gate and re.search(r"\d", body) else body
-    await log_message(
+    msg_id = await log_message(
         api, phone=phone, direction="inbound", body=stored, message_sid=message_id, call_sid=call_id
     )
     now_local = local_now(api)
-    decision = await conversation(api).decide(session, body, now_local)
+    read = await read_inbound(
+        api, session, body, now_local=now_local, msg_id=msg_id, redacted=stored != body
+    )
+    if read.unreadable:
+        # Never read as "no", never guessed: nothing in the conversation moves,
+        # and the call is flagged for a nurse to read the text.
+        decision = Decision(note="translation-failed")
+        await flag_unreadable_text(api, session, read.lang)
+    else:
+        decision = await conversation(api).decide(
+            session, read.body, now_local, original=read.original, original_lang=read.lang
+        )
 
     if decision.effect in (Effect.DISPATCH_RECALL, Effect.BOOK, Effect.REBOOK) and not dialable(
         (session or {}).get("patient_context")
@@ -874,6 +893,118 @@ async def _process_inbound(
             )
             break
     return {"note": decision.note, "effect": decision.effect.value, "replies": sent}
+
+
+# --------------------------------------------------------------------------- other languages
+
+
+@dataclass(frozen=True)
+class InboundText:
+    """What the state machine reads (``body``) and, when that is a translation,
+    the patient's own words and their language."""
+
+    body: str
+    original: str | None = None
+    lang: str | None = None
+    unreadable: bool = False
+
+
+async def read_inbound(
+    api: Api,
+    session: dict | None,
+    body: str,
+    *,
+    now_local: datetime,
+    msg_id: str | None = None,
+    redacted: bool = False,
+) -> InboundText:
+    """docs/LANGUAGES-PLAN.md §3.5 (step 3). For a patient whose language is not
+    English, or a text that is not plainly English:
+
+    1. STOP/HELP and red flags are checked on the ORIGINAL first, with every
+       language's lists plus the English ones (``intent``): such a text goes to
+       the state machine untranslated, where those checks run first.
+    2. Otherwise it is translated to English and the state machine reads the
+       English (its own red-flag check then runs on the translation); the
+       original is kept, and the message gets ``lang`` and ``body_en``.
+    3. If translation fails the text is unreadable: it is never read as "no".
+
+    An English patient's plainly English text is returned unchanged (today's path).
+    """
+    from voa_core import dob as dobcheck
+    from voa_core import intent, translate
+    from voa_core.sms.conversation import patient_language
+
+    lang = patient_language(session)
+    if session is None or not body.strip():
+        return InboundText(body)
+    if lang is None and translate.looks_english(body):
+        return InboundText(body)
+    if not re.search(r"[^\W\d_]", body):
+        return InboundText(body)  # no letters ("1", "7", "05/03/1950"): nothing to translate
+    if intent.classify_compliance(body) is not None or intent.is_red_flag(body):
+        return InboundText(body)
+    if session.get("state") == st.STATE_AWAITING_DOB and (
+        dobcheck.parse_dob(body, now_local.date(), day_first=lang is not None) is not None
+    ):
+        return InboundText(body)  # a date needs no model (and the DOB stays here)
+    try:
+        results = await api.get_translator().translate_turns([body], target="en")
+        if len(results) != 1:
+            raise RuntimeError("wrong number of translations")
+        r = results[0]
+    except Exception as exc:  # noqa: BLE001 - unreadable, routed to a nurse
+        log.warning(
+            "inbound translation failed",
+            extra={"event": "sms.translate_failed", "error": type(exc).__name__},
+        )
+        return InboundText(body, lang=lang, unreadable=True)
+    detected = translate.to_supported(r.lang)
+    if msg_id:
+        patch = {"lang": detected}
+        if not redacted:
+            patch["body_en"] = r.text_en
+        try:
+            await api.store.merge(MESSAGES, msg_id, patch)
+        except Exception:
+            log.warning("message translation not stored", extra={"event": "sms.log_failed"})
+    if not r.text_en:
+        return InboundText(body)  # the model says it is English
+    return InboundText(r.text_en, original=body, lang=detected)
+
+
+async def flag_unreadable_text(api: Api, session: dict | None, lang: str | None) -> None:
+    """A text that could not be translated: the call it belongs to is raised to
+    same day ("couldn't read reply in Spanish (US)") for a nurse. Raise only."""
+    from voa_core import language_safety as ls
+
+    call_id = (session or {}).get("call_sid")
+    log.warning(
+        "inbound text unreadable; flagged for a nurse",
+        extra={"event": "sms.unreadable", "lang": lang, "has_call": bool(call_id)},
+    )
+    if not call_id:
+        return
+    finding = ls.unreadable_finding(lang, "a text reply")
+    now = _ts(api)
+    withdraw: dict[str, bool] = {}
+
+    def mutate(cur: dict | None) -> dict | None:
+        withdraw.clear()
+        if cur is None:
+            return None
+        doc, w = ls.apply(cur, [finding], now=now, status="unreadable", check_key=ls.TEXT_CHECK)
+        withdraw["export"] = w
+        return doc
+
+    try:
+        await api.store.transact(CALLS, call_id, mutate)
+        if withdraw.get("export"):
+            await api.store.merge(
+                EHR_OUTBOX, call_id, review.withdrawn_export(now, "a text reply could not be read")
+            )
+    except Exception:
+        log.exception("unreadable-text flag failed", extra={"event": "sms.unreadable_error"})
 
 
 async def apply_decision(api: Api, phone: str, session: dict | None, decision: Decision) -> None:
@@ -1155,6 +1286,17 @@ async def submit_survey(api: Api, snap: dict) -> dict:
                     channel="sms",
                     report_id=report_id,
                 )
+            # Bilingual record (docs/LANGUAGES-PLAN.md step 2): English for the
+            # nurse next to the patient's own words. Never raises.
+            from voa_core import translate
+
+            await translate.enqueue(
+                api.tasks,
+                api.cfg.services.queue_events,
+                call_id=call_id,
+                phone=phone,
+                name=f"xlate-sms-{call_id}-{report_id}",
+            )
         follow_up = clean["follow_up"]
         await api.store.merge(
             FILINGS,

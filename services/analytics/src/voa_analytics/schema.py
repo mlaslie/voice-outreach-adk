@@ -86,6 +86,12 @@ FACT_CALLS = Table(
         # Added 21 Oct 2026 (docs/LANGUAGES-PLAN.md): the loader adds it to an
         # existing table (BigQueryLoader._add_new_columns).
         _c("language", "STRING", "Patient's preferred language asked for (BCP-47, e.g. es-US)"),
+        # Added 22 Oct 2026 (step 2), the same way: set by the translation task.
+        _c(
+            "language_used",
+            "STRING",
+            "Language most of the patient's turns were in (BCP-47); null before translation ran",
+        ),
     ),
     description="One row per call. De-identified: no names, phones, DOB or free text.",
 )

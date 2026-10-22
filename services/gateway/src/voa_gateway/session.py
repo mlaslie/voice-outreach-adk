@@ -105,19 +105,46 @@ class Timeline:
         log.info(event, extra=safe_extra({"event": event, "t_ms": ms, **detail}))
 
 
+def _is_latin_letter(ch: str) -> bool:
+    return unicodedata.name(ch, "").startswith("LATIN")
+
+
 def clean_transcript(text: str, latin_only: bool = False) -> str:
-    """Strip transcription markup; for Latin-script languages also drop stray letters
-    from other scripts (a real call produced "date of birth?িতার"). Accented Latin
-    letters, digits and punctuation are kept."""
+    """Strip transcription markup, and on English calls drop stray letters from
+    other scripts glued onto English speech.
+
+    Why the filter exists (a53146a, the second real call): an English turn came
+    back as "date of birth?িতার", with Bengali letters and vowel signs the
+    transcriber hallucinated after the question mark.
+
+    The rule (docs/LANGUAGES-PLAN.md step 2): on an English call
+    (``latin_only``), a turn whose letters are mostly Latin is cleaned exactly as
+    before: every non-Latin letter and mark is dropped, so English speech gives
+    byte-for-byte the transcript it always did. A turn whose letters are mostly
+    (or only) in another script is the patient speaking another language
+    (the live model follows a patient who switches): it is kept whole, and counts
+    as the caller speaking. "Mostly" counts letters only (category L): Latin
+    letters >= other letters means English-with-garbage. Known limit: a few
+    words of another script inside a mostly English turn are still dropped from
+    the text (the recording keeps them). Accented Latin letters, digits and
+    punctuation are always kept."""
     text = _MARKUP.sub(" ", text)
     if latin_only:
-        text = "".join(
-            ch
-            for ch in text
-            if not unicodedata.category(ch).startswith(("L", "M"))
-            or unicodedata.name(ch, "").startswith("LATIN")
-            or 0x300 <= ord(ch) <= 0x36F  # combining accents used by Latin letters
-        )
+        latin = other = 0
+        for ch in text:
+            if unicodedata.category(ch).startswith("L"):
+                if _is_latin_letter(ch):
+                    latin += 1
+                else:
+                    other += 1
+        if latin >= other:
+            text = "".join(
+                ch
+                for ch in text
+                if not unicodedata.category(ch).startswith(("L", "M"))
+                or _is_latin_letter(ch)
+                or 0x300 <= ord(ch) <= 0x36F  # combining accents used by Latin letters
+            )
     return " ".join(text.split())
 
 
@@ -208,6 +235,7 @@ class CallSession:
             # The patient's language (docs/LANGUAGES-PLAN.md) is recorded but not
             # used by calls yet (step 1): kept out of state["patient"], so the
             # instruction, tools and voice are exactly as before.
+            language = patient.get("language")
             for k in ("language", "call_in_english"):
                 patient.pop(k, None)
             await self._resolve_campaign(use_case)
@@ -235,6 +263,14 @@ class CallSession:
             }
             if kn_state:
                 state[voice_knowledge.STATE_KEY] = kn_state
+            # The safety layer (docs/LANGUAGES-PLAN.md §3.3): the tools read dates
+            # day first and keep a question's original for a patient whose language
+            # is not English. Absent for English: those calls are unchanged.
+            from voa_core import languages
+
+            code = languages.normalize(language)
+            if code and code not in languages.ENGLISH:
+                state["patient_language"] = code
             session = await self.runner.session_service.create_session(
                 app_name=self.runner.app_name,
                 user_id=self.call_id,

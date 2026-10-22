@@ -83,3 +83,25 @@ def test_a_report_filed_in_shadow_mode_queues_the_knowledge_shadow_task():
     assert queued[0]["name"].startswith(f"kshadow-{cid}-")
     for mode in ("off", "live"):
         assert asyncio.run(go(mode))[1] == []
+
+
+def test_finish_queues_the_transcript_translation():
+    from voa_core.tasks import MemoryTaskQueue
+
+    store, tasks = MemoryStore(), MemoryTaskQueue()
+    cid = "browser_" + "c" * 16
+    asyncio.run(store.set("calls", cid, {"call_sid": "x"}))
+    sink = _sink(store)
+    sink.tasks, sink.events_queue = tasks, "voa-events"
+    asyncio.run(
+        sink.finish(
+            cid, transcript=[{"role": "patient", "text": "Sí"}], timeline=[], recording_wav=None
+        )
+    )
+    assert [(t["queue"], t["path"], t["payload"], t["name"]) for t in tasks.tasks] == [
+        ("voa-events", "/tasks/transcript-translate", {"call_id": cid}, f"xlate-{cid}")
+    ]
+    # an empty transcript queues nothing
+    tasks.tasks.clear()
+    asyncio.run(sink.finish(cid, transcript=[], timeline=[], recording_wav=None))
+    assert tasks.tasks == []

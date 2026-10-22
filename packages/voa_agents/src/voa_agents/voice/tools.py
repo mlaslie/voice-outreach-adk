@@ -10,13 +10,20 @@ the model keep talking before the tool returns ("spoke before submitting").
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
 
 from google.adk.tools import FunctionTool, ToolContext
 from google.genai import types
-from voa_core.dob import DobResult, check_dob, speakable
+from voa_core.dob import (
+    DobResult,
+    ambiguous_numeric,
+    check_dob,
+    speakable,
+    spoken_numbers_to_digits,
+)
 
 from .call_facts import facts_for
 
@@ -41,8 +48,61 @@ OUTCOMES = (
     "voicemail_left",
 )
 MAX_DOB_ATTEMPTS = 2
+#: Unparseable DOB replies that are free; from this one on, each unparseable
+#: reply counts as a failed attempt, so a call cannot loop on "say it again".
+MAX_DOB_UNPARSEABLE = 3
 # What an unreadable answer does is decided by the question's TYPE (or named
 # parser): voa_core.parsers.voice_on_unclear.
+
+# --------------------------------------------------------------------------- languages
+#
+# docs/LANGUAGES-PLAN.md §3.3 (step 3). The tool DECLARATIONS are unchanged; only
+# what a tool does with a non-English value changes, so an English call behaves
+# exactly as before. state["patient_language"] is set by the gateway only for a
+# patient whose language is not English.
+
+#: Typed answers the tools read with English parsers: a non-English value is
+#: refused ("record it in English"), never parsed.
+_TYPED_KINDS = frozenset({"yes_no", "yes_no_unknown", "scale", "choice"})
+_TYPED_PARSERS = frozenset({"trend"})
+NOT_ENGLISH_MESSAGE = (
+    "The answer to {qid} was not recorded in English. Record the answer in English, "
+    "e.g. yes / no / unknown / a number. If the caller said they don't know, record unknown."
+)
+#: The patient is waiting on the line: one quick translation, then give up.
+DOB_TRANSLATE_TIMEOUT_S = 3.0
+
+_DOB_TRANSLATOR: Any = None
+
+
+def set_dob_translator(translator: Any) -> None:
+    """The translator ``verify_identity`` uses for a spoken date it cannot read
+    (``voa_core.translate.Translator``; None turns it off). Set by the gateway."""
+    global _DOB_TRANSLATOR
+    _DOB_TRANSLATOR = translator
+
+
+def _patient_language(tool_context: ToolContext) -> str | None:
+    return tool_context.state.get("patient_language") or None
+
+
+def _typed(question) -> bool:
+    return question.kind in _TYPED_KINDS or (question.parser or "") in _TYPED_PARSERS
+
+
+async def _dob_in_english(spoken: str) -> str | None:
+    t = _DOB_TRANSLATOR
+    if t is None:
+        return None
+    try:
+        out = await asyncio.wait_for(t.translate_turns([spoken]), DOB_TRANSLATE_TIMEOUT_S)
+        return (out[0].text_en or "").strip() or None
+    except Exception as exc:  # noqa: BLE001 - an unread date is simply unparseable
+        log.warning(
+            "dob translation failed",
+            extra={"event": "voice.dob_translate_failed", "error": type(exc).__name__},
+        )
+        return None
 
 
 def _yes(value: Any) -> bool:
@@ -65,10 +125,42 @@ async def verify_identity(spoken_dob: str, tool_context: ToolContext) -> dict:
     Returns:
         result: "match", "needs_readback", "retry" or "mismatch_final".
     """
+    from voa_core.parsers import not_english
+
     patient = tool_context.state.get("patient", {})
     attempts = int(tool_context.state.get("dob_attempts", 0)) + 1
     tool_context.state["dob_attempts"] = attempts
-    check = check_dob(spoken_dob, patient.get("dob", ""))
+    foreign = not_english(spoken_dob or "")
+    # A patient or a reply not in English: numeric dates are read day first.
+    day_first = bool(_patient_language(tool_context)) or foreign
+    heard_text = spoken_dob
+    check = check_dob(spoken_dob, patient.get("dob", ""), day_first=day_first)
+    if check.result is DobResult.UNPARSEABLE and (foreign or _patient_language(tool_context)):
+        english = await _dob_in_english(spoken_dob)
+        if english:
+            heard_text = english
+            check = check_dob(english, patient.get("dob", ""), day_first=day_first)
+            if check.result is DobResult.UNPARSEABLE:
+                # "March fifth, nineteen fifty": the translator keeps words as words.
+                heard_text = spoken_numbers_to_digits(english)
+                check = check_dob(heard_text, patient.get("dob", ""), day_first=day_first)
+            _audit(tool_context, "verify_identity", translated=True, result=check.result.value)
+
+    if (
+        day_first
+        and check.result is DobResult.MISMATCH
+        and ambiguous_numeric(heard_text)
+        and not tool_context.state.get("dob_month_asked")
+    ):
+        # "05/03/1950" read day first did not match, and the order is a guess. Ask
+        # once for the month by name before counting it; after that, day first.
+        tool_context.state["dob_month_asked"] = True
+        tool_context.state["dob_attempts"] = attempts - 1
+        _audit(tool_context, "verify_identity", result="retry_ambiguous", attempt=attempts)
+        return {
+            "result": "retry",
+            "say": "Ask for the month of birth by its name, with the day and the year.",
+        }
 
     if check.result is DobResult.MATCH:
         tool_context.state["dob_verification_result"] = "verified"
@@ -76,10 +168,23 @@ async def verify_identity(spoken_dob: str, tool_context: ToolContext) -> dict:
             facts.identity_verified = True
         _audit(tool_context, "verify_identity", result="match", attempt=attempts)
         return {"result": "match"}
-    if check.result is DobResult.UNPARSEABLE and attempts <= MAX_DOB_ATTEMPTS:
-        tool_context.state["dob_attempts"] = attempts - 1  # an unclear answer costs no attempt
-        _audit(tool_context, "verify_identity", result="retry_unparseable", attempt=attempts)
-        return {"result": "retry", "say": "Ask for the full date of birth, including the year."}
+    if check.result is DobResult.UNPARSEABLE:
+        unread = int(tool_context.state.get("dob_unparseable", 0)) + 1
+        tool_context.state["dob_unparseable"] = unread
+        if unread < MAX_DOB_UNPARSEABLE and attempts <= MAX_DOB_ATTEMPTS:
+            tool_context.state["dob_attempts"] = attempts - 1  # an unclear answer costs no attempt
+            _audit(tool_context, "verify_identity", result="retry_unparseable", attempt=attempts)
+            return {
+                "result": "retry",
+                "say": "Ask for the full date of birth, including the year.",
+            }
+        # The third unreadable reply (and every one after it) is a failed attempt.
+        if attempts < MAX_DOB_ATTEMPTS:
+            _audit(tool_context, "verify_identity", result="unparseable_counted", attempt=attempts)
+            return {
+                "result": "retry",
+                "say": "Ask for the full date of birth, including the year.",
+            }
     if attempts < MAX_DOB_ATTEMPTS:
         _audit(tool_context, "verify_identity", result="retry_mismatch", attempt=attempts)
         heard = speakable(check.heard) if check.heard else None
@@ -112,6 +217,11 @@ async def record_answer(question_id: str, answer: str, tool_context: ToolContext
     # vocabulary.
     from voa_core import parsers, survey
 
+    if _typed(question) and parsers.not_english(answer or ""):
+        # The English parsers would guess ("no sé" -> "no"); the model must pass
+        # the English value instead. English answers never reach this.
+        _audit(tool_context, "record_answer", question_id=question_id, status="not_english")
+        return {"status": "unclear", "message": NOT_ENGLISH_MESSAGE.format(qid=question_id)}
     parsed: object = parsers.parse(question, answer)
     if parsed is None:
         on_unclear = parsers.voice_on_unclear(question)
@@ -162,7 +272,14 @@ async def record_patient_question(question: str, tool_context: ToolContext) -> d
             "say": "Tell them the care team will go over the rest of their questions, "
             "then move on.",
         }
-    entry = patient_questions.record(question)
+    from voa_core.parsers import not_english
+
+    if not_english(question):
+        # Kept as said, "other", immediate (fail safe); the post-call task adds the
+        # English and re-classifies it, keeping the more urgent priority.
+        entry = patient_questions.record_translated(question, None, _patient_language(tool_context))
+    else:
+        entry = patient_questions.record(question)
     if qs and qs[-1].get("outcome") and qs[-1].get("text") == entry["text"]:
         # Already recorded by answer_from_knowledge (knowledge base on): not twice.
         return {"status": "recorded", "count": len(qs)}

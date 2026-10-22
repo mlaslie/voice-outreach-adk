@@ -277,3 +277,42 @@ async def test_home_card_has_a_dashboard_button(t, monkeypatch):
     card, _ = await wl.view_home()
     check(card)
     assert "[New follow-up call]  [Previous calls]  [Settings]  [Dashboard]" in card.as_text()
+
+
+async def test_a_translated_transcript_gives_the_model_both_texts_and_an_original_button(t):
+    c = next(c for c in t.backend.state["calls"] if c.get("channel") != "sms")
+    sid = c["doc_id"]
+    t.backend.state["transcripts"][sid] = {
+        "available": True,
+        "language_used": "es-US",
+        "translation": {"status": "done"},
+        "turns": [
+            {"role": "patient", "text": "No sé.", "text_en": "I don't know.", "lang": "es-US"},
+            {"role": "agent", "text": "Thank you.", "text_en": None, "lang": "en-US"},
+        ],
+    }
+    card, data = await actions.view_transcript(call_sid=sid)
+    check(card)
+    assert "Translated from Spanish (US)" in card.as_text()
+    assert data["turns"][0] == {
+        "role": "patient",
+        "text": "No sé.",
+        "text_en": "I don't know.",
+        "lang": "es-US",
+    }
+    assert data["turns"][1] == {"role": "agent", "text": "Thank you."}
+    assert data["translation"] == "done" and data["language_used"] == "es-US"
+    original = await actions.handle_click("show_transcript", {"call_sid": sid, "original": True})
+    assert "No sé." in original.as_text() and "Original language" in original.as_text()
+
+
+async def test_translated_texts_show_english_with_the_original_under_it(t):
+    sid = _by_name(t, "Angela Brooks")["doc_id"]
+    msgs = t.backend.state["messages"][sid]
+    msgs[-1] = {**msgs[-1], "body": "Me siento bien.", "body_en": "I feel fine.", "lang": "es-US"}
+    card, data = await wl.view_texts(sid)
+    check(card)
+    text = card.as_text()
+    assert "I feel fine." in text and "Me siento bien." in text
+    assert "translated from Spanish (US)" in text
+    assert data["messages"][-1]["text_en"] == "I feel fine."

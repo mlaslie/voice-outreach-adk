@@ -100,6 +100,15 @@ class Gateway:
             agent=build_voice_agent(cfg),
             session_service=InMemorySessionService(),
         )
+        if cfg.env != "test":
+            # verify_identity translates a spoken date it cannot read (one quick
+            # try, the patient is waiting); docs/LANGUAGES-PLAN.md §3.3.
+            from voa_agents.translate import GeminiTranslator
+            from voa_agents.voice import tools as voice_tools
+
+            voice_tools.set_dob_translator(
+                GeminiTranslator(cfg, attempts=1, timeout_s=voice_tools.DOB_TRANSLATE_TIMEOUT_S)
+            )
         self.prompts = PromptCache(
             project_id=cfg.gcp.project_id,
             location=cfg.models.tts_location,

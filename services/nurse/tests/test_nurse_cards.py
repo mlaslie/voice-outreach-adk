@@ -334,3 +334,64 @@ def test_every_card_footer_has_a_dashboard_link(monkeypatch):
     bare = cards.Card("y")
     bare.add_menu_button()
     assert bare.as_text().endswith("[Main menu]")
+
+
+# --------------------------------------------------------------------------- bilingual transcripts
+
+SPANISH_T = {
+    "available": True,
+    "language_used": "es-US",
+    "translation": {"status": "done"},
+    "turns": [
+        {
+            "role": "agent",
+            "text": "¿Tiene fiebre?",
+            "text_en": "Do you have a fever?",
+            "lang": "es-US",
+        },
+        {"role": "patient", "text": "No sé.", "text_en": "I don't know.", "lang": "es-US"},
+        {"role": "patient", "text": "OK", "text_en": None, "lang": "en-US"},
+    ],
+}
+
+
+def _buttons(card):
+    return json.dumps(card.messages())
+
+
+def test_a_translated_transcript_shows_english_with_the_label():
+    card = cards.transcript_card(CALL, SPANISH_T)
+    check(card)
+    text = card.as_text()
+    assert "Translated from Spanish (US)" in text
+    assert "I don't know." in text and "No sé." not in text and "OK" in text
+    assert "Show original (Spanish (US))" in _buttons(card)
+    assert '"original": true' in _buttons(card)
+
+
+def test_the_original_button_rerenders_in_the_original_language():
+    card = cards.transcript_card(CALL, SPANISH_T, original=True)
+    check(card)
+    text = card.as_text()
+    assert "Original language: Spanish (US)" in text
+    assert "No sé." in text and "I don't know." not in text
+    assert "Show English" in _buttons(card)
+
+
+def test_an_english_transcript_is_unchanged():
+    t = {
+        "available": True,
+        "turns": [{"role": "agent", "text": "Hi"}, {"role": "patient", "text": "Yes"}],
+    }
+    plain = cards.transcript_card(CALL, t)
+    t2 = {**t, "translation": {"status": "skipped"}, "language_used": "en-US"}
+    assert plain.as_text() == cards.transcript_card(CALL, t2).as_text()
+    assert "Translat" not in plain.as_text() and "original" not in _buttons(plain)
+
+
+def test_pending_and_failed_translations_show_the_original_with_a_note():
+    t = {"available": True, "turns": [{"role": "patient", "text": "No sé."}]}
+    assert "Translating to English" in cards.transcript_card(CALL, t).as_text()
+    failed = {**t, "translation": {"status": "failed"}}
+    text = cards.transcript_card(CALL, failed).as_text()
+    assert "Translation to English failed" in text and "No sé." in text

@@ -1,6 +1,6 @@
 "use client";
 
-import { LanguageChip } from "@/components/language-chip";
+import { LanguageChip, SpokeChip } from "@/components/language-chip";
 import { useEffect, useState } from "react";
 import {
   Ban,
@@ -229,6 +229,7 @@ export function CompletedView({
                           <span className="truncate font-display text-[15px] font-semibold text-ink">{i.patientName}</span>
                           <Pill tone={k.tone} icon={k.icon}>{k.label}</Pill>
                           <LanguageChip code={i.language} />
+                          {i.call ? <SpokeChip requested={i.language} used={i.call.language_used} /> : null}
                           {i.textSent ? <Pill tone="info" icon={Send}>Text sent</Pill> : null}
                           {i.textSkipped ? (
                             <span title={`Follow-up text not sent: ${i.textSkipped}`}>

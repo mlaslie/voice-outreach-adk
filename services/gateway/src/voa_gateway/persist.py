@@ -151,6 +151,15 @@ class StoreCallSink:
         now = now_iso()
         await self.store.set(TRANSCRIPTS, call_id, {"turns": transcript, "created_at": now})
         await self.store.set(EVENTS, call_id, {"timeline": timeline, "created_at": now})
+        if transcript and self.tasks is not None:
+            # Bilingual transcripts (docs/LANGUAGES-PLAN.md step 2): the API task
+            # adds lang/text_en per turn (an all-English call is skipped there
+            # without a model call). Never raises.
+            from voa_core import translate
+
+            await translate.enqueue(
+                self.tasks, self.events_queue, call_id=call_id, name=f"xlate-{call_id}"
+            )
         if recording_wav and self.bucket:
             uri = await asyncio.to_thread(self._upload, call_id, recording_wav)
             await self.store.transact(

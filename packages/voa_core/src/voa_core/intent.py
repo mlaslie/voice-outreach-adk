@@ -11,13 +11,27 @@ Three layers, cheapest first:
 
 Nothing here guesses. An unreadable reply returns ``UNCLEAR`` and the
 caller asks once more.
+
+Other languages (docs/LANGUAGES-PLAN.md §3.3, step 3): per-language STOP/HELP
+words and red-flag phrases are loaded ADDITIVELY from
+``config/languages/keywords.yaml``. The English lists below always work and are
+unchanged; a text that matches nothing in the extra lists behaves exactly as
+before. The extra lists are drafts awaiting translator review, used anyway
+because stricter is the safe direction (an extra opt-out or 911 reply).
 """
 
 from __future__ import annotations
 
 import datetime
+import functools
+import logging
 import re
+import unicodedata
+from collections.abc import Mapping
+from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
+from typing import Any
 
 from voa_core.timeparse import has_explicit_time_signal, parse_when
 
@@ -194,18 +208,88 @@ _RED_FLAG_CLAUSE_SPLIT = re.compile(r"[,;.!?]|\bbut\b|\bhowever\b|\bthough\b|\be
 _RED_FLAG_REACH = 3
 
 
-def is_red_flag(body: str) -> bool:
+def _english_red_flag(body: str) -> str | None:
     text = (body or "").lower()
     for m in _RED_FLAG_RE.finditer(text):
         clause = _RED_FLAG_CLAUSE_SPLIT.split(text[: m.start()])[-1]
         before = re.findall(r"[a-z']+", clause)[-_RED_FLAG_REACH:]
         if not any(w in _RED_FLAG_NEGATORS for w in before):
-            return True
-    return False
+            return m.group(0)
+    return None
+
+
+# Phrasings a TRANSLATION into English produces for the same emergencies
+# ("perdí el conocimiento" -> "I lost consciousness"; "quitarme la vida" ->
+# "take my own life"). Only for text known to be a machine translation, so an
+# English patient's own texts are read exactly as before; same negation rule.
+_TRANSLATED_RED_FLAGS = (
+    r"lost consciousness",
+    r"loss of consciousness",
+    r"blacked out",
+    r"passing out",
+    r"fainting",
+    r"difficulty breathing",
+    r"hard (time )?(to )?breath(e|ing)",
+    r"can'?t catch my breath",
+    r"out of breath",
+    r"chest hurts",
+    r"chest (has been |is |keeps |started )?hurting",
+    r"pain in the chest",
+    r"(severe|strong|sharp|intense) chest",
+    r"bleeding (very )?(heavily|a lot|profusely|too much)",
+    r"profuse bleeding",
+    r"(severe|serious|uncontrolled|massive|major|abundant) bleeding",
+    r"a lot of blood",
+    r"face (is )?(drooping|droopy|crooked)",
+    r"slurr(ed|ing)",
+    r"take my (own )?life",
+    r"taking my (own )?life",
+    r"ending my life",
+    r"don'?t want to live",
+)
+_TRANSLATED_RED_FLAG_RE = re.compile("|".join(_TRANSLATED_RED_FLAGS), re.IGNORECASE)
+
+
+def _negated_before(text: str, start: int) -> bool:
+    clause = _RED_FLAG_CLAUSE_SPLIT.split(text[:start])[-1]
+    before = re.findall(r"[a-z']+", clause)[-_RED_FLAG_REACH:]
+    return any(w in _RED_FLAG_NEGATORS for w in before)
+
+
+def red_flag_match(body: str, *, translated: bool = False) -> str | None:
+    """The red-flag phrase found in ``body`` (not negated), or None.
+
+    English first (exactly :func:`is_red_flag`'s old rule), then, for a machine
+    translation (``translated``), the phrasings translators use, then every
+    per-language list (Spanish today) on the accent-folded text."""
+    hit = _english_red_flag(body)
+    if hit is not None:
+        return hit
+    if not body:
+        return None
+    if translated:
+        text = body.lower()
+        for m in _TRANSLATED_RED_FLAG_RE.finditer(text):
+            if not _negated_before(text, m.start()):
+                return m.group(0)
+    folded = fold(body)
+    for lst in _keywords().red_flags:
+        hit = lst.match(folded)
+        if hit is not None:
+            return hit
+    return None
+
+
+def is_red_flag(body: str, *, translated: bool = False) -> bool:
+    return red_flag_match(body, translated=translated) is not None
 
 
 def classify_compliance(body: str) -> Intent | None:
-    """STOP / START / HELP, matched against the whole message. None if not one."""
+    """STOP / START / HELP, matched against the whole message. None if not one.
+
+    The English words first (unchanged), then the per-language STOP and HELP
+    words of every language (a Spanish speaker on an English session still
+    gets ALTO)."""
     text = normalize(body)
     if text in STOP_WORDS:
         return Intent.STOP
@@ -213,7 +297,126 @@ def classify_compliance(body: str) -> Intent | None:
         return Intent.START
     if text in HELP_WORDS:
         return Intent.HELP
+    if not text:
+        return None
+    kw = _keywords()
+    folded = fold(text).strip(_EXTRA_PUNCT)
+    if folded in kw.stop:
+        return Intent.STOP
+    if folded in kw.help:
+        return Intent.HELP
     return None
+
+
+# --------------------------------------------------------------------------- other languages
+
+log = logging.getLogger(__name__)
+
+KEYWORDS_FILE = Path("languages") / "keywords.yaml"
+_EXTRA_PUNCT = " .!,;:\"'¡¿?。！？、،؟"
+
+
+def fold(text: str) -> str:
+    """Lower-cased, whitespace collapsed, Latin accents removed ("Arrêt" ->
+    "arret"). Combining marks are only dropped after a Latin letter, so
+    Devanagari, Thai, Tamil... keep their vowel signs."""
+    out: list[str] = []
+    for ch in unicodedata.normalize("NFD", (text or "").lower()):
+        if unicodedata.combining(ch) and out and "a" <= out[-1] <= "z":
+            continue
+        out.append(ch)
+    return " ".join(unicodedata.normalize("NFC", "".join(out)).split())
+
+
+@dataclass(frozen=True)
+class RedFlagList:
+    """One language's red-flag phrases with its own negation rule."""
+
+    language: str
+    pattern: re.Pattern[str]
+    negators: frozenset[str]
+    clause_split: re.Pattern[str]
+    reach: int
+
+    def match(self, folded: str) -> str | None:
+        for m in self.pattern.finditer(folded):
+            clause = self.clause_split.split(folded[: m.start()])[-1]
+            before = re.findall(r"[^\W\d_]+", clause)[-self.reach :]
+            if not any(w in self.negators for w in before):
+                return m.group(0)
+        return None
+
+
+@dataclass(frozen=True)
+class Keywords:
+    stop: frozenset[str] = frozenset()
+    help: frozenset[str] = frozenset()
+    red_flags: tuple[RedFlagList, ...] = ()
+    #: language -> {"stop": [...], "help": [...]} (folded), for reports and tests
+    by_language: Mapping[str, Mapping[str, tuple[str, ...]]] | None = None
+
+
+def _words(v: Any) -> list[str]:
+    return [fold(str(w)).strip(_EXTRA_PUNCT) for w in (v or []) if str(w).strip()]
+
+
+def parse_keywords(doc: Mapping[str, Any]) -> Keywords:
+    """The keyword file's contents (see config/languages/keywords.yaml)."""
+    stop: set[str] = set()
+    help_: set[str] = set()
+    by_language: dict[str, dict[str, tuple[str, ...]]] = {}
+    for lang, entry in (doc.get("stop_help") or {}).items():
+        entry = entry or {}
+        s, h = _words(entry.get("stop")), _words(entry.get("help"))
+        stop.update(s)
+        help_.update(h)
+        by_language[str(lang)] = {"stop": tuple(s), "help": tuple(h)}
+    # The English words keep their own meaning (START, HELP...).
+    english = STOP_WORDS | START_WORDS | HELP_WORDS
+    stop -= english
+    help_ -= english | stop
+    flags: list[RedFlagList] = []
+    for lang, entry in (doc.get("red_flags") or {}).items():
+        entry = entry or {}
+        patterns = [str(p) for p in entry.get("patterns") or [] if str(p).strip()]
+        if not patterns:
+            continue
+        breaks = [re.escape(fold(str(w))) for w in entry.get("clause_breaks") or []]
+        split = r"[,;.!?¡¿]" + "".join(rf"|\b{w}\b" for w in breaks)
+        flags.append(
+            RedFlagList(
+                language=str(lang),
+                pattern=re.compile("|".join(f"(?:{p})" for p in patterns)),
+                negators=frozenset(fold(str(w)) for w in entry.get("negators") or []),
+                clause_split=re.compile(split),
+                reach=int(entry.get("reach") or _RED_FLAG_REACH),
+            )
+        )
+    return Keywords(frozenset(stop), frozenset(help_), tuple(flags), by_language)
+
+
+@functools.cache
+def _keywords() -> Keywords:
+    """Loaded once per process. A missing or broken file leaves the English
+    lists alone (logged loudly: the extra languages are then unprotected)."""
+    import yaml
+
+    try:
+        from .campaign import default_config_dir
+
+        path = default_config_dir() / KEYWORDS_FILE
+        doc = yaml.safe_load(path.read_text()) or {}
+        return parse_keywords(doc)
+    except Exception:
+        log.exception(
+            "language keywords not loaded; English only",
+            extra={"event": "intent.keywords_missing"},
+        )
+        return Keywords()
+
+
+def keywords() -> Keywords:
+    return _keywords()
 
 
 def classify_choice(body: str, now: datetime.datetime | None = None) -> Intent:

@@ -2,7 +2,7 @@
 ENV ?= demo
 TF  := terraform -chdir=infra/envs/$(ENV)
 
-.PHONY: setup test lint pii eval-knowledge tf-bootstrap tf-init tf-plan tf-apply spike-harness spike-serve deploy smoke docs-config bootstrap
+.PHONY: setup test lint pii eval-knowledge eval-languages tf-bootstrap tf-init tf-plan tf-apply spike-harness spike-serve deploy smoke docs-config bootstrap
 
 setup:            ## install deps and git hooks
 	uv sync --all-packages
@@ -52,3 +52,6 @@ eval-voice:       ## persona eval with pass rates (real Gemini Live; ~10 min): m
 
 eval-knowledge:   ## knowledge agent eval set on the LIVE models (Gemini + check-grounding; ADC needed)
 	VOA_ENV=$(ENV) uv run python scripts/eval_knowledge.py -v
+
+eval-languages:   ## non-English safety corpus through the LIVE translator (ADC needed): make eval-languages ENV=dev
+	VOA_ENV=$(ENV) uv run python scripts/eval_languages.py -v

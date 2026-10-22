@@ -1,6 +1,6 @@
 # Patient languages: plan
 
-**Status:** step 1 built (21 Oct 2026, not deployed): the language field end to end with the safe hold. Calls are still English only. Steps 2–6 are proposals.
+**Status:** step 1 deployed (21 Oct 2026): the language field end to end with the safe hold. Step 2 built (22 Oct 2026, not deployed): script-aware transcript cleaning, the post-call translation task (`/tasks/transcript-translate`), per-turn `lang`/`text_en`, `language_used`, the English/Original toggle in the console and on the nurse card, translated texts at filing. Step 3 built (22 Oct 2026, not deployed): the safety layer (§3.3): the post-call raise-only re-check on the translated transcript (every transcript with a patient turn is now translated), non-English typed answers refused by the voice tools, day-first and translated DOBs with a bounded retry, inbound texts translated after STOP/HELP and red flags are checked on the original, per-language STOP/HELP (24) and Spanish red-flag lists (`config/languages/keywords.yaml`, **draft**, awaiting translator review), English-only knowledge content, and the non-English evaluation corpus (`config/languages/eval/safety.yaml`, `make eval-languages`). Calls are still English only. Steps 4–6 are proposals.
 
 **The requirement:**
 1. A preferred language on each patient in the call list.

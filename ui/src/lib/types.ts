@@ -25,6 +25,10 @@ export interface CallDoc {
   /** The patient's preferred language when the call was placed (absent on older calls = en-US). */
   language?: string;
   call_in_english?: boolean;
+  /** The language most of the patient's turns were in, set after the call by the translation task (docs/LANGUAGES-PLAN.md step 2). */
+  language_used?: string;
+  /** Every language the patient spoke, first seen first. */
+  languages_spoken?: string[];
   campaign_id?: string;
   session_uuid?: string;
   stream_sid?: string;
@@ -219,8 +223,22 @@ export interface FollowUpOverrideRequest {
 
 export interface TranscriptTurn {
   role: "agent" | "patient";
+  /** The words as spoken, in the speaker's language. */
   text: string;
+  /** English translation; null/absent when the turn is English or translation has not run. */
+  text_en?: string | null;
+  /** Detected language of the turn (e.g. "es-US"); absent before translation. */
+  lang?: string | null;
   timestamp: string;
+}
+
+/** The post-call translation of a transcript (null/absent: not run yet). */
+export interface TranscriptTranslation {
+  status: "done" | "failed" | "skipped";
+  model?: string | null;
+  at?: string;
+  languages?: string[];
+  error?: string;
 }
 
 export interface PlaceCallRequest {
@@ -254,6 +272,13 @@ export interface TranscriptResponse {
   available: boolean;
   reason?: string;
   conversation_id?: string;
+  translation?: TranscriptTranslation | null;
+  /** The language asked for when the call was placed. */
+  language?: string | null;
+  /** The language the patient mostly spoke (set by the translation task). */
+  language_used?: string | null;
+  /** The use case's display title, for the download. */
+  title?: string;
 }
 
 export interface BatchDeleteResult {

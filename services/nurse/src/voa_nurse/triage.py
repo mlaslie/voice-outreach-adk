@@ -177,7 +177,12 @@ REASON_TIER_ORDER: tuple[str, ...] = (
     "informational",
     "none",
 )
-REASON_SOURCES = {"triage": "triage", "agent": "automated caller", "nurse": "nurse"}
+REASON_SOURCES = {
+    "triage": "triage",
+    "agent": "automated caller",
+    "nurse": "nurse",
+    "translation_check": "translation check",
+}
 
 
 def _reason_list(raw: Any) -> list[dict]:

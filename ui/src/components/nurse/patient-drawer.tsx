@@ -12,6 +12,7 @@ import { formatDuration, formatPhone } from "@/lib/format";
 import { getFollowUpLabel, getStatusLabel } from "@/lib/status";
 import { FOLLOW_UP_OPTIONS, NurseActions } from "@/lib/nurse/actions";
 import { useCallDetail } from "@/hooks/use-call-detail";
+import { sampleTranscript } from "@/lib/nurse/demo";
 import { TranscriptViewer } from "@/components/transcript-viewer";
 import { RecordingPlayer } from "@/components/recording-player";
 import { CallTexts } from "@/components/call-texts";
@@ -21,7 +22,7 @@ import { withShadowReview } from "@/lib/patient-questions";
 import { cn } from "@/lib/utils";
 import { Avatar, Pill, Tone, ago, clock } from "./parts";
 import { ClinicDateTimeInput } from "./clinic-time-input";
-import { LanguageChip } from "@/components/language-chip";
+import { LanguageChip, SpokeChip } from "@/components/language-chip";
 import { callLanguage } from "@/lib/languages";
 import { fmtDateTime } from "@/lib/time";
 import { FollowUpReasonList } from "@/components/follow-up-reasons";
@@ -159,6 +160,9 @@ function Body({
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <Dialog.Title className="truncate font-display text-xl font-semibold">{s.name}</Dialog.Title>
               <LanguageChip code={s.language ?? (call ? callLanguage(call) : undefined)} className="bg-white/15 text-white ring-white/25" />
+              {call ? (
+                <SpokeChip requested={callLanguage(call)} used={call.language_used} className="bg-white/15 text-white ring-white/25" />
+              ) : null}
             </div>
             <Dialog.Description className="mt-0.5 text-[13px] text-white/70">
               {[s.patientId, s.procedure].filter(Boolean).join(" · ") || "—"}
@@ -311,6 +315,8 @@ function Body({
         {tab !== "summary" && call && sid ? (
           actions.live ? (
             <Evidence sid={sid} call={call} tab={tab} />
+          ) : tab === "transcript" && sampleTranscript(call) ? (
+            <SampleTranscript call={call} />
           ) : (
             <p className="rounded-2xl bg-mist/60 p-4 text-[13px] text-ink-soft">
               Sample data has no {tab === "texts" ? "text thread" : tab}. Switch to live data to see the real one.
@@ -319,6 +325,27 @@ function Body({
         ) : null}
       </div>
     </>
+  );
+}
+
+/** Sample mode: a fictional transcript (lib/nurse/demo.ts), no backend. */
+function SampleTranscript({ call }: { call: CallDoc }) {
+  const t = sampleTranscript(call)!;
+  return (
+    <div className="flex min-h-[20rem] flex-col">
+      <TranscriptViewer
+        call={call}
+        turns={t.turns}
+        loading={false}
+        error={null}
+        available={t.available}
+        onReload={() => {}}
+        translation={t.translation}
+        languageUsed={t.language_used}
+        title={t.title}
+        fill
+      />
+    </div>
   );
 }
 
@@ -341,6 +368,9 @@ function Evidence({ sid, call, tab }: { sid: string; call: CallDoc; tab: Tab }) 
           available={d.transcriptAvailable}
           reason={d.transcriptReason}
           onReload={d.reloadTranscript}
+          translation={d.transcriptMeta.translation}
+          languageUsed={d.transcriptMeta.language_used ?? (d.call ?? call).language_used}
+          title={d.transcriptMeta.title}
           fill
         />
       </div>

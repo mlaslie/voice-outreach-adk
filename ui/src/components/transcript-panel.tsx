@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TranscriptTurn } from "@/lib/types";
 import { formatTime } from "@/lib/format";
+import { TranscriptView, turnText } from "@/lib/translation";
 
 interface TranscriptPanelProps {
   turns: TranscriptTurn[];
@@ -15,6 +16,9 @@ interface TranscriptPanelProps {
   onReload: () => void;
   /** Fullscreen view: fill the container and show speaker/time captions. */
   expanded?: boolean;
+  /** Which words to show for translated turns (default: the original text,
+   *  which is the only text an untranslated call has). */
+  view?: TranscriptView;
 }
 
 export function TranscriptPanel({
@@ -25,6 +29,7 @@ export function TranscriptPanel({
   reason,
   onReload,
   expanded = false,
+  view = "original",
 }: TranscriptPanelProps) {
   if (loading) {
     return (
@@ -96,7 +101,18 @@ export function TranscriptPanel({
                   : "bg-mist text-ink"
               }`}
             >
-              {turn.text}
+              {view === "side" && turn.text_en ? (
+                <>
+                  <span lang={turn.lang ?? undefined}>{turn.text}</span>
+                  <span className="mt-1 block border-t border-black/10 pt-1 text-[13px] opacity-80" lang="en">
+                    {turn.text_en}
+                  </span>
+                </>
+              ) : (
+                <span lang={view === "original" || !turn.text_en ? turn.lang ?? undefined : "en"}>
+                  {turnText(turn, view)}
+                </span>
+              )}
             </div>
           </div>
         );

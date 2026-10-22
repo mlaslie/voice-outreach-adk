@@ -50,6 +50,7 @@ OUTCOME_ANSWERED, OUTCOME_DEFERRED = pq.OUTCOME_ANSWERED, pq.OUTCOME_DEFERRED
 R_ANSWERED = "answered"
 R_EMPTY, R_RED_FLAG, R_LOCKED = cl.R_EMPTY, cl.R_RED_FLAG, cl.R_LOCKED
 R_OTHER, R_NOT_ALLOWED, R_LOW = cl.R_OTHER, cl.R_NOT_ALLOWED, cl.R_LOW
+R_LANGUAGE = cl.R_LANGUAGE
 R_NO_KNOWLEDGE = "no_knowledge"
 R_NOT_COVERED = "not_covered"
 R_LOW_SUPPORT = "low_support"
@@ -71,6 +72,7 @@ REASONS = (
     R_OUTPUT_VETO,
     R_TIMEOUT,
     R_ERROR,
+    R_LANGUAGE,
 )
 
 _DOSE = re.compile(
@@ -83,10 +85,13 @@ _DOSE = re.compile(
 def output_veto(answer: str) -> bool:
     """True when the drafted answer must not be said: medication, dose or symptom
     wording (the same keyword rules as the question gate), or a red flag."""
+    from voa_core.parsers import not_english
+
     a = answer or ""
     return (
         pq.classify(a).category in kb.LOCKED_CATEGORIES
         or is_red_flag(a)
+        or not_english(a)  # the English checks above cannot read it
         or bool(_DOSE.search(a))
         or len(a) > MAX_ANSWER_CHARS
     )
