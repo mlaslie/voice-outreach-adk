@@ -51,7 +51,7 @@ flowchart LR
     GCS[(Cloud Storage<br/>recordings)]
     BQ[(BigQuery<br/>de-identified)]
     Q[[Cloud Tasks<br/>+ Scheduler]]
-    LLM[Vertex AI<br/>Gemini Live, Gemini]
+    LLM[Agent Platform<br/>Gemini Live, Gemini]
   end
   N --> UI --> API
   A --> AD --> API

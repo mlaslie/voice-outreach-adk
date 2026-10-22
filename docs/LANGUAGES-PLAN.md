@@ -22,7 +22,7 @@
   - `speech_config.language_code`;
   - a firm instruction ("RESPOND IN SPANISH. YOU MUST RESPOND UNMISTAKABLY IN SPANISH.").
 - Transcription of both sides is built in, takes a custom vocabulary, and works in each language.
-- Source: Vertex AI, *Configure language and voice*; *Gemini 3.8 Live* guide.
+- Source: Gemini Enterprise Agent Platform, *Configure language and voice*; *Gemini 3.8 Live* guide.
 
 | Language | Code | | Language | Code |
 |---|---|---|---|---|

@@ -21,7 +21,7 @@ voa_knowledge.KnowledgeAgent.answer(question, context)   ← one dedicated compo
    3. assemble   approved examples + approved guidelines that apply to this
                  patient's procedure and care setting
    4. draft      LLM answers ONLY from that material, or says "not covered"
-   5. verify     Vertex check-grounding: every claim supported (score ≥ threshold)
+   5. verify     Agent Search check-grounding: every claim supported (score ≥ threshold)
                  + output veto (no medication or dose talk in the answer)
    └─▶ {outcome answered | deferred, answer, sources, scores, reason}
 ```
@@ -61,7 +61,7 @@ It understands paraphrase ("glass of wine" → diet).
 - **PHI check on save:** a phone number, a date of birth, an email address or an MRN-like number is refused.
 - **No RAG at clinic scale:** the whole approved and applicable set goes into the prompt (limits: 100 guidelines × 20,000 characters, 500 examples, 200,000 characters approved in total).
   - This is simpler, more predictable and easier to audit than retrieval.
-  - The component has a `Retriever` seam, so Vertex AI RAG Engine can replace "send everything" when a clinic outgrows the budget.
+  - The component has a `Retriever` seam, so RAG Engine on Agent Platform can replace "send everything" when a clinic outgrows the budget.
 
 **Patient context given to the agent:**
 - procedure;
@@ -86,7 +86,7 @@ The instruction:
 
 **Verification, every step deterministic or Google-checked:**
 1. `covered` is false, or there are no sources → defer.
-2. **Grounding check:** Vertex AI's check-grounding API (Discovery Engine `groundingConfigs/default_grounding_config:check`), with the cited sources as facts. The support score must reach `min_support` (default 0.85, admin-tunable 0.5–1.0). A claim with no citation fails.
+2. **Grounding check:** the Agent Search check-grounding API (Discovery Engine `groundingConfigs/default_grounding_config:check`), with the cited sources as facts. The support score must reach `min_support` (default 0.85, admin-tunable 0.5–1.0). A claim with no citation fails.
 3. **Output veto:** the answer is run through the keyword rules too. Any medication, dose or symptom wording defers.
 4. **Time budget:** 4 s in total on a live call; a timeout defers. The agent may say one holding line ("Let me check that for you").
 

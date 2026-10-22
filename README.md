@@ -30,36 +30,77 @@ Out of the box it ships a **post-operative check-in**. Pre-operative readiness a
 
 ## What it does
 
-**For patients**
-- **A call at a sensible time,** in their preferred language, from a voice agent that introduces itself as automated.
-- **Identity first:** the agent asks for the patient by name and verifies their date of birth before discussing anything health-related.
-- **A short questionnaire:** how they feel, pain (0–10, where, better or worse), fever, the incision, swelling, sleep and, for diabetic patients, blood sugar. Then any questions they have for the care team.
-- **Emergencies first:** every turn of the conversation is checked for emergency warning signs. If one is heard, the agent tells the patient to call 911 and ends the call.
-- **A text if they're missed:** "1 = call me now, 2 = pick a time, 3 = answer by text." The same questionnaire works entirely over SMS.
+### For patients
+- A phone call at a reasonable hour, in their preferred language
+- A voice agent that says up front that it is automated
+- An identity check before any health questions:
+  - asks for the patient by name
+  - verifies the date of birth
+- A short check-in:
+  - how they're feeling
+  - pain: a score from 0 to 10, where it is, better or worse
+  - fever
+  - the incision
+  - swelling in the legs or feet
+  - sleep
+  - blood sugar (diabetic patients only)
+  - any questions for the care team
+- Emergency warning signs are watched for on every turn:
+  - the patient is told to call 911
+  - the call is flagged for nurses
+- A text if the call is missed:
+  - 1 = call me now
+  - 2 = pick a time
+  - 3 = answer the same questions by text
 
-**For nurses: the nurse console**
-- **A work queue ranked by urgency:** emergency, same day, next business day.
-- **Each finding with its reason,** e.g. "pain 8/10, worsening; one-sided leg swelling".
-- **The full record:** the patient's answers, a transcript (in the original language or translated to English), the call recording, and the text conversation.
-- **Actions:** change the follow-up tier, sign off, place a new call.
-- **The same work from Gemini Enterprise** through an assistant that shows interactive cards (A2A + A2UI).
+### For nurses (nurse console)
+- A work queue ranked by urgency:
+  - emergency
+  - same day
+  - next business day
+- The reason for each follow-up, e.g. "pain 8/10, worsening; one-sided leg swelling"
+- Everything about the call in one place:
+  - the patient's answers
+  - the transcript, in English or the patient's language
+  - the call recording
+  - the text conversation
+- Actions:
+  - change the follow-up tier
+  - sign off
+  - place a new call
+- The same work from Gemini Enterprise, through an assistant with interactive cards
 
-**For administrators: the admin console**
-- **Analytics:** call outcomes per period (completed by voice or by text, voicemail and texted, no answer, not completed), reach, what patients report, and nurse workload.
-- **Scheduling:** call schedules and calling hours, patients (one at a time or by CSV), and authorized numbers with SMS consent.
-- **Content and messaging:** text-messaging settings, an optional knowledge base for answering routine questions (off by default; shadow mode for evaluation), languages, branding, and company name.
-- **Testing and oversight:** testing tools (a browser test call and a simulated text conversation that never sends a real text), call diagnostics, and an audit log of every configuration change.
+### For administrators (admin console)
+- Analytics for a chosen period:
+  - call outcomes: completed by voice or text, voicemail and texted, no answer, not completed
+  - how many patients were reached
+  - what patients reported
+  - nurse workload and sign-off times
+- Scheduling:
+  - call runs and calling hours
+  - patients, one at a time or by CSV import
+  - authorized numbers and SMS consent
+- Content and settings:
+  - text messaging
+  - the optional knowledge base (off by default)
+  - languages
+  - company name and branding
+- Testing and oversight:
+  - a test call from the browser
+  - a simulated text conversation (nothing is sent)
+  - call diagnostics
+  - an audit log of every configuration change
 
-**For your systems**
-- **An EHR scheduling API** to load the day's call lists with no clicking.
-- **A FHIR-shaped record** of every nurse-signed result, waiting in an outbox for your exporter.
-- **A provider interface** so telephony and SMS can come from a provider other than Twilio.
+### For your systems
+- An EHR scheduling API to load the day's call lists automatically
+- A FHIR-shaped record of every nurse-signed result, ready for your exporter
+- A provider interface, so calls and texts can use a provider other than Twilio
 
 ---
 
 ## What it connects to
 
-![System context: the app connects patients' phones through a telephony and SMS provider, receives call lists from the EHR and sends results back, serves the nurse and admin consoles and the Gemini Enterprise assistant, and uses Gemini models on Vertex AI.](docs/images/context.png)
+![System context: the app connects patients' phones through a telephony and SMS provider, receives call lists from the EHR and sends results back, serves the nurse and admin consoles and the Gemini Enterprise assistant, and uses Gemini models on Gemini Enterprise Agent Platform.](docs/images/context.png)
 
 | External system | Direction | How |
 |---|---|---|
@@ -78,14 +119,14 @@ Out of the box it ships a **post-operative check-in**. Pre-operative readiness a
 | Service | Used for |
 |---|---|
 | **Cloud Run** | Six services and one job (see [Components](#components)). Scale to zero is supported; set a minimum instance count for low first-call latency. |
-| **Vertex AI: Gemini Live** (`gemini-3.8-live`) | The real-time voice conversation: speech in and out, turn-taking, interruptions, tool calls. 24 languages. |
-| **Vertex AI: Gemini Flash** (`gemini-3.8-flash`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`) | Reading free-text SMS replies; translating transcripts and texts; the nurse assistant; the optional knowledge-base classifier and drafter. |
-| **Vertex AI: Gemini TTS** (`gemini-2.5-flash-tts`) | The pre-recorded voicemail message, per language. |
-| **Vertex AI Search: Check Grounding** | Checking that a knowledge-base answer is supported by approved material before it can be spoken. Off unless the knowledge base is turned on. |
+| **Agent Platform: Gemini Live API** (`gemini-3.8-live`) | The real-time voice conversation: speech in and out, turn-taking, interruptions, tool calls. 24 languages. |
+| **Agent Platform: Gemini Flash** (`gemini-3.8-flash`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`) | Reading free-text SMS replies; translating transcripts and texts; the nurse assistant; the optional knowledge-base classifier and drafter. |
+| **Agent Platform: Gemini TTS** (`gemini-2.5-flash-tts`) | The pre-recorded voicemail message, per language. |
+| **Agent Search: check grounding API** | One stateless API call that checks a knowledge-base answer against the approved text it cites, before the answer can be spoken. No Agent Search data store, app or index is created: approved knowledge lives in Firestore and is passed with each request. Used only when the knowledge base is on. |
 | **Firestore** (Native mode) | The operational database: calls, reports, transcripts, the call queue and schedules, text conversations, settings, the audit log and the EHR outbox. |
 | **Cloud Storage** | Call recordings (stereo WAV; retention configurable, 90 days by default), voicemail clips, branding images. |
-| **BigQuery** | De-identified analytics tables: an HMAC patient key, and no names, numbers, dates of birth or free text. |
-| **Cloud Tasks** | Each dial, call-completion handling, follow-up text, translation and post-call check, with retries. |
+| **BigQuery** | De-identified analytics tables (`fact_calls`, `fact_reasons`, `fact_questions`), refreshed every 15 minutes. No names, phone numbers, dates of birth, answers in the patient's words or transcripts. Patients are identified only by a keyed hash (HMAC-SHA256 of the patient id, with a secret key held in Secret Manager), so repeat calls to one patient can be counted without storing who they are. |
+| **Cloud Tasks** | A queue of small jobs, each delivered later as a signed HTTP request to the API, with retries. Three queues: **dial** (one task per patient; its concurrency caps simultaneous calls), **sms** (the missed-call text, inbound replies, menu actions) and **events** (call-completion handling, translation, post-call checks). |
 | **Cloud Scheduler** | Starting scheduled runs (every minute), expiring stale text conversations, refreshing analytics. |
 | **Identity-Aware Proxy** | Sign-in for the two consoles, each with its own access list. |
 | **Secret Manager** | Provider credentials and signing keys. Never in code or Terraform state. |
@@ -118,8 +159,19 @@ Out of the box it ships a **post-operative check-in**. Pre-operative readiness a
 
 ![The life of one call: 1 Queue, 2 Dial, 3 Answer, 4 Verify, 5 Talk, 6 Save, 7 Follow up, 8 Review, then the EHR outbox. At any time during the conversation an emergency leads to telling the patient to call 911.](docs/images/lifecycle.png)
 
-1. **Queue.** Patients arrive from the EHR scheduling API, a CSV import or a nurse's "New call". A run starts now or at a scheduled time.
-2. **Dial.** One Cloud Task per patient checks calling hours, the patient's language, the allowlist and the budget, then asks the provider to place the call.
+1. **Queue.** Patients join the call list from three places:
+   - the EHR scheduling API, which also schedules the run;
+   - a CSV import in the admin console (Patients → Import). The file is read in the browser and sent to `POST /api/call-list/bulk`; no file is stored.
+   - a nurse's "New call".
+
+   An admin then starts a run now, or schedules one (Schedules).
+2. **Dial.** One Cloud Task per patient checks, in order:
+   - calling hours;
+   - the patient's language;
+   - the authorized-numbers list;
+   - the **hourly dial budget**: a safety cap on calls per hour (`dialing.max_dials_per_hour`, default 30; texts have their own, default 100). It is counted in Firestore, and a run stops when it is reached.
+
+   Then it asks the provider to place the call.
 3. **Answer.** The provider connects the call's audio to the gateway. Answering-machine detection decides between a person and a voicemail.
 4. **Verify.** The agent confirms it has the right person and checks the date of birth server-side (two attempts).
 5. **Talk.** Gemini Live asks the questions. Deterministic parsers type each answer; rules from the use-case file decide the follow-up tier. Emergency warning signs are checked on every turn.
