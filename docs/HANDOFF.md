@@ -843,3 +843,10 @@ Two mutations were checked: sending the invite through the real `Api`, and remov
 - `ruff format .` ran over the repo, including files the concurrency agent was editing (`routes_tasks.py`, `test_api.py`); I made no content change there.
 
 **Parity:** the goldens and tool declarations are unchanged; English instruction byte-identical; full suite **2248 passed, 12 skipped**; UI tsc, vitest (655), both builds; `terraform validate`; PII scan clean. **To deploy:** `terraform apply` (the env var) and gateway + API + nurse + UI images together.
+- **Deployed 23 Oct and verified on demo:**
+  - `/api/languages` reports `auto_approved: true` and 24 of 24 available (2 approved English, 1 Spanish draft, 21 machine).
+  - A Vietnamese "call now" to a fictional number is refused only by the allowlist (403), so it is no longer held.
+  - The dial queue is at 1 concurrent dispatch, 5 attempts, 10–120 s backoff, 900 s.
+  - The API runs with `VOA__DIALING__MAX_CONCURRENT_CALLS=3`.
+  - Smoke passes, and the English persona eval is 16/16.
+- **Live caveat:** demo sends real texts to allowlisted test numbers. Non-English texts to those numbers are now machine-translated and outside the carrier registration. Use the "Test by text" simulator for language demos where possible.
