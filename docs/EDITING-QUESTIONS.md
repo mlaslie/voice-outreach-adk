@@ -189,6 +189,8 @@ Every call, call-list entry, run and ingest tranche can name a use case with `ca
 
 ## Language packs (calls and texts in another language)
 
+**Approval, step by step, and what the demo auto-approve does:** [Language availability and approval](LANGUAGES-PLAN.md#language-availability-and-approval).
+
 A use case is written in English. A **language pack** gives the same use case's wording in one other language: `config/campaigns/i18n/<campaign>.<language>.yaml`, for example `post_op.es-US.yaml`. Plan: `docs/LANGUAGES-PLAN.md` §3.2. Code: `packages/voa_core/src/voa_core/language_packs.py`.
 
 **A pack is wording only.** The question ids, types, rules, triage, red flags and the call frame all come from the English spec, and a pack cannot change them. The voice agent records every answer as the same English value as on an English call ("yes", 7, "worse"), so triage, reports and the nurse screens need nothing per language.
@@ -282,6 +284,8 @@ Rules for every text in a pack (`sms_copy`, `sms_scripts`, questions' `sms*`): k
 - `approved`, with the texts complete and lint-clean (`language_packs.sms_problems`): the language is available for **texts** too. A missed call's text, the 1/2/3 menu and the text questionnaire go out in the patient's language. Without approved text wording, a patient whose language is not English (and who is not set to "Call in English") gets no missed-call text: it is skipped with the reason "no approved Spanish (US) text wording" on the call. Patients on "Call in English" get the English texts.
 - The admin console shows each pack and its status under Display → Languages (read-only), one line for voice and one for texts.
 - Admin → Testing → **Test by text** can play a conversation in any language whose pack has complete text wording, a draft included (nothing is sent); it says "Draft wording, not approved". A real text never uses a draft.
+
+**Demo only:** with `languages_auto_approve` on (dev/test/demo only), every language is available: an approved pack, else a draft pack, else live machine translation, all labelled unreviewed. See [Language availability and approval](LANGUAGES-PLAN.md#language-availability-and-approval).
 
 **Evals only:** `VOA_ALLOW_DRAFT_PACKS=1` lets the gateway speak a draft pack, and only when `VOA_ENV` is set to `dev` or `test`. It is refused in demo and prod, and it never makes a patient callable.
 

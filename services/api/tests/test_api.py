@@ -108,7 +108,7 @@ def test_input_validation():
 
 
 def test_run_dials_through_tasks_and_settles():
-    client, api = make()
+    client, api = make(max_concurrent_calls=1)
     e1 = client.post("/api/call-list", json=ENTRY).json()["entry_id"]
     e2 = client.post("/api/call-list", json={**ENTRY, "patient_id": "P-002"}).json()["entry_id"]
     r = client.post("/api/call-list/run", json={"entry_ids": None})
@@ -117,7 +117,11 @@ def test_run_dials_through_tasks_and_settles():
 
     results = drain(client, api)
     assert results[0].status_code == 200 and "call_id" in results[0].json()
-    assert results[1].status_code == 503  # one call slot (max_concurrent_calls=1): retried later
+    # One call slot: the second patient waits by re-enqueueing itself, not by a 503.
+    assert results[1].status_code == 200 and results[1].json()["waiting"]
+    requeued = [t for t in api.tasks.tasks if t["path"] == "/tasks/dial"]
+    assert len(requeued) == 1 and requeued[0]["delay_s"] == api.cfg.dialing.slot_wait_s
+    assert requeued[0]["payload"]["entry_id"] == e2 and requeued[0]["payload"]["wait"] == 1
     call_id = results[0].json()["call_id"]
     assert run(api.store.get("call_list", e1))["list_status"] == "calling"
 
@@ -125,10 +129,8 @@ def test_run_dials_through_tasks_and_settles():
     assert client.post("/tasks/call-terminal", json={"call_id": call_id}).status_code == 200
     assert run(api.store.get("call_list", e1))["list_status"] == "completed"
 
-    # Cloud Tasks retries the busy one: now the slot is free.
-    retry = client.post(
-        "/tasks/dial", json={"entry_id": e2, "run_id": r.json()["run"]["run_id"], "attempt": 1}
-    )
+    # The re-enqueued task runs: now the slot is free.
+    (retry,) = drain(client, api)
     call2 = retry.json()["call_id"]
     run(api.store.merge("calls", call2, {"call_status": "rna"}))
     client.post("/tasks/call-terminal", json={"call_id": call2})

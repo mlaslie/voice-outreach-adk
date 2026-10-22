@@ -32,6 +32,9 @@ per channel: voice needs the voice wording; texts also need the SMS wording
 encoding-aware segment limits (``sms_problems``).
 For evals only, ``VOA_ALLOW_DRAFT_PACKS=1`` lets the gateway use a draft pack,
 and only when ``VOA_ENV`` is ``dev`` or ``test`` (never in a deployed service).
+The demo auto-approve (``languages.auto_approved``; dev/test/demo only) also uses
+a draft pack's wording, for calls and texts, and machine translation where
+there is no pack (docs/LANGUAGES-PLAN.md, "Language availability and approval").
 The admin "Test by text" simulator may use a draft pack's SMS wording because it
 sends nothing (``sms_pack``'s ``allow_drafts``); a real send refuses one
 (``voa_api.sms_service.send_sms``).
@@ -656,7 +659,9 @@ def sms_pack(
     pack = load_pack(cid, code, config_dir)
     if pack is None:
         return None
-    if not (pack.approved or (allow_drafts and pack.status in ("draft", "in_review"))):
+    # The demo auto-approve (languages.auto_approved) uses a draft's wording too.
+    drafts_ok = allow_drafts or languages.auto_approved()
+    if not (pack.approved or (drafts_ok and pack.status in ("draft", "in_review"))):
         return None
     path = pack_path(cid, code, config_dir)
     try:
@@ -697,7 +702,8 @@ def voice_pack_for_call(
 
     A non-English patient is spoken to in their language only when that
     language's pack for the call's use case is approved (or a draft, in dev/test
-    evals with ``VOA_ALLOW_DRAFT_PACKS=1``), complete for voice, and the admin has
+    evals with ``VOA_ALLOW_DRAFT_PACKS=1`` or with the demo auto-approve on),
+    complete for voice, and the admin has
     not turned on ``call_in_english``. Otherwise the call is in English, and it
     is only placed at all when the hold allowed it (``languages.hold_reason``)."""
     from . import languages
@@ -712,7 +718,13 @@ def voice_pack_for_call(
     pack = load_pack(cid, code, config_dir)
     if pack is None:
         return None
-    if not (pack.approved or (pack.status in ("draft", "in_review") and drafts_allowed(environ))):
+    if not (
+        pack.approved
+        or (
+            pack.status in ("draft", "in_review")
+            and (languages.auto_approved() or drafts_allowed(environ))
+        )
+    ):
         return None
     campaign = _campaign_for(cid, config_dir)
     if campaign is None or not voice_complete(pack, campaign):
@@ -720,10 +732,17 @@ def voice_pack_for_call(
     return pack
 
 
-def localized_campaign(campaign: Campaign, language: str | None, config_dir: Path | None = None):
+def localized_campaign(
+    campaign: Campaign,
+    language: str | None,
+    config_dir: Path | None = None,
+    source: str | None = None,
+):
     """The spec in ``language`` for a call the gateway already put in that
-    language (``state["call_language"]``); the English spec when there is none."""
-    if not language:
+    language (``state["call_language"]``); the English spec when there is none.
+    ``source`` "machine" (demo auto-approve, no usable pack): the English spec,
+    even if a retired pack file exists (the model translates it live)."""
+    if not language or source == "machine":
         return campaign
     pack = load_pack(campaign.id, language, config_dir)
     return localize(campaign, pack) if pack is not None else campaign

@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ClinicDateTimeInput, INPUT_LOOK } from "@/components/nurse/clinic-time-input";
 import { CallListEntryInput, CareSetting, PlaceCallRequest } from "@/lib/types";
 import { useLanguages } from "@/components/languages-provider";
-import { DEFAULT_LANGUAGE, callInEnglishHint, isAvailable, optionLabel } from "@/lib/languages";
+import { DEFAULT_LANGUAGE, callInEnglishHint, isAvailable, languageOptionSuffix, optionLabel } from "@/lib/languages";
 
 const DOB_RE = /^\d{4}-\d{2}-\d{2}$/;
 const PHONE_RE = /^\+[1-9]\d{6,14}$/;
@@ -272,7 +272,7 @@ export function PatientFields({
           {!langs ? <option value={form.language}>{form.language}</option> : null}
           {list.map((l) => (
             <option key={l.code} value={l.code}>
-              {optionLabel(l)}{isAvailable(l.code, form.campaign_id, langs) ? "" : " (not available yet)"}
+              {optionLabel(l)}{languageOptionSuffix(l.code, form.campaign_id, langs)}
             </option>
           ))}
         </select>

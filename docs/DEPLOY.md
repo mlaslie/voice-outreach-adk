@@ -32,6 +32,7 @@ Set these in `terraform.tfvars`:
 | `static_allowlist` | no | Numbers that are always dialable. Normally left empty; manage numbers in the dashboard. |
 | `billing_account_id` | no | Adds a monthly budget alert |
 | `protect_data = false` | no | Throwaway projects only: lets `terraform destroy` remove data |
+| `languages_auto_approve` | no, **demo only** | `true` makes all 24 patient languages available for calls and texts, with unreviewed wording (a draft pack, else machine translation). Default `false`. The services refuse to start with it outside `VOA_ENV` dev/test/demo. Never in production: see [Language availability and approval](LANGUAGES-PLAN.md#language-availability-and-approval). |
 
 ## 2. Base infrastructure
 

@@ -187,8 +187,10 @@ sequenceDiagram
    - The task name is `dial-<run>-<entry>-<attempt>`. Cloud Tasks refuses a duplicate name, so a retried start can't dial anyone twice.
 4. **Cloud Tasks delivers the tasks at the queue's pace,** and the API decides each one. `/tasks/dial` reads the entry by id from Firestore, then:
    - **Skips** a patient who was cancelled, completed or held for their language, recording why on the run.
-   - **Answers 503** ("call slot busy") when the maximum number of calls is already in progress (`dialing.max_concurrent_calls`). Cloud Tasks retries it later with backoff, so the queue is the waiting line and nothing polls.
+   - **Waits for a call slot** when the maximum number of calls is already in progress (`dialing.max_concurrent_calls`, 3 in the demo). The task answers 200 and puts the same patient back on the queue `dialing.slot_wait_s` (15 s) later, as a new named task (`dial-<run>-<entry>-<attempt>-w<n>`). Every check above runs again on each delivery, so a cancelled run, a cancelled patient or closing time ends the wait and is recorded on the run. A patient who finds no free slot for `dialing.max_slot_wait_s` (1 h) is recorded as deferred and stays pending. Earlier patients generally reach a freed slot first, because tasks are created in list order and all re-check on the same delay.
    - **Otherwise claims the entry and dials.** It checks the allowlist and the hourly budget, stores the patient for the gateway, and asks the provider to place the call.
+
+   The dial queue delivers one task at a time at 1 per second (Twilio's default calls per second). The task only places the call, so one-at-a-time dispatch still allows N calls in progress, and it keeps the free-slot check and the dial race-free. A call with no terminal status stops holding its slot after the longest allowed call plus ringing.
 5. **When each call ends,** the gateway's status webhook queues `POST /tasks/call-terminal` on the `voa-events` queue. That task:
    - updates the patient's entry and the run's counters;
    - decides on an automatic retry: it puts the patient back on the list with a due time, and the same per-minute check dials them later;
@@ -196,8 +198,10 @@ sequenceDiagram
 6. **Inbound texts** arrive at the gateway, which queues `POST /tasks/sms-inbound`. Menu choices become `POST /tasks/sms-action`.
 7. **After a call is saved,** further `voa-events` tasks translate the transcript and, for non-English calls, run the safety re-check (`/tasks/transcript-translate`). With the knowledge base in shadow mode, they also draft answers (`/tasks/knowledge-shadow`).
 
+**If a dial task is lost:** Cloud Tasks retries a dial task only after a real error (5 attempts within 15 minutes), then deletes it. Its patient would then never be counted, and the run would stay "running" and block every later run. So each minute, `/cron/dispatch-due` checks a running run: after no progress for longer than any live task can stay silent (a full slot wait, the error retries and one call, about 1 h 40 min by default) and with none of its calls still live, it closes the run. It records every member not accounted for: still pending is deferred (a scheduled run carries them to the next opening), anything else is skipped (`routes_tasks.reconcile_stale_run`).
+
 **Why tasks rather than one long request:**
-- Each step is small and retried independently: 5 attempts, backoff from 5 s to 5 min.
+- Each step is small and retried independently after an error (bounded attempts with backoff).
 - Pacing comes from the queue.
 - An API restart loses nothing.
 - Every step is authenticated as a known identity.

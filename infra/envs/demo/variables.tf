@@ -97,10 +97,24 @@ variable "nurse_min_instances" {
   default     = 0
 }
 
+variable "max_concurrent_calls" {
+  description = "Simultaneous outbound calls (the API's dialing.max_concurrent_calls). Each call holds one Gemini Live session and one gateway media stream; check the Live concurrent-session quota, Twilio's calls-per-second and max_dials_per_hour before raising it (docs/RUNBOOK.md \"Scaling calls\")."
+  type        = number
+  default     = 3
+  validation {
+    condition     = var.max_concurrent_calls >= 1 && var.max_concurrent_calls <= 20
+    error_message = "max_concurrent_calls must be between 1 and 20 (the API config's bounds)."
+  }
+}
+
 variable "dial_concurrency" {
-  description = "Simultaneous outbound dials (Cloud Tasks max concurrent dispatches)."
+  description = "Dial-queue max concurrent dispatches: how many /tasks/dial requests run at once, NOT how many calls (max_concurrent_calls). Keep 1: dispatches one at a time make the API's free-slot check and the dial that follows it race-free, and at ~1 s per dial it already matches Twilio's 1 call per second."
   type        = number
   default     = 1
+  validation {
+    condition     = var.dial_concurrency >= 1
+    error_message = "dial_concurrency must be at least 1."
+  }
 }
 
 variable "org_name" {
@@ -179,6 +193,12 @@ variable "sms_dry_run" {
 
 variable "sms_survey_enabled" {
   description = "Offer option 3 (answer the post-op questions by text). Register the questionnaire copy with the carrier (A2P campaign) before sending for real (sms_dry_run = false)."
+  type        = bool
+  default     = false
+}
+
+variable "languages_auto_approve" {
+  description = "DEMO ONLY. Make all 24 patient languages available for calls and texts; wording without an approved language pack is a draft pack or live machine translation (unreviewed). The services refuse to start with it outside VOA_ENV dev/test/demo. Never on where real patients are called. See docs/LANGUAGES-PLAN.md, \"Language availability and approval\"."
   type        = bool
   default     = false
 }

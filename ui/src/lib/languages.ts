@@ -21,7 +21,20 @@ export interface LanguageInfo {
   native: string;
   /** Callable today for the requested use case (`campaign_id`). */
   available: boolean;
+  /** Where the voice wording comes from for the requested use case; null = not available (held). */
+  source?: WordingSource | null;
+  /** The same, for texts. */
+  sms_source?: WordingSource | null;
 }
+
+/**
+ * Where a language's wording comes from: an approved pack, a draft pack
+ * (unreviewed), or machine-translated live. The last two only happen when the
+ * demo switch `languages.auto_approve` is on (dev/test/demo only).
+ */
+export type WordingSource = "approved" | "draft_pack" | "machine";
+
+export type WordingChannel = "voice" | "sms";
 
 /** One language pack (config/campaigns/i18n/<campaign>.<lang>.yaml), read-only. */
 export interface LanguagePackInfo {
@@ -51,6 +64,81 @@ export interface LanguagesResponse {
   available_by_campaign: Record<string, string[]>;
   /** The language packs on disk and their review status (step 4). */
   packs?: LanguagePackInfo[];
+  /** Demo switch: every language is available, unreviewed wording included. Absent on older servers = false. */
+  auto_approved?: boolean;
+  /** Use case → code → where its voice and text wording comes from (null = not available). */
+  sources_by_campaign?: Record<string, Record<string, { voice: WordingSource | null; sms: WordingSource | null }>>;
+}
+
+/** The warning shown wherever the demo auto-approve switch matters. */
+export const AUTO_APPROVE_BANNER =
+  "Demo: all languages auto-approved. Wording in languages without an approved pack is machine-translated and unreviewed. Not for real patients.";
+
+/** Is the demo "auto-approve all languages" switch on? Absent or no response = off. */
+export function isAutoApproved(resp: LanguagesResponse | null | undefined): boolean {
+  return resp?.auto_approved === true;
+}
+
+const isEnglish = (code: string | null | undefined) => (code ?? "").toLowerCase().split(/[-_]/)[0] === "en";
+
+/**
+ * Where `code`'s wording comes from for a use case and channel: the per-use-case
+ * map, else the list entry (requested use case). English is always "approved";
+ * null = not available, or unknown (older server, list not loaded).
+ */
+export function languageSource(
+  code: string,
+  campaignId: string | null | undefined,
+  resp: LanguagesResponse | null | undefined,
+  channel: WordingChannel = "voice",
+): WordingSource | null {
+  if (isEnglish(code)) return "approved";
+  if (!resp) return null;
+  const cid = campaignId || resp.campaign_id || DEFAULT_CAMPAIGN;
+  const entry = resp.sources_by_campaign?.[cid]?.[code];
+  if (entry) return entry[channel] ?? null;
+  const l = resp.languages.find((x) => x.code === code);
+  return (channel === "sms" ? l?.sms_source : l?.source) ?? null;
+}
+
+/** Is this wording unreviewed (a draft pack, or machine-translated)? */
+export function isUnreviewedSource(source: WordingSource | null | undefined): boolean {
+  return source === "draft_pack" || source === "machine";
+}
+
+/**
+ * The suffix after a language in the patient language select. Off: " (not
+ * available yet)" for a held language, as always. Auto-approved (demo):
+ * nothing is "not available"; unreviewed wording reads " (auto-approved, demo)".
+ */
+export function languageOptionSuffix(
+  code: string,
+  campaignId: string | null | undefined,
+  resp: LanguagesResponse | null | undefined,
+): string {
+  if (isAutoApproved(resp)) {
+    return isUnreviewedSource(languageSource(code, campaignId, resp)) ? " (auto-approved, demo)" : "";
+  }
+  return isAvailable(code, campaignId, resp ?? null) ? "" : " (not available yet)";
+}
+
+/** "" for approved wording (or none); "auto-approved, unreviewed wording" for a draft pack or machine translation. */
+export function wordingSourceLabel(source: WordingSource | null | undefined): string {
+  return isUnreviewedSource(source) ? "auto-approved, unreviewed wording" : "";
+}
+
+/** Count the languages (requested use case, voice) whose wording is unreviewed, by source. */
+export function unreviewedCounts(
+  resp: LanguagesResponse | null | undefined,
+  campaignId?: string | null,
+): { machine: number; draft_pack: number } {
+  const out = { machine: 0, draft_pack: 0 };
+  for (const l of resp?.languages ?? []) {
+    const s = languageSource(l.code, campaignId, resp);
+    if (s === "machine") out.machine += 1;
+    else if (s === "draft_pack") out.draft_pack += 1;
+  }
+  return out;
 }
 
 /**
@@ -167,6 +255,27 @@ export function callLanguage(c: { language?: string | null; patient_context?: Re
   return typeof v === "string" && v ? v : undefined;
 }
 
+/**
+ * "Spoke Vietnamese (auto-approved, unreviewed wording)" for a call whose
+ * wording was a draft pack or machine-translated (demo auto-approve), else
+ * null. The language is the one spoken when not English, else the call's.
+ */
+export function spokeAutoApprovedLabel(
+  call: {
+    language_source?: WordingSource | null;
+    language_used?: string | null;
+    language?: string | null;
+    patient_context?: Record<string, unknown>;
+  },
+  list: LanguageInfo[],
+): string | null {
+  if (!isUnreviewedSource(call.language_source)) return null;
+  const used = call.language_used && !isEnglish(call.language_used) ? call.language_used : undefined;
+  const code = used ?? callLanguage(call);
+  if (!code || isEnglish(code)) return null;
+  return `Spoke ${languageName(code, list)} (${wordingSourceLabel(call.language_source)})`;
+}
+
 /** CSV/booleans: yes/no, true/false, 1/0, y/n, blank = no. Anything else is undefined (a row error). */
 export function parseYesNo(v: string | null | undefined): boolean | undefined {
   const k = (v ?? "").trim().toLowerCase();
@@ -175,20 +284,29 @@ export function parseYesNo(v: string | null | undefined): boolean | undefined {
   return undefined;
 }
 
+/** The simulator's wording labels (the API sends the same text in `wording.label`). */
+export const MACHINE_WORDING_LABEL = "Machine-translated, unreviewed (demo)";
+export const DRAFT_WORDING_LABEL = "Draft wording, not approved";
+
 /**
  * The admin "Test by text" simulator's language choice (step 5). English always
  * works; another language needs its pack's text wording, and a draft is allowed
  * there (nothing is sent) but labelled. `null` = cannot be tested yet.
+ * Auto-approved (demo): a language with no text wording is machine-translated
+ * live, labelled as such.
  */
 export function textTestWording(
   code: string,
   packs: LanguagePackInfo[] | undefined,
   campaignId: string = DEFAULT_CAMPAIGN,
+  resp?: LanguagesResponse | null,
 ): { approved: boolean; label: string } | null {
   if (code === "en-US" || code === "en-IN") return { approved: true, label: "" };
   const p = packs?.find((x) => x.campaign_id === campaignId && x.language === code);
-  if (!p || !p.sms.complete || p.status === "retired" || p.status === "invalid") return null;
+  if (!p || !p.sms.complete || p.status === "retired" || p.status === "invalid") {
+    return isAutoApproved(resp) ? { approved: false, label: MACHINE_WORDING_LABEL } : null;
+  }
   return p.sms.available
     ? { approved: true, label: "" }
-    : { approved: false, label: "Draft wording, not approved" };
+    : { approved: false, label: DRAFT_WORDING_LABEL };
 }

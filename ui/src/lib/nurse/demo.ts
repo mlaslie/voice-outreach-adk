@@ -177,6 +177,15 @@ export function demoData(now: Date = new Date()): NurseData {
         sleeping_well: "yes", overall_feeling: "great", has_questions: "no" },
     }),
     call({
+      // Demo auto-approve (languages.auto_approve): called in Vietnamese with
+      // machine-translated, unreviewed wording; the drawer flags it in amber.
+      name: "Tran Thi Lan", pid: "P-2071", op: "Cataract surgery", endedH: -1.6, mins: 5,
+      language: "vi-VN", language_used: "vi-VN", language_source: "machine",
+      call_status: "success", outcome: "questionnaire_completed", follow_up: "none",
+      survey_responses: { pain_present: "no", fever_reported: "no", incision_concerns: "no", legs_swollen: "no",
+        sleeping_well: "yes", overall_feeling: "good", has_questions: "no" },
+    }),
+    call({
       name: "Angela Brooks", pid: "P-2047", op: "Total knee replacement", endedH: -4.2, mins: 0,
       channel: "sms", call_status: "success", outcome: "questionnaire_completed", follow_up: "none",
       survey_responses: { pain_present: "yes", pain_severity: 2, pain_trend: "better", fever_reported: "no",

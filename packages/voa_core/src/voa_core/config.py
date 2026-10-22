@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 SECRET_PREFIX = "secret://"  # noqa: S105 - a URI scheme, not a secret
 
@@ -137,10 +137,20 @@ class DialingConfig(_Strict):
     allowlist: str = ""
     max_dials_per_hour: int = Field(default=30, ge=0)
     max_dials_per_run: int = Field(default=50, ge=1)
-    max_concurrent_calls: int = Field(default=1, ge=1, le=20)
+    # Simultaneous outbound calls a run may have in progress. Each holds one Gemini
+    # Live session and one gateway media stream (docs/RUNBOOK.md "Scaling calls").
+    max_concurrent_calls: int = Field(default=3, ge=1, le=20)
     max_list_size: int = Field(default=1000, ge=1)
     max_list_writes_per_hour: int = Field(default=600, ge=0)
-    call_timeout_s: int = Field(default=600, ge=60)  # a call "in flight" longer than this is stale
+    # A call "in flight" longer than this is stale. The slot count uses at least
+    # voice.max_call_seconds plus ringing, so a long call is never counted out early.
+    call_timeout_s: int = Field(default=600, ge=60)
+    # No free call slot: the dial task puts the patient back on the queue this many
+    # seconds later (a new named task), instead of failing into Cloud Tasks backoff.
+    slot_wait_s: int = Field(default=15, ge=5, le=300)
+    # A patient who found no free slot for this long stops waiting and is recorded
+    # as deferred (still pending; a scheduled run carries them to the next opening).
+    max_slot_wait_s: int = Field(default=3600, ge=60, le=6 * 3600)
 
 
 class SmsConfig(_Strict):
@@ -177,6 +187,25 @@ class DebugConfig(_Strict):
     save_audio: bool = False
 
 
+#: The only environments the demo-only ``languages.auto_approve`` switch is
+#: honoured in. Anywhere else (``prod``, or any other name) startup fails.
+AUTO_APPROVE_ENVS = frozenset({"dev", "test", "demo"})
+
+
+class LanguagesConfig(_Strict):
+    """Patient languages (docs/LANGUAGES-PLAN.md, "Language availability and
+    approval").
+
+    ``auto_approve``: DEMO ONLY. Every one of the 24 languages is available for
+    calls and texts, with wording from an approved pack, else a draft pack, else
+    live machine translation (unreviewed). Refused at startup unless ``VOA_ENV``
+    is dev, test or demo (``AUTO_APPROVE_ENVS``). Env var
+    ``VOA__LANGUAGES__AUTO_APPROVE``. Must never be on where real patients are
+    called."""
+
+    auto_approve: bool = False
+
+
 class AppConfig(_Strict):
     env: str = "dev"
     gcp: GcpConfig
@@ -190,9 +219,19 @@ class AppConfig(_Strict):
     dialing: DialingConfig = DialingConfig()
     sms: SmsConfig = SmsConfig()
     debug: DebugConfig = DebugConfig()
+    languages: LanguagesConfig = LanguagesConfig()
     # Provider-specific blocks are validated by the provider adapter itself.
     providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+
+    @model_validator(mode="after")
+    def _auto_approve_is_demo_only(self) -> AppConfig:
+        if self.languages.auto_approve and self.env not in AUTO_APPROVE_ENVS:
+            raise ValueError(
+                "languages.auto_approve is a demo-only switch and is refused in "
+                f"VOA_ENV={self.env!r} (allowed only in: {', '.join(sorted(AUTO_APPROVE_ENVS))})"
+            )
+        return self
 
 
 def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
@@ -272,13 +311,17 @@ def load_config(config_dir: Path | None = None, environ: dict[str, str] | None =
         merged.setdefault("env", env_name)
 
     try:
-        return AppConfig.model_validate(merged)
+        cfg = AppConfig.model_validate(merged)
     except ValidationError as exc:
         # Field names only; never echo values (they may be identifying).
         problems = "; ".join(
             f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in exc.errors()
         )
         raise ConfigError(f"invalid configuration: {problems}") from None
+    from . import languages
+
+    languages.configure(cfg)
+    return cfg
 
 
 def resolve_secret(value: str, project_id: str) -> str:

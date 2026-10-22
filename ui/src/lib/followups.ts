@@ -11,6 +11,8 @@
  * calls it.
  */
 
+import type { WordingSource } from "./languages";
+
 export type SessionState =
   | "awaiting_choice"
   | "awaiting_time"
@@ -47,6 +49,8 @@ export interface FollowUpSession {
   updated_at?: string;
   created_at?: string;
   last_error?: string | null;
+  /** Where the texts' wording came from (absent for English); "draft_pack"/"machine" = demo auto-approve, unreviewed. */
+  language_source?: WordingSource | null;
 }
 
 export interface ScheduledCallback {

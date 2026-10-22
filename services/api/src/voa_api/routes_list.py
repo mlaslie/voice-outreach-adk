@@ -125,6 +125,18 @@ async def get_languages(request: Request, campaign_id: str | None = None):
         "default": languages.DEFAULT,
         "languages": languages.catalog(cid),
         "available_by_campaign": {c: sorted(languages.available(c)) for c in campaign_ids()},
+        # The demo-only switch (docs/LANGUAGES-PLAN.md, "Language availability
+        # and approval"): every language available, wording per ``source``:
+        # approved | draft_pack | machine. Absent when off (the response is then
+        # exactly as before).
+        **(
+            {
+                "auto_approved": True,
+                "sources_by_campaign": {c: languages.sources(c) for c in campaign_ids()},
+            }
+            if languages.auto_approved()
+            else {}
+        ),
         # Read-only: every language pack on disk, its status and channels
         # (voa_core.language_packs.summary; the admin console's Languages card).
         "packs": _pack_rows(),

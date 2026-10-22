@@ -177,7 +177,12 @@ def spoken_languages(turns: Sequence[Mapping[str, Any]], role: str = "patient") 
 
 class FakeTranslator:
     """For tests. ``table`` maps an original text to (lang, English); a text not
-    in it is English (``text_en`` None). ``fail`` raises TranslationFailed."""
+    in it is English (``text_en`` None). ``fail`` raises TranslationFailed.
+
+    Outbound (``translate_out``, English -> a patient's language): ``out`` maps
+    (text, target) to the translation, or is a function of (text, target); by
+    default the text comes back as ``"[<target>] <text>"`` (STOP, 911 and C
+    survive). ``fail_out`` raises TranslationFailed."""
 
     model = "fake-translator"
 
@@ -187,11 +192,32 @@ class FakeTranslator:
         *,
         fail: bool | str = False,
         detect: Callable[[str], tuple[str, str | None]] | None = None,
+        out: Mapping[tuple[str, str], str] | Callable[[str, str], str] | None = None,
+        fail_out: bool | str = False,
     ):
         self.table = dict(table or {})
         self.fail = fail
         self.detect = detect
+        self.out = out
+        self.fail_out = fail_out
         self.calls: list[list[str]] = []
+        self.out_calls: list[tuple[list[str], str]] = []
+
+    async def translate_out(self, texts: list[str], *, target: str) -> list[str]:
+        self.out_calls.append((list(texts), target))
+        if self.fail_out:
+            raise TranslationFailed(
+                self.fail_out if isinstance(self.fail_out, str) else "fake failure"
+            )
+        result = []
+        for t in texts:
+            if callable(self.out):
+                result.append(self.out(t, target))
+            elif self.out is not None and (t, target) in self.out:
+                result.append(self.out[(t, target)])
+            else:
+                result.append(f"[{target}] {t}")
+        return result
 
     async def translate_turns(self, turns: list[str], *, target: str = "en"):
         self.calls.append(list(turns))
@@ -237,3 +263,89 @@ async def enqueue(
             "translation enqueue failed", extra={"event": "translate.enqueue_err"}
         )
         return False
+
+
+# --------------------------------------------------------------------------- outbound (demo)
+#
+# English -> a patient's language, for the demo auto-approve only
+# (``languages.auto_approved``; docs/LANGUAGES-PLAN.md, "Language availability
+# and approval"): a text or a voicemail in a language with no language pack is
+# the English wording, machine-translated when it is used. Unreviewed wording.
+
+
+class OutboundTranslator(Protocol):
+    model: str
+
+    async def translate_out(self, texts: list[str], *, target: str) -> list[str]: ...
+
+
+@dataclass(frozen=True)
+class Outbound:
+    """What to send: the translation, or the English when translation failed or
+    dropped a literal the carrier or emergency services need (``error`` says
+    which). ``source``: "machine" or "english_fallback"."""
+
+    text: str
+    source: str
+    error: str | None = None
+
+    @property
+    def translated(self) -> bool:
+        return self.source == "machine"
+
+
+#: (English text, language) -> translation. In memory per process, never in a
+#: database: an outbound text can carry a patient's first name.
+_OUT_CACHE: dict[tuple[str, str], str] = {}
+_OUT_CACHE_MAX = 2000
+
+
+def literal_problems(english: str, translated: str) -> list[str]:
+    """STOP, 911, tel:911 and the reply letter C must survive a translation
+    wherever the English has them (the pack lint's rule, applied at send time)."""
+    from .language_packs import _literal_problems
+
+    return _literal_problems("translation", translated, english)
+
+
+async def translate_outbound(translator: Any, text: str, language: str) -> Outbound:
+    """``text`` (English) in ``language``, cached by (text, language). Never
+    raises: on any failure, or when a required literal did not survive, the
+    English text comes back with the reason. A partly translated mix is never
+    returned."""
+    import logging
+
+    key = (text, language)
+    if key in _OUT_CACHE:
+        return Outbound(_OUT_CACHE[key], "machine")
+    log = logging.getLogger(__name__)
+    try:
+        out = await translator.translate_out([text], target=language)
+        if len(out) != 1 or not str(out[0] or "").strip():
+            raise TranslationFailed("empty translation")
+        translated = str(out[0]).strip()
+    except Exception as exc:  # noqa: BLE001 - every failure falls back to English
+        reason = f"translation failed ({type(exc).__name__})"
+        log.warning(
+            "outbound translation failed; English sent",
+            extra={"event": "translate.out_failed", "language": language, "error": reason},
+        )
+        return Outbound(text, "english_fallback", reason)
+    problems = literal_problems(text, translated)
+    if problems:
+        reason = "translation dropped a required literal: " + "; ".join(
+            p.removeprefix("translation: ") for p in problems
+        )
+        log.warning(
+            "outbound translation dropped a literal; English sent",
+            extra={"event": "translate.out_literal", "language": language, "error": reason},
+        )
+        return Outbound(text, "english_fallback", reason)
+    if len(_OUT_CACHE) >= _OUT_CACHE_MAX:
+        _OUT_CACHE.pop(next(iter(_OUT_CACHE)))
+    _OUT_CACHE[key] = translated
+    return Outbound(translated, "machine")
+
+
+def clear_outbound_cache() -> None:
+    _OUT_CACHE.clear()

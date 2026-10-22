@@ -67,10 +67,12 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `dialing.allowlist` | `VOA__DIALING__ALLOWLIST` | str | `''` |  |
 | `dialing.max_dials_per_hour` | `VOA__DIALING__MAX_DIALS_PER_HOUR` | int | `30` |  |
 | `dialing.max_dials_per_run` | `VOA__DIALING__MAX_DIALS_PER_RUN` | int | `50` |  |
-| `dialing.max_concurrent_calls` | `VOA__DIALING__MAX_CONCURRENT_CALLS` | int | `1` |  |
+| `dialing.max_concurrent_calls` | `VOA__DIALING__MAX_CONCURRENT_CALLS` | int | `3` |  |
 | `dialing.max_list_size` | `VOA__DIALING__MAX_LIST_SIZE` | int | `1000` |  |
 | `dialing.max_list_writes_per_hour` | `VOA__DIALING__MAX_LIST_WRITES_PER_HOUR` | int | `600` |  |
 | `dialing.call_timeout_s` | `VOA__DIALING__CALL_TIMEOUT_S` | int | `600` |  |
+| `dialing.slot_wait_s` | `VOA__DIALING__SLOT_WAIT_S` | int | `15` |  |
+| `dialing.max_slot_wait_s` | `VOA__DIALING__MAX_SLOT_WAIT_S` | int | `3600` |  |
 | `sms.enabled` | `VOA__SMS__ENABLED` | bool | `True` |  |
 | `sms.dry_run` | `VOA__SMS__DRY_RUN` | bool | `True` |  |
 | `sms.from_number` | `VOA__SMS__FROM_NUMBER` | str | `''` |  |
@@ -89,6 +91,7 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `debug.enabled` | `VOA__DEBUG__ENABLED` | bool | `False` |  |
 | `debug.log_tool_args` | `VOA__DEBUG__LOG_TOOL_ARGS` | bool | `False` |  |
 | `debug.save_audio` | `VOA__DEBUG__SAVE_AUDIO` | bool | `False` |  |
+| `languages.auto_approve` | `VOA__LANGUAGES__AUTO_APPROVE` | bool | `False` |  |
 | `providers` | `VOA__PROVIDERS` | dict | `{}` |  |
 | `log_level` | `VOA__LOG_LEVEL` | Literal | `'INFO'` |  |
 

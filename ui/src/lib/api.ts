@@ -57,9 +57,10 @@ export interface SmsTestStartResponse {
   wording?: {
     language: string;
     name?: string;
+    /** "draft", "machine" (demo auto-approve, no pack), "approved", ... */
     status: string;
     approved: boolean;
-    /** "Draft wording, not approved", or "" */
+    /** "Draft wording, not approved", "Machine-translated, unreviewed (demo)", or "" */
     label: string;
   };
   patient: SmsTestPatient;

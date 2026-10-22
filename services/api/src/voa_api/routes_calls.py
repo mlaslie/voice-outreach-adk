@@ -167,6 +167,8 @@ async def transcript(call_id: str, request: Request):
         "translation": t.get("translation"),
         "language": call.get("language") or (call.get("patient_context") or {}).get("language"),
         "language_used": call.get("language_used"),
+        # approved | draft_pack | machine (demo auto-approve); absent for English.
+        "language_source": call.get("language_source"),
         # The use case's display title, for the download's title line.
         "title": _use_case_title(call.get("campaign_id")),
     }

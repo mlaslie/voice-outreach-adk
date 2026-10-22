@@ -2,6 +2,43 @@
 
 **Status:** step 1 deployed (21 Oct 2026): the language field end to end with the safe hold. Step 2 built (22 Oct 2026, not deployed): script-aware transcript cleaning, the post-call translation task (`/tasks/transcript-translate`), per-turn `lang`/`text_en`, `language_used`, the English/Original toggle in the console and on the nurse card, translated texts at filing. Step 3 built (22 Oct 2026, not deployed): the safety layer (§3.3): the post-call raise-only re-check on the translated transcript (every transcript with a patient turn is now translated), non-English typed answers refused by the voice tools, day-first and translated DOBs with a bounded retry, inbound texts translated after STOP/HELP and red flags are checked on the original, per-language STOP/HELP (24) and Spanish red-flag lists (`config/languages/keywords.yaml`, **draft**, awaiting translator review), English-only knowledge content, and the non-English evaluation corpus (`config/languages/eval/safety.yaml`, `make eval-languages`). Step 4 built (22 Oct 2026, not deployed): the language-pack format, loader and lint (`voa_core/language_packs.py`), availability per channel (an approved, complete voice pack makes a language callable; texts stay English-only, and a non-English patient's missed-call text is skipped), the per-call speech config, the instruction's language block, the voicemail in the pack's language, and Spanish persona evals. The Spanish post-op pack (`config/campaigns/i18n/post_op.es-US.yaml`) is a **machine draft awaiting a qualified medical translator**, so calls are still English only and Spanish patients stay held. Step 4 deployed 22 Oct (Spanish held). Step 5 built (22 Oct 2026, not deployed): texts in Spanish (US). The shared SMS copy (`copy.py`) is in the pack format (`sms_copy`, keys in `voa_core/sms_copy.py`), the encoding-aware lint (GSM-7/UCS-2 segments: warn above 2, fail above 3) and a segment-aware send budget, texts available per language only with an approved, complete, lint-clean SMS pack (`SMS_PACKS_ENABLED` removed), the conversation language stamped on the SMS session, the Spanish SMS wording in `post_op.es-US.yaml` (**machine draft**), and a language picker in Admin → Testing → "Test by text" that may use a draft (nothing is sent; labelled "Draft wording, not approved"). Real texts never use a draft, so Spanish patients still get no text until the pack is approved. Step 6 is a proposal.
 
+## Language availability and approval
+
+Read this before turning on a language. It says where the words a patient hears or reads come from, when a patient is held, and how a language is approved.
+
+**The three wording sources.** For each use case and each channel (calls, texts), a language's wording comes from one of:
+
+| Source | What it is | Reviewed? | When it is used |
+|---|---|---|---|
+| **Approved pack** (`approved`) | `config/campaigns/i18n/<campaign>.<lang>.yaml` with `status: approved`, complete and lint-clean for the channel | Yes: a qualified medical translator, then a named approver | Always (production and demo) |
+| **Draft pack** (`draft_pack`) | The same file with `status: draft` or `in_review` (es-US today, a machine draft) | No | Only with the demo switch below (and in dev/test evals with `VOA_ALLOW_DRAFT_PACKS=1`, gateway only) |
+| **Machine translation** (`machine`) | No pack at all: the English wording, translated live. Calls: the voice model translates each scripted line as it speaks. Texts: each outbound text is translated by Gemini at send time. Voicemail: translated once per language and rendered in it | No | Only with the demo switch below |
+
+English (en-US, en-IN) uses the English spec itself and is always available.
+
+**What "held" means.** A patient whose language has no usable wording for their use case is **held**: never auto-dialled, "Call now" answers 409, and never called or texted in English silently. They stay `pending` in the call list and are picked up by the next run once the language becomes available. An admin can tick **"Call in English"** for that patient instead; that always forces English (calls and texts), with the demo switch on or off. A held patient whose call was missed gets **no** text ("no approved <language> text wording").
+
+**The demo switch: `languages.auto_approve`.** For the demo environment only, every one of the 24 languages is available for calls and texts and nobody is held:
+- Set by `languages_auto_approve = true` in `infra/envs/demo/terraform.tfvars` (env var `VOA__LANGUAGES__AUTO_APPROVE`). Default `false`.
+- **The services refuse to start with it on unless `VOA_ENV` is `dev`, `test` or `demo`** (`config.AUTO_APPROVE_ENVS`; a config error at startup, and `languages.configure` checks again).
+- Wording per language: an approved pack, else a draft pack, else machine translation. Each language reports its source (`GET /api/languages`: `auto_approved: true`, per language `source` / `sms_source`, and `sources_by_campaign`).
+- The call doc and the SMS session record `language_source` (`approved`, `draft_pack` or `machine`), and every machine-translated text records `wording: {language, source, english, error?}`, so reviewers and analytics can find conversations that used unreviewed wording.
+- Labels: the admin console's Languages card and Testing page show "Demo: all languages auto-approved. Wording in languages without an approved pack is machine-translated and unreviewed. Not for real patients." The patient language select shows "(auto-approved, demo)" instead of "(not available yet)". The nurse drawer and the nurse agent's transcript card show "Spoke Vietnamese (auto-approved, unreviewed wording)".
+- Unchanged: the safety layer (§3.3) for every non-English call and text; tool answers in English; the knowledge base off for non-English calls; "Call in English".
+- Machine-translated texts keep STOP, 911, tel:911 and the reply letter C; the translation is checked, and if one is missing, or translation fails, the **whole English text** is sent instead (never a mix) and the reason is stamped on the message and the session. The emergency text therefore always goes out, in English with 911 if need be. A machine-translated voicemail falls back to the English clip.
+- **It must never be on in production** or anywhere real patients are called. Machine translation of critical patient content without qualified human review does not meet Section 1557 expectations.
+
+**The approval process, step by step** (the only way a language becomes available in production):
+1. **Generate or edit the pack:** `config/campaigns/i18n/<campaign>.<lang>.yaml` (format and fields: `docs/EDITING-QUESTIONS.md`, "Language packs"). A machine draft is fine as a starting point, with `status: draft`.
+2. **A qualified medical translator reviews it** line by line against the English spec (HHS Section 1557). Wording fixes go into the pack. Also get the language's STOP/HELP and red-flag lists in `config/languages/keywords.yaml` reviewed.
+3. **The approver** (the clinic's language-access or compliance owner) sets `status: approved`, `reviewed_by`, `approved_by` and `approved_at`, **in a reviewed commit**. The commit history is the audit trail.
+4. **`pack_lint` passes:** `uv run pytest -q -p no:warnings packages/voa_core` (the pack lint, `language_packs.pack_problems` and `sms_problems`, runs on every pack in the repo).
+5. **Redeploy the gateway and the API together** (`make deploy SERVICES="gateway api"`): the API decides who is held, the gateway decides the spoken language, and the pack ships inside both images.
+6. **Check the language in Admin → Display → Languages:** voice (and texts, if translated) say "approved, in use".
+7. **Before texts go out, check that the carrier registration covers the language** (A2P 10DLC sample messages in that language, opt-out and help wording; see `docs/HANDOFF.md`, "Spanish texts", carrier registration).
+
+To withdraw a language: set `status: retired` (or `draft`) and redeploy; its patients are held again.
+
 **The requirement:**
 1. A preferred language on each patient in the call list.
 2. Calls and texts in that language.
@@ -102,7 +139,7 @@ patient (es-US) ──► live model speaks Spanish ──► tools receive:
   - the SMS length counted in the right encoding (§3.5);
   - 911 and STOP left untranslated where carriers or emergency services require it.
 - **Availability.** A language is **available** for a use case only when its pack is approved. The patient form shows all 24, but marks "not available yet" when there is no approved pack.
-- **No pack yet.** A patient whose language has no pack is **held** in the queue ("waiting for <language> support"), not called in English. An admin can override per patient with "call in English".
+- **No pack yet.** (See "Language availability and approval" above for the demo switch.) A patient whose language has no pack is **held** in the queue ("waiting for <language> support"), not called in English. An admin can override per patient with "call in English".
 
 ### 3.3 Safety layer for other languages
 

@@ -6,6 +6,8 @@ import { ExternalLink, Headphones, MessageSquareText } from "lucide-react";
 import { AdminActions } from "@/lib/nurse/actions";
 import { Panel } from "@/components/nurse/parts";
 import { SmsTestDialog } from "@/components/sms-test-dialog";
+import { AutoApproveBanner } from "@/components/auto-approve-banner";
+import { useLanguages } from "@/components/languages-provider";
 
 /**
  * Admin → Testing: talk to the agent from this browser, or play the patient
@@ -77,6 +79,7 @@ export function TestInBrowserPanel({ actions }: { actions: Pick<AdminActions, "l
 /** Moved here from Messaging. */
 export function TestByTextPanel({ live }: { live: boolean }) {
   const [open, setOpen] = useState(false);
+  const langs = useLanguages();
   const start = () => {
     if (!live) {
       toast.info("Sample data: the text test runs against the live backend only. Switch to live data to try it.");
@@ -87,6 +90,7 @@ export function TestByTextPanel({ live }: { live: boolean }) {
   return (
     <>
       <Panel className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+        <AutoApproveBanner resp={langs} className="basis-full" />
         <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand-deep">
           <MessageSquareText className="h-4 w-4" />
         </div>

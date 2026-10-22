@@ -395,3 +395,22 @@ def test_pending_and_failed_translations_show_the_original_with_a_note():
     failed = {**t, "translation": {"status": "failed"}}
     text = cards.transcript_card(CALL, failed).as_text()
     assert "Translation to English failed" in text and "No sé." in text
+
+
+def test_a_call_with_unreviewed_wording_says_so():
+    """Demo auto-approve (docs/LANGUAGES-PLAN.md): a call spoken with
+    machine-translated or draft wording is labelled on the transcript card."""
+    vi = {**CALL, "language": "vi-VN", "language_source": "machine"}
+    assert (
+        cards.unreviewed_wording_label(vi) == "Spoke Vietnamese (auto-approved, unreviewed wording)"
+    )
+    card = cards.transcript_card(vi, {"available": False, "reason": "not ready"})
+    check(card)
+    assert "Spoke Vietnamese (auto-approved, unreviewed wording)" in card.as_text()
+    es = {**CALL, "language": "es-US", "language_used": "es-US", "language_source": "draft_pack"}
+    assert cards.unreviewed_wording_label(es) == (
+        "Spoke Spanish (US) (auto-approved, unreviewed wording)"
+    )
+    for c in (CALL, {**CALL, "language": "es-US", "language_source": "approved"}):
+        assert cards.unreviewed_wording_label(c) is None
+        assert "auto-approved" not in cards.transcript_card(c, SPANISH_T).as_text()

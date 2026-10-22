@@ -214,6 +214,10 @@ class CallSession:
         #: The spoken language of a non-English call (docs/LANGUAGES-PLAN.md step 4),
         #: and its pack's transcription vocabulary. None: English, as before.
         self.call_language: str | None = None
+        #: Where that language's wording comes from: "approved" or "draft_pack"
+        #: (a pack), or "machine" (demo auto-approve, no pack: the model
+        #: translates the English wording live). None for English.
+        self.call_language_source: str | None = None
         self._pack_vocabulary: list[str] = []
         in_codec = inbound_codec or media.codec
         self.timeline = Timeline()
@@ -299,6 +303,10 @@ class CallSession:
             if self.call_language:
                 # The instruction and the closing use the pack's wording.
                 state["call_language"] = self.call_language
+                if self.call_language_source and self.call_language_source != "approved":
+                    # The instruction's language block depends on it (no pack:
+                    # translate the English lines faithfully).
+                    state["call_language_source"] = self.call_language_source
             session = await self.runner.session_service.create_session(
                 app_name=self.runner.app_name,
                 user_id=self.call_id,
@@ -350,9 +358,11 @@ class CallSession:
     def _choose_language(self, language: Any, call_in_english: Any) -> None:
         """The spoken language (``language_packs.voice_pack_for_call``): the
         patient's language when its pack is approved (or a draft in dev/test
-        evals with VOA_ALLOW_DRAFT_PACKS=1) and no admin chose "call in English";
-        otherwise English. Whether the call may be placed at all was decided by
-        the hold before dialling."""
+        evals with VOA_ALLOW_DRAFT_PACKS=1, or with the demo auto-approve on) and
+        no admin chose "call in English"; otherwise English. With the demo
+        auto-approve on and no pack at all, the patient's language too, with the
+        English wording translated live by the model (source "machine"). Whether
+        the call may be placed at all was decided by the hold before dialling."""
         from voa_core import language_packs, languages
         from voa_core.compliance import coerce_bool
 
@@ -360,6 +370,15 @@ class CallSession:
         if code is None or code in languages.ENGLISH:
             return
         pack = language_packs.voice_pack_for_call(self.campaign_id, code, call_in_english)
+        if pack is None and not coerce_bool(call_in_english) and languages.auto_approved():
+            self.call_language = code
+            self.call_language_source = languages.MACHINE
+            self.timeline.add("language", code=code, source=languages.MACHINE)
+            log.warning(
+                "auto-approved language without a pack: machine-translated wording (demo)",
+                extra=safe_extra({"event": "language.machine_used", "language": code}),
+            )
+            return
         if pack is None:
             self.timeline.add(
                 "language.english",
@@ -368,11 +387,12 @@ class CallSession:
             )
             return
         self.call_language = code
+        self.call_language_source = languages.APPROVED if pack.approved else languages.DRAFT_PACK
         self._pack_vocabulary = list(pack.custom_vocabulary)
         self.timeline.add("language", code=code, pack_status=pack.status)
         if not pack.approved:
             log.warning(
-                "draft language pack in use (eval only)",
+                "draft language pack in use (eval or demo auto-approve)",
                 extra=safe_extra({"event": "language_pack.draft_used", "language": code}),
             )
 
@@ -484,7 +504,13 @@ class CallSession:
     async def _voicemail_drop(self) -> None:
         self._phase = "voicemail"
         clip = None
-        if self.voicemail_clip and self.call_language:
+        if self.voicemail_clip and self.call_language and self.call_language_source == "machine":
+            # Demo auto-approve, no pack: the English voicemail machine-translated
+            # (English clip if that fails; Gateway.voicemail_clip).
+            clip = await self.voicemail_clip(
+                self.campaign_id, language=self.call_language, source="machine"
+            )
+        elif self.voicemail_clip and self.call_language:
             # The pack's voicemail, rendered in the call's language.
             clip = await self.voicemail_clip(self.campaign_id, language=self.call_language)
         elif self.voicemail_clip:

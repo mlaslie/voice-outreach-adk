@@ -32,6 +32,7 @@ Out of the box it ships a **post-operative check-in**. Pre-operative readiness a
 
 ### For patients
 - A phone call at a reasonable hour, in their preferred language
+  - a language is used only once its wording is approved ([how](docs/LANGUAGES-PLAN.md#language-availability-and-approval)); a demo-only switch auto-approves all 24 with unreviewed, machine-translated wording
 - A voice agent that says up front that it is automated
 - An identity check before any health questions:
   - asks for the patient by name
@@ -126,7 +127,7 @@ Out of the box it ships a **post-operative check-in**. Pre-operative readiness a
 | **Firestore** (Native mode) | The operational database: calls, reports, transcripts, the call queue and schedules, text conversations, settings, the audit log and the EHR outbox. |
 | **Cloud Storage** | Call recordings (stereo WAV; retention configurable, 90 days by default), voicemail clips, branding images. |
 | **BigQuery** | De-identified analytics tables (`fact_calls`, `fact_reasons`, `fact_questions`), refreshed every 15 minutes. No names, phone numbers, dates of birth, answers in the patient's words or transcripts. Patients are identified only by a keyed hash (HMAC-SHA256 of the patient id, with a secret key held in Secret Manager), so repeat calls to one patient can be counted without storing who they are. |
-| **Cloud Tasks** | A queue of small jobs, each delivered later as a signed HTTP request to the API, with retries. Three queues: **dial** (one task per patient; its concurrency caps simultaneous calls), **sms** (the missed-call text, inbound replies, menu actions) and **events** (call-completion handling, translation, post-call checks). |
+| **Cloud Tasks** | A queue of small jobs, each delivered later as a signed HTTP request to the API, with retries. Three queues: **dial** (one task per patient; a task with no free call slot re-queues itself a few seconds later, and `dialing.max_concurrent_calls` caps simultaneous calls), **sms** (the missed-call text, inbound replies, menu actions) and **events** (call-completion handling, translation, post-call checks). |
 | **Cloud Scheduler** | Starting scheduled runs (every minute), expiring stale text conversations, refreshing analytics. |
 | **Identity-Aware Proxy** | Sign-in for the two consoles, each with its own access list. |
 | **Secret Manager** | Provider credentials and signing keys. Never in code or Terraform state. |
@@ -310,7 +311,7 @@ make smoke ENV=demo                                                # end-to-end 
 - **Deterministic triage.** Follow-up tiers come from rules in the use-case file and from reviewed code, not from the model's judgement. Every rule needs clinical sign-off.
 - **Emergencies.** Emergency warning signs are checked on every turn, by the model and, for texts and translated transcripts, by keyword rules too. The patient is told to call 911, and the call is flagged for nurses. The system does not call emergency services itself.
 - **No medical advice.** The agent never gives medical advice. The optional knowledge base answers only routine, approved questions; medication and symptom questions always go to a nurse.
-- **Other languages.** Answers in other languages are normalised to English with safeguards that can only raise urgency. Translations of patient-facing wording must be reviewed by a qualified medical translator before use.
+- **Other languages.** Answers in other languages are normalised to English with safeguards that can only raise urgency. Translations of patient-facing wording must be reviewed by a qualified medical translator before use. See [Language availability and approval](docs/LANGUAGES-PLAN.md#language-availability-and-approval). The demo-only `languages_auto_approve` switch makes every language available with unreviewed (draft or machine-translated) wording; the services refuse it outside dev/test/demo, and it must never be on where real patients are called.
 
 **Privacy**
 - **PHI minimisation:**

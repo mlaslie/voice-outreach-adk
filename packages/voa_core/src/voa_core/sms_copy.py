@@ -123,6 +123,17 @@ ENGLISH: dict[str, str] = {
 }
 KEYS: tuple[str, ...] = tuple(ENGLISH)
 
+#: The English texts a conversation in a language WITHOUT a pack starts from
+#: when the demo auto-approve is on (``languages.auto_approved``): each text is
+#: machine-translated when it is sent (``voa_api.sms_service.send_sms``). Only
+#: the DOB prompts differ from :data:`ENGLISH`: a non-English patient's typed
+#: date is read day first, so they ask for DD/MM/YYYY, as every pack does.
+MACHINE_SOURCE: dict[str, str] = {
+    **ENGLISH,
+    "ask_dob": ENGLISH["ask_dob"].replace("MM/DD/YYYY", "DD/MM/YYYY"),
+    "dob_unreadable": ENGLISH["dob_unreadable"].replace("MM/DD/YYYY", "DD/MM/YYYY"),
+}
+
 
 class EnglishCopy:
     """English: every text from ``voa_core.copy`` (unchanged, parity-pinned)."""

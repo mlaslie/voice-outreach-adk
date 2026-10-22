@@ -9,6 +9,15 @@ language is not available is **held**: never auto-dialled and never called in
 English silently, unless an admin turns on ``call_in_english`` for them.
 
 Pure functions plus one file read (the language-pack seam, ``available``).
+
+**Demo auto-approve** (``languages.auto_approve`` in the config; docs/LANGUAGES-
+PLAN.md, "Language availability and approval"). When on, every language is
+available for calls and texts and nobody is held. Each language then reports its
+wording source (``wording_source``): ``approved`` (an approved pack), ``draft_pack``
+(a draft or in-review pack complete for the channel, e.g. es-US) or ``machine``
+(no pack: live machine translation of the English wording, unreviewed). The
+config refuses the switch outside dev/test/demo, and ``configure`` refuses it
+again. Off (the default and production): everything here is unchanged.
 """
 
 from __future__ import annotations
@@ -125,6 +134,49 @@ def display(code: str | None) -> str:
     return f"{lang.native} ({lang.name.replace('(', '').replace(')', '')})"
 
 
+# --------------------------------------------------------------------------- auto-approve
+
+#: Where the wording of a non-English call or text comes from.
+APPROVED, DRAFT_PACK, MACHINE = "approved", "draft_pack", "machine"
+SOURCES: tuple[str, ...] = (APPROVED, DRAFT_PACK, MACHINE)
+#: Wording no qualified translator has reviewed.
+UNREVIEWED: frozenset[str] = frozenset({DRAFT_PACK, MACHINE})
+
+_AUTO_APPROVE = False
+
+
+class AutoApproveRefused(RuntimeError):
+    """The demo-only switch was turned on outside dev/test/demo."""
+
+
+def configure(cfg: Any) -> None:
+    """Apply ``cfg.languages.auto_approve`` to this process (called by
+    ``config.load_config`` and each service's startup). Refuses the switch
+    outside dev/test/demo (the config validator already does; this is the
+    second lock, for a config built some other way)."""
+    from .config import AUTO_APPROVE_ENVS
+
+    global _AUTO_APPROVE
+    on = bool(getattr(getattr(cfg, "languages", None), "auto_approve", False))
+    env = getattr(cfg, "env", None)
+    if on and env not in AUTO_APPROVE_ENVS:
+        _AUTO_APPROVE = False
+        raise AutoApproveRefused(f"languages.auto_approve is demo-only; refused in VOA_ENV={env!r}")
+    if on and not _AUTO_APPROVE:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "DEMO: all languages auto-approved (unreviewed wording)",
+            extra={"event": "languages.auto_approve_on", "env": env},
+        )
+    _AUTO_APPROVE = on
+
+
+def auto_approved() -> bool:
+    """True when the demo switch is on in this process."""
+    return _AUTO_APPROVE
+
+
 # --------------------------------------------------------------------------- packs
 
 
@@ -172,10 +224,68 @@ def available(
     today: English, plus every language whose pack is approved and complete for
     that channel. For texts that means the SMS wording too (``sms_copy``,
     ``sms_scripts``, question ``sms*``), lint-clean within the segment limits
-    (``language_packs.sms_problems``, step 5). Drafts never count."""
+    (``language_packs.sms_problems``, step 5). Drafts never count.
+
+    With the demo auto-approve on: all 24, on both channels (``wording_source``
+    says where each one's wording comes from)."""
     from .campaign import DEFAULT_CAMPAIGN_ID
 
+    if _AUTO_APPROVE:
+        return set(CODES)
     return set(ENGLISH) | approved_packs(campaign_id or DEFAULT_CAMPAIGN_ID, config_dir, channel)
+
+
+def wording_source(
+    language: Any,
+    campaign_id: str | None,
+    channel: str = "voice",
+    config_dir: Path | None = None,
+) -> str | None:
+    """Where a call (``voice``) or text (``sms``) in ``language`` gets its wording:
+    ``approved``, ``draft_pack`` or ``machine`` (auto-approve only), or None when
+    the language is English (the spec itself) or not available (held).
+
+    ``draft_pack``: a draft or in-review pack whose wording is complete for the
+    channel. A retired pack does not count (its wording was withdrawn)."""
+    from .campaign import DEFAULT_CAMPAIGN_ID
+
+    code = normalize(language) if language else None
+    if code is None or code in ENGLISH:
+        return None
+    cid = campaign_id or DEFAULT_CAMPAIGN_ID
+    return _source(code, cid, channel, approved_packs(cid, config_dir, channel), config_dir)
+
+
+def _source(
+    code: str, cid: str, channel: str, approved: set[str], config_dir: Path | None
+) -> str | None:
+    from . import language_packs as lp
+
+    if code in approved:
+        return APPROVED
+    if not _AUTO_APPROVE:
+        return None
+    pack = lp.load_pack(cid, code, config_dir)
+    if pack is not None and pack.status in ("draft", "in_review"):
+        campaign = lp._campaign_for(cid, config_dir)
+        if campaign is not None and lp.channel_ready(pack, campaign, channel):
+            return DRAFT_PACK
+    return MACHINE
+
+
+def call_wording_source(
+    language: Any,
+    campaign_id: str | None,
+    call_in_english: Any = False,
+    config_dir: Path | None = None,
+) -> str | None:
+    """``wording_source`` for a call: None when the call is spoken in English
+    (an English patient, or an admin chose "Call in English")."""
+    from .compliance import coerce_bool
+
+    if coerce_bool(call_in_english):
+        return None
+    return wording_source(language, campaign_id, "voice", config_dir)
 
 
 def text_block(
@@ -276,9 +386,41 @@ def unsupported_message(value: Any) -> str:
 
 
 def catalog(campaign_id: str | None, config_dir: Path | None = None) -> list[dict[str, Any]]:
-    """``GET /api/languages`` rows for one use case."""
+    """``GET /api/languages`` rows for one use case. With the demo auto-approve
+    on, each row also says where its wording comes from (``source`` for calls,
+    ``sms_source`` for texts: approved | draft_pack | machine); off, the rows
+    are exactly as before."""
     ok = available(campaign_id, config_dir)
+    src = sources(campaign_id, config_dir) if _AUTO_APPROVE else None
     return [
-        {"code": lang.code, "name": lang.name, "native": lang.native, "available": lang.code in ok}
+        {
+            "code": lang.code,
+            "name": lang.name,
+            "native": lang.native,
+            "available": lang.code in ok,
+            **(
+                {"source": src[lang.code]["voice"], "sms_source": src[lang.code]["sms"]}
+                if src is not None
+                else {}
+            ),
+        }
         for lang in SUPPORTED
     ]
+
+
+def sources(campaign_id: str | None, config_dir: Path | None = None) -> dict[str, dict[str, Any]]:
+    """{code: {voice, sms}} wording sources for one use case (``GET /api/languages``):
+    English is approved (the spec itself); None means not available (held)."""
+    from .campaign import DEFAULT_CAMPAIGN_ID
+
+    cid = campaign_id or DEFAULT_CAMPAIGN_ID
+    approved = {ch: approved_packs(cid, config_dir, ch) for ch in ("voice", "sms")}
+    out: dict[str, dict[str, Any]] = {}
+    for lang in SUPPORTED:
+        if lang.code in ENGLISH:
+            out[lang.code] = {"voice": APPROVED, "sms": APPROVED}
+            continue
+        out[lang.code] = {
+            ch: _source(lang.code, cid, ch, approved[ch], config_dir) for ch in ("voice", "sms")
+        }
+    return out

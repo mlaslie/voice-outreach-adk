@@ -671,6 +671,18 @@ def shadow_line(q: dict) -> str | None:
     return f"Agent's draft answer (not said): {text}"
 
 
+def unreviewed_wording_label(c: dict) -> str | None:
+    """ "Spoke Vietnamese (auto-approved, unreviewed wording)" for a call made
+    with the demo auto-approve's draft or machine-translated wording
+    (``language_source``); None for approved wording and English calls."""
+    if c.get("language_source") not in languages.UNREVIEWED:
+        return None
+    used = c.get("language_used")
+    code = used if used and languages.normalize(used) not in languages.ENGLISH else None
+    code = code or c.get("language") or (c.get("patient_context") or {}).get("language")
+    return f"Spoke {languages.name(code)} (auto-approved, unreviewed wording)"
+
+
 def _translated_from(c: dict, t: dict) -> str | None:
     """The non-English language a transcript was translated from (the language
     used, else the first non-English turn), as a name: "Spanish (US)"."""
@@ -690,6 +702,8 @@ def transcript_card(c: dict, t: dict, limit: int = 40, original: bool = False) -
     shows the patient's own words. An all-English call looks as it always did."""
     card = Card(f"Call transcript: {c.get('patient_name') or c['doc_id']}", "visibility")
     card.line(when(c.get("initiated_at")), "caption")
+    if label := unreviewed_wording_label(c):
+        card.line(label, "caption")
     if not t.get("available"):
         return card.line(t.get("reason") or "No transcript is available for this call.")
     turns = t.get("turns") or []

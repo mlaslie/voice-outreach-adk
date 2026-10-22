@@ -22,6 +22,10 @@ def create_app(cfg: AppConfig | None = None, api: Api | None = None) -> FastAPI:
         c = cfg or load_config()
         configure_logging(c.log_level, c.gcp.project_id)
         app.state.api = api or Api.build(c)
+        # The demo-only language auto-approve (refused outside dev/test/demo).
+        from voa_core import languages
+
+        languages.configure(app.state.api.cfg)
         yield
 
     debug = (cfg.env if cfg else "") in ("dev", "test")

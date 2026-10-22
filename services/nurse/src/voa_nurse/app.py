@@ -157,6 +157,11 @@ def create_app(
     async def lifespan(_app):
         c = cfg or load_config()
         configure_logging(c.log_level, c.gcp.project_id)
+        # The demo-only language auto-approve (refused outside dev/test/demo):
+        # the nurse agent's hold checks follow it.
+        from voa_core import languages
+
+        languages.configure(c)
         if executor.deps is None:
             executor.deps = build_deps(c, settings)
         if settings.public_url.startswith("http://localhost") and c.env not in ("dev", "test"):

@@ -10,7 +10,8 @@ import { Panel, Pill } from "@/components/nurse/parts";
 import { fmtHHMM, TimeFormat, useTimeFormat } from "@/lib/time";
 import { fetchSettings, setSetting } from "@/lib/followups";
 import { useLanguages } from "@/components/languages-provider";
-import { packChannelLines } from "@/lib/languages";
+import { isAutoApproved, packChannelLines, unreviewedCounts } from "@/lib/languages";
+import { AutoApproveBanner } from "@/components/auto-approve-banner";
 
 /** Admin → Display: 12- or 24-hour clocks for nurses. */
 export function TimeDisplayPanel({ saved, actions }: { saved: TimeFormat | null; actions: Pick<AdminActions, "live" | "saveDisplay"> }) {
@@ -225,9 +226,13 @@ export function CompanyNamePanel({
  * editing its file (docs/HANDOFF.md, "How to approve a pack") and redeploying.
  */
 export function LanguagesPanel() {
-  const packs = useLanguages()?.packs ?? [];
+  const langs = useLanguages();
+  const packs = langs?.packs ?? [];
+  const auto = isAutoApproved(langs);
+  const counts = unreviewedCounts(langs);
   return (
     <Panel className="px-5 py-3.5">
+      <AutoApproveBanner resp={langs} className="mb-3" />
       <div className="flex flex-wrap items-center gap-3">
         <div className="grid h-9 w-9 place-items-center rounded-xl bg-brand/10 text-brand-deep">
           <Languages className="h-4 w-4" />
@@ -240,6 +245,13 @@ export function LanguagesPanel() {
           </p>
         </div>
       </div>
+      {auto ? (
+        <p className="mt-3 text-[12px] font-medium text-ink">
+          Auto-approved (demo): {counts.machine} {counts.machine === 1 ? "language" : "languages"} machine-translated
+          {counts.draft_pack ? `, ${counts.draft_pack} on draft (unreviewed) wording` : ""}. No patient is held for their
+          language.
+        </p>
+      ) : null}
       {packs.length === 0 ? (
         <p className="mt-3 text-[12px] text-ink-muted">No language packs yet: every call is in English.</p>
       ) : (
@@ -251,6 +263,7 @@ export function LanguagesPanel() {
                 <span className="font-semibold text-ink">{p.name}</span>
                 <span className="text-ink-muted">{p.campaign_id.replace("_", "-")}</span>
                 <Pill tone={p.voice.available ? "good" : "warn"}>{p.status.replace("_", " ")}</Pill>
+                {auto && !p.voice.available ? <Pill tone="warn">auto-approved (demo)</Pill> : null}
                 <span className="basis-full text-ink-soft sm:basis-auto">{voice}</span>
                 <span className="basis-full text-ink-muted sm:basis-auto">{texts}</span>
               </li>

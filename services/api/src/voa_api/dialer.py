@@ -182,6 +182,12 @@ async def dial(
         raise DialError(502, "Could not reach the telephony provider.") from None
 
     patient = patient_from(req)
+    # approved | draft_pack | machine (the demo auto-approve): which wording this
+    # call is spoken with, so reviewers and analytics can find unreviewed calls.
+    # Absent for a call spoken in English.
+    source = languages.call_wording_source(
+        patient["language"], campaign_id, patient["call_in_english"]
+    )
     # PHI (DOB) goes only to the read-once staging doc; the call doc never holds it (C-2).
     await api.store.set(
         PENDING,
@@ -209,6 +215,7 @@ async def dial(
             "spec_version": spec_version,
             "language": patient["language"],
             "call_in_english": patient["call_in_english"],
+            **({"language_source": source} if source else {}),
             "entry_id": entry_id,
             "entry_attempt": attempt,
             "run_id": run_id,

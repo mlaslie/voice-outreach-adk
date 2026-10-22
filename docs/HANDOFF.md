@@ -771,3 +771,75 @@ Two mutations were checked: sending the invite through the real `Api`, and remov
   - Trimmed and palette-compressed to stay under the 1 MB file limit.
 - **Licensing:** Apache-2.0 `LICENSE` and `NOTICE`; `SECURITY.md`.
 - **Prior-system names made generic** in the design and history docs. The current tree and all git history were checked for project ids, URLs and personal names: none found.
+
+## 23 Oct: call concurrency (code; not deployed)
+- **Problem.**
+  - Only one call at a time: `dialing.max_concurrent_calls` and the dial queue's `dial_concurrency` both defaulted to 1.
+  - The waiting line was Cloud Tasks retries. A busy slot answered 503, and the backoff grew to 5 minutes, which left idle gaps between calls.
+  - Patients could be dropped silently. A task still busy after 5 attempts and 1 hour was deleted. Its patient stayed "pending", the run never completed, and `/cron/dispatch-due` refused every later run ("a run is in progress").
+- **Fix.**
+  - **3 simultaneous calls in the demo:** new Terraform `max_concurrent_calls` (default 3, 1 to 20), passed to the API as `VOA__DIALING__MAX_CONCURRENT_CALLS`. The config default is also 3.
+  - **Waiting without retries:** with no free slot, `/tasks/dial` answers 200 and re-enqueues the same patient `dialing.slot_wait_s` (15 s) later as a new named task, `dial-<run>-<entry>-<attempt>-w<n>`.
+    - A redelivered wait step cannot fork the chain.
+    - The cancel, patient-status and calling-hours checks run on every delivery.
+    - After `dialing.max_slot_wait_s` (1 h) the patient is recorded as deferred.
+  - **Dial-queue retries for real errors only:** 5 attempts, 10 s to 2 min, at most 15 min. `routes_tasks.DIAL_TASK_RETRY_WINDOW_S` must match.
+  - **Stale-run check** (`reconcile_stale_run`, run by the per-minute cron). It closes a run that has made no progress for longer than any live task can stay silent and has no live call. Unaccounted members are recorded: pending ones as deferred, which a scheduled run carries over, and the rest as skipped.
+    - The run now keeps `dialled_ids` and `updated_at` so every member can be accounted for.
+- **What bit us.**
+  - **The stale-call timeout was shorter than a call.** `call_timeout_s` is 600 s, but `voice.max_call_seconds` is 900. A long call stopped counting after 10 minutes, so one extra call could start. The slot count now uses max(`call_timeout_s`, `max_call_seconds` + 120 s).
+  - **`dial_concurrency` is not the call cap,** and raising it would break the cap. The free-slot check reads `calls`, but the call doc is written only after Twilio accepts the call, so two parallel dial tasks could both see a free slot. It stays at 1: a dial takes about a second, which already matches Twilio's 1 call per second. Terraform refuses `dial_concurrency > max_concurrent_calls`.
+  - **A task from a replaced run used to dial anyway** (the code only skipped "our" run when cancelled). It could take the attempt number that the newer run's own task for the same patient expected, and that patient would then never be counted in the new run. Such a task is now skipped as "run superseded".
+  - **A claim refused because the row was being called elsewhere returned "already claimed"** without recording the member, so the run could never complete. It is now recorded as skipped. A true duplicate delivery is still ignored.
+  - **Slot re-checks share the dial queue's 1 dispatch a second.** With W patients waiting, each re-checks about every max(15 s, W s). Ordering is "generally first come, first served", not strict.
+- **Tests:** `services/api/tests/test_call_concurrency.py` covers:
+  - 10 patients and 3 slots: never more than 3 live, and all 10 dial;
+  - a re-enqueue with the delay instead of a 503;
+  - a cancelled run, a cancelled patient and closing time;
+  - a stranded call timing out;
+  - the give-up and the reconcile;
+  - a lost task carried over;
+  - a superseded run.
+
+  `test_api.py`'s run test now pins 1 slot and expects the re-enqueue.
+- **Docs:** ARCHITECTURE "How a scheduled run is executed" step 4, README Cloud Tasks row, RUNBOOK "Scaling calls", CONFIG.md regenerated.
+- **To deploy:** the API image and `terraform apply`, which changes the dial queue's retry config and the API env. No gateway change. Leave `max_dials_per_hour` (30) in mind: at 3 calls it is now the binding limit on a big run.
+
+## 23 Oct: demo auto-approves all languages (code; not deployed)
+
+**Why.** The user decided "for our demo env let's auto approve all languages." Only es-US had a pack (a machine draft), so every other non-English patient was held, and Spanish was held too. The demo needed all 24 callable and textable, clearly labelled as unreviewed.
+
+**The switch.** `languages.auto_approve` (config, default false; env `VOA__LANGUAGES__AUTO_APPROVE`; Terraform `languages_auto_approve`, default false, `true` in `terraform.tfvars.example` and in the real demo `terraform.tfvars`).
+- **Guard: refused at startup**, not logged and ignored. `AppConfig` fails validation (a `ConfigError` naming the switch) unless `VOA_ENV` is `dev`, `test` or `demo`, and `languages.configure` refuses it again for a config built some other way. A quietly ignored switch would leave a demo looking broken with nobody knowing why; a prod service that won't start is loud and safe. Chosen over ignore-and-log for that reason.
+- **Where it is read:** a process-wide flag in `voa_core.languages` (`auto_approved()`), set by `load_config` and again by the API, gateway and nurse startups from their config. `languages.available` and every hold check, `language_packs.voice_pack_for_call` / `sms_pack`, and the SMS send path all read it, so no call site needed a config argument.
+
+**Wording source per language** (`languages.wording_source(lang, campaign, channel)`): `approved` (approved pack), `draft_pack` (a draft or in-review pack complete for that channel), `machine` (no pack), None (English, or held). Today: en-US/en-IN approved; es-US post_op `draft_pack` for voice and texts; es-US pre_op `draft_pack` voice, `machine` texts (its draft has no SMS wording); the other 21 `machine`. A retired pack counts as no pack.
+
+**What happens when on.**
+- **Availability:** all 24 for voice and SMS; nobody held; `text_block` never skips a text. "Call in English" still forces English. Unsupported values are still held.
+- **Calls:** a draft pack is used (es-US). With no pack the gateway sets `call_language` plus `call_language_source: machine`; the agent uses the English spec (never a retired pack's wording: `localized_campaign(..., source="machine")`) and `instruction.machine_language_block`: the step-4 RESPOND IN … block, but "the scripted lines are in English; translate each faithfully… never say the English", with the 911 emergency line, the fever threshold and the medication-list reminder called out, tool arguments in English, the closing translated faithfully. Knowledge base stays off. Timeline event `language` with `source: machine`.
+- **Voicemail:** no pack: the English voicemail is translated (`translate.translate_outbound`, cached per text and language in memory), then TTS with that `language_code` (clip cached per text by `PromptCache`). Translation failure plays the English clip and logs `voicemail.translation_fallback`. The gateway's translator is one try, 8 s timeout (the drop waits for it).
+- **Texts:** a draft pack's SMS wording is sent as is (es-US). No pack: the conversation is written in English (`sms_copy.MACHINE_SOURCE`: the English copy with the DOB prompts asking DD/MM/YYYY, because a non-English patient's typed date is read day first) and `sms_service.send_sms` translates each text at send time (`machine_wording`, after the wording check, before the budget, so UCS-2 segments are counted on the translation). STOP, 911, tel:911 and C are required to survive (the pack lint's `_literal_problems`); a failed or literal-dropping translation sends **the whole English text**, never a mix, and stamps `wording: {language, source: english_fallback, english, error}` on the message and `last_translation_error` / `english_fallbacks` on the session. A good one stamps `wording: {language, source: machine, english}`. The emergency text is no exception, so it always goes out, in English with 911 at worst (tested).
+- **Inbound** is step 3's path, unchanged.
+- **Simulator:** Admin → Testing → "Test by text" accepts a language without a pack when auto-approved, labelled "Machine-translated, unreviewed (demo)".
+
+**Records and labels.**
+- Call doc: `language_source` (stamped by the dialer; absent for English or "Call in English"). The transcript response returns it. SMS session: `language_source`.
+- `GET /api/languages`: with the switch on, `auto_approved: true`, per language `source` / `sms_source`, and `sources_by_campaign`. **Off, the response is byte-for-byte what it was** (so `languages-sample.json` and the existing tests are unchanged).
+- Admin console: the Languages card and the Testing page show the banner "Demo: all languages auto-approved. Wording in languages without an approved pack is machine-translated and unreviewed. Not for real patients."; the Languages card counts machine/draft languages. Patient language select: "(auto-approved, demo)" instead of "(not available yet)". Nurse drawer and completed view: an amber "Spoke Vietnamese (auto-approved, unreviewed wording)" chip from `language_source`. Nurse agent transcript card: the same line. UI sample data: a fictional Vietnamese machine-wording call (Tran Thi Lan).
+
+**Live check** (local ADC, `VOA_ENV=dev`, the demo project, gemini-2.5-flash, fictional text): the invite, the emergency text, a booking with "Reply C to cancel", the DD/MM/YYYY DOB prompt and the voicemail into vi-VN: all `machine`, STOP, 911, tel:911, C and DD/MM/YYYY kept; 0.8–2.6 s each (first call cold). The voicemail TTS render in vi-VN was not run live.
+
+**Tests:** `packages/voa_core/tests/test_languages_auto_approve.py` (guard in prod/production/staging refused, dev/test/demo honoured, off unchanged, all 24 available and none held, the source of each language, Call in English, approved reported approved, drafts used, the machine SMS copy, `translate_outbound` cache and fallbacks), `packages/voa_agents/tests/test_voice_machine_language.py` (the vi-VN block, English byte-identical, pack calls unchanged, the agent ignores a pack for machine calls), `services/gateway/tests/test_gateway_auto_approve.py` (machine and draft calls, Call in English, off; voicemail translated and cached, English fallback, English and pack clips unchanged), `services/api/tests/test_languages_auto_approve_api.py` (API shape on and off, nobody held and `language_source` on the call doc, a translated invite and DOB prompt, STOP dropped → English, failure → English, emergency in English with 911 when translation fails and translated when it keeps 911, the Spanish draft sent untranslated, off = no text, the simulator), `services/nurse/tests/test_nurse_cards.py` (the label), `ui/src/lib/languages.test.ts` (8 new).
+
+**Watch out.**
+- **It must never be on in production.** The guard covers `VOA_ENV`; it cannot tell a demo that has real patients in it. Demo has called real handsets; anyone in a non-English language is now dialled with unreviewed wording.
+- **Carrier registration** does not cover non-English content yet (step 5 notes). Real texts in Vietnamese etc. will go out from demo if `sms_dry_run = false`.
+- The outbound cache is in memory per instance (texts can carry a first name, so not in Firestore): each new instance re-translates. Translation adds about 1–2 s per text.
+- A machine-translated text can change segment counts (most non-Latin scripts are UCS-2): the budget counts the translation.
+- The voice model's live translation of scripted lines is not checked by anything; the post-call translated-transcript re-check (step 3) is the safety net, as for Spanish.
+- The first machine voicemail per language waits for a translation plus a TTS render at the drop.
+- The process-wide flag is reset by every `load_config` call in a process; tests that need it on load an auto-approve config after their own `make()`.
+- `ruff format .` ran over the repo, including files the concurrency agent was editing (`routes_tasks.py`, `test_api.py`); I made no content change there.
+
+**Parity:** the goldens and tool declarations are unchanged; English instruction byte-identical; full suite **2248 passed, 12 skipped**; UI tsc, vitest (655), both builds; `terraform validate`; PII scan clean. **To deploy:** `terraform apply` (the env var) and gateway + API + nurse + UI images together.

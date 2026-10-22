@@ -14,6 +14,9 @@ name_prefix        = "voa"
 # SMS follow-up. Option 3 (the questionnaire by text) stays off until its copy
 # is registered with the carrier; sms_dry_run (default true) logs instead of sending.
 sms_survey_enabled = false
+# DEMO ONLY: all 24 languages callable and textable; wording without an approved
+# pack is a draft or machine-translated (unreviewed). Never with real patients.
+languages_auto_approve = true
 # Warm instances (cost vs cold starts); the gateway defaults to 1
 # api_min_instances   = 1
 # ui_min_instances    = 1

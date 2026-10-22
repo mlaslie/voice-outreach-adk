@@ -188,6 +188,19 @@ def _sms_pack(session: dict | None):
     )
 
 
+def machine_language(session: dict | None) -> str | None:
+    """The conversation's language when its texts are machine-translated at send
+    time: the demo auto-approve is on and the language has no usable SMS pack
+    (``languages.auto_approved``; docs/LANGUAGES-PLAN.md, "Language availability
+    and approval"). None otherwise (English, or a pack's wording)."""
+    from voa_core import languages
+
+    lang = sms_language(session)
+    if lang is None or not languages.auto_approved() or _sms_pack(session) is not None:
+        return None
+    return lang
+
+
 def session_copy(session: dict | None) -> EnglishCopy | PackCopy:
     """The shared texts (invite, menu, DOB gate, STOP/HELP...) for this
     conversation: the pack's for a conversation in another language, else English.
@@ -198,6 +211,13 @@ def session_copy(session: dict | None) -> EnglishCopy | PackCopy:
     patient is never texted in English, nor in unapproved wording."""
     pack = _sms_pack(session)
     if pack is None:
+        lang = machine_language(session)
+        if lang is not None:
+            # Demo auto-approve, no pack: English wording (DOB asked day first),
+            # machine-translated when each text is sent.
+            from voa_core.sms_copy import MACHINE_SOURCE
+
+            return PackCopy(MACHINE_SOURCE, lang, approved=False)
         return ENGLISH_COPY
     return PackCopy(pack.sms_copy, pack.language, approved=pack.approved)
 

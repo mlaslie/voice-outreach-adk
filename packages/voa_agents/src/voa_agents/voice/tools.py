@@ -113,7 +113,9 @@ def _spoken_campaign(tool_context: ToolContext):
         return campaign
     from voa_core import language_packs
 
-    return language_packs.localized_campaign(campaign, language)
+    return language_packs.localized_campaign(
+        campaign, language, source=tool_context.state.get("call_language_source")
+    )
 
 
 #: A non-English call that ends early with questions recorded (the frame's

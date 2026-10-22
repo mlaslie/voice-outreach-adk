@@ -1,3 +1,5 @@
+import type { WordingSource } from "./languages";
+
 /** Whether a missed call's follow-up text went out, and if not why (set by the API). */
 export interface SmsFollowUpStamp {
   status: "sent" | "not_sent" | "deferred";
@@ -29,6 +31,11 @@ export interface CallDoc {
   language_used?: string;
   /** Every language the patient spoke, first seen first. */
   languages_spoken?: string[];
+  /**
+   * Where the call's wording came from (absent for English calls). "draft_pack"
+   * or "machine" only when the demo auto-approve switch was on: unreviewed.
+   */
+  language_source?: WordingSource;
   campaign_id?: string;
   session_uuid?: string;
   stream_sid?: string;
@@ -277,6 +284,8 @@ export interface TranscriptResponse {
   language?: string | null;
   /** The language the patient mostly spoke (set by the translation task). */
   language_used?: string | null;
+  /** Where the call's wording came from (absent for English calls). */
+  language_source?: WordingSource | null;
   /** The use case's display title, for the download. */
   title?: string;
 }

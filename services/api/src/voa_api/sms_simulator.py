@@ -216,6 +216,7 @@ async def thread(api: Api, phone: str, call_id: str) -> list[dict]:
 
 
 DRAFT_LABEL = "Draft wording, not approved"
+MACHINE_LABEL = "Machine-translated, unreviewed (demo)"
 
 
 def _language(language: str | None) -> tuple[str | None, language_packs.Pack | None]:
@@ -228,6 +229,9 @@ def _language(language: str | None) -> tuple[str | None, language_packs.Pack | N
     if code in languages.ENGLISH:
         return None, None
     pack = language_packs.sms_pack(None, code, allow_drafts=True)
+    if pack is None and languages.auto_approved():
+        # Demo auto-approve: no pack, the English texts are machine-translated.
+        return code, None
     if pack is None:
         raise SimulatorError(
             409, f"There is no {languages.name(code)} text wording yet, so it cannot be tested."
@@ -236,6 +240,14 @@ def _language(language: str | None) -> tuple[str | None, language_packs.Pack | N
 
 
 def _wording(code: str | None, pack: language_packs.Pack | None) -> dict[str, Any]:
+    if code is not None and pack is None:
+        return {
+            "language": code,
+            "name": languages.name(code),
+            "status": languages.MACHINE,
+            "approved": False,
+            "label": MACHINE_LABEL,
+        }
     if code is None or pack is None:
         return {"language": languages.DEFAULT, "status": "approved", "approved": True, "label": ""}
     return {
@@ -315,8 +327,19 @@ async def start(
             "patient_name": TEST_PATIENT["patient_name"],
             "patient_id": TEST_PATIENT["patient_id"],
             **(
-                {"sms_language": code, "sms_draft_wording": not pack.approved}
+                {
+                    "sms_language": code,
+                    "sms_draft_wording": not pack.approved,
+                    "language_source": languages.APPROVED
+                    if pack.approved
+                    else languages.DRAFT_PACK,
+                }
                 if code and pack
+                else {}
+            ),
+            **(
+                {"sms_language": code, "language_source": languages.MACHINE}
+                if code and pack is None
                 else {}
             ),
             "state": st.STATE_AWAITING_CHOICE,

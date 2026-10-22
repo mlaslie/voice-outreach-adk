@@ -101,6 +101,27 @@ Speak only {full} to the caller. RESPOND IN {up}. YOU MUST RESPOND UNMISTAKABLY 
 - If they speak another language you cannot continue in (neither {base} nor English), do not continue the questions: say, in {base} and then in English, that a member of the care team will call them back with an interpreter. Call record_patient_question with "Needs an interpreter: speaks <the language>", then submit_report with outcome "reschedule_requested", then end_call."""
 
 
+def machine_language_block(language: str) -> str:
+    """The language rules for a call in a language WITHOUT a language pack (the
+    demo auto-approve only; docs/LANGUAGES-PLAN.md, "Language availability and
+    approval"). The scripted lines below stay in English and the model
+    translates each one faithfully as it speaks. Unreviewed wording."""
+    from voa_core import languages
+
+    full = languages.name(language)  # "Vietnamese"
+    base = full.split("(")[0].strip()
+    up = base.upper()
+    return f"""# Language: {full}
+Speak only {full} to the caller. RESPOND IN {up}. YOU MUST RESPOND UNMISTAKABLY IN {up}.
+- The scripted lines and questions below are written in English. Translate each one faithfully into natural, polite {base}, as you would to an older patient, and say only that translation. Never say the English.
+- Faithful means the meaning stays exact: never add, drop, soften or explain anything. Keep every number, temperature, unit and threshold exactly (for example a fever threshold in degrees Fahrenheit stays the same number and unit). In the emergency line keep the number 911 (say it digit by digit: nine, one, one) and keep the instruction to hang up now and call 911 just as strong. Keep the reminder to bring a list of current medications exactly as written.
+- Tool results are in English. Say anything from them in {base} (for example, a date of birth to read back). Say the closing the tool returns as a faithful {base} translation of all of it, including the medication-list reminder.
+- When you call tools, pass answers in English: yes, no, unknown, a number, better, same or worse. Record free-text answers as a short English summary of what the caller said. Record each of the caller's questions with record_patient_question as a short English summary.
+- For verify_identity, pass the date of birth the caller said written in English with the month name and the year, for example "March 15 1950". Never pass a date the caller did not say.
+- If the caller asks to speak English, switch to English for the rest of the call: say the remaining lines in English as written, and carry on where you were.
+- If they speak another language you cannot continue in (neither {base} nor English), do not continue the questions: say, in {base} and then in English, that a member of the care team will call them back with an interpreter. Call record_patient_question with "Needs an interpreter: speaks <the language>", then submit_report with outcome "reschedule_requested", then end_call."""
+
+
 def build_instruction(
     c: Campaign,
     *,
@@ -108,6 +129,7 @@ def build_instruction(
     patient: dict[str, Any],
     knowledge: dict[str, Any] | None = None,
     language: str | None = None,
+    language_source: str | None = None,
 ) -> str:
     """``knowledge``: ``state["knowledge"]`` when the knowledge base is on for this
     call (``{"ask_satisfied": bool}``); None (off) builds today's instruction.
@@ -115,7 +137,11 @@ def build_instruction(
     ``language``: a non-English call (``state["call_language"]``). ``c`` is then
     the spec localized with the approved pack (``language_packs.localize``), and
     the language block goes right after the opening paragraph, with a reminder at
-    the end. None (every English call) builds exactly today's instruction."""
+    the end. None (every English call) builds exactly today's instruction.
+
+    ``language_source``: "machine" (demo auto-approve, no pack): ``c`` is the
+    English spec and the block tells the model to translate each line
+    faithfully (``machine_language_block``)."""
     text = _build(c, org_name=org_name, patient=patient, knowledge=knowledge)
     if not language:
         return text
@@ -123,11 +149,20 @@ def build_instruction(
 
     head, sep, rest = text.partition("\n\n")
     base = languages.name(language).split("(")[0].strip()
-    return (
-        f"{head}{sep}{language_block(language)}\n\n{rest}"
-        f"\n# Remember\nEverything you say to the caller is in {base}, unless they asked for "
-        "English. Tool arguments are in English.\n"
-    )
+    if language_source == languages.MACHINE:
+        block = machine_language_block(language)
+        remember = (
+            f"\n# Remember\nEverything you say to the caller is in {base}, a faithful "
+            "translation of the English lines, unless they asked for English. Tool arguments "
+            "are in English.\n"
+        )
+    else:
+        block = language_block(language)
+        remember = (
+            f"\n# Remember\nEverything you say to the caller is in {base}, unless they asked "
+            "for English. Tool arguments are in English.\n"
+        )
+    return f"{head}{sep}{block}\n\n{rest}{remember}"
 
 
 def _build(

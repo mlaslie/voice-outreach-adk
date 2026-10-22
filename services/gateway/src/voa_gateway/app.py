@@ -100,6 +100,10 @@ class Gateway:
             agent=build_voice_agent(cfg),
             session_service=InMemorySessionService(),
         )
+        #: English -> a patient's language, for the demo auto-approve's voicemail
+        #: in a language without a pack (voa_core.translate.translate_outbound).
+        #: Built on first use; tests inject a FakeTranslator.
+        self.translator = None
         if cfg.env != "test":
             # verify_identity translates a spoken date it cannot read (one quick
             # try, the patient is waiting); docs/LANGUAGES-PLAN.md §3.3.
@@ -146,8 +150,25 @@ class Gateway:
             spec = language_packs.localized_campaign(spec, language)
         return spec.script("voicemail", org_name=org_name or self.cfg.site.org_name)
 
+    def get_translator(self):
+        if self.translator is None:
+            if self.cfg.env == "test":
+                from voa_core.translate import FakeTranslator
+
+                self.translator = FakeTranslator()
+            else:
+                from voa_agents.translate import GeminiTranslator
+
+                # The drop waits for this: one try, bounded.
+                self.translator = GeminiTranslator(self.cfg, attempts=1, timeout_s=8.0)
+        return self.translator
+
     async def voicemail_clip(
-        self, campaign_id: str = DEFAULT_CAMPAIGN_ID, *, language: str | None = None
+        self,
+        campaign_id: str = DEFAULT_CAMPAIGN_ID,
+        *,
+        language: str | None = None,
+        source: str | None = None,
     ) -> bytes | None:
         # The clip says the company name: a new name renders (and caches) a new clip.
         # One clip per distinct text, so use cases with the same wording share it.
@@ -156,6 +177,25 @@ class Gateway:
         from voa_core import organization
 
         org = await organization.org_name(self.store, self.cfg.site.org_name)
+        if language and source == "machine":
+            # Demo auto-approve, no pack: the English voicemail, machine-translated
+            # (cached per text and language), rendered in the language. If the
+            # translation fails, the English clip plays (logged).
+            from voa_core import translate
+
+            english = self.voicemail_text(org, campaign_id)
+            out = await translate.translate_outbound(self.get_translator(), english, language)
+            if not out.translated:
+                log.warning(
+                    "voicemail translation failed; English clip",
+                    extra={
+                        "event": "voicemail.translation_fallback",
+                        "language": language,
+                        "error": out.error,
+                    },
+                )
+                return await self.prompts.ensure(english)
+            return await self.prompts.ensure(out.text, language_code=language)
         text = self.voicemail_text(org, campaign_id, language)
         if language:
             return await self.prompts.ensure(text, language_code=language)
@@ -209,14 +249,16 @@ def create_app(cfg: AppConfig | None = None, gateway: Gateway | None = None) -> 
         c = cfg or load_config()
         configure_logging(c.log_level, c.gcp.project_id)
         app.state.gw = gateway or Gateway(c)
+        # The demo-only language auto-approve (refused outside dev/test/demo).
+        from voa_core import languages
+
+        languages.configure(app.state.gw.cfg)
         if c.amd.enabled and c.amd.vm_drop:
             import asyncio
 
             asyncio.get_running_loop().create_task(app.state.gw.voicemail_clip())  # warm the clip
             # And one per approved language pack (none until a pack is approved),
             # so a non-English drop does not wait for the render.
-            from voa_core import languages
-
             for lang in sorted(languages.approved_packs(DEFAULT_CAMPAIGN_ID)):
                 asyncio.get_running_loop().create_task(
                     app.state.gw.voicemail_clip(DEFAULT_CAMPAIGN_ID, language=lang)

@@ -81,12 +81,14 @@ def build_voice_agent(
                 # the pack's wording, plus the language block. English: untouched.
                 from voa_core import language_packs
 
+                source = ctx.state.get("call_language_source")
                 return build_instruction(
-                    language_packs.localized_campaign(campaign, language),
+                    language_packs.localized_campaign(campaign, language, source=source),
                     org_name=org,
                     patient=patient,
                     knowledge=None,
                     language=language,
+                    language_source=source,
                 )
             return build_instruction(
                 campaign, org_name=org, patient=patient, knowledge=ctx.state.get("knowledge")

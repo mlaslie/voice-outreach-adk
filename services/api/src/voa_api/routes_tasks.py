@@ -1,6 +1,7 @@
 """Cloud Tasks and Cloud Scheduler targets (OIDC-authenticated, tasks-invoker only).
 
-/tasks/dial            dial one call-list entry (waits for a free call slot by returning 503)
+/tasks/dial            dial one call-list entry; with no free call slot it re-enqueues itself
+                       a few seconds later (a new named task), it never fails into backoff
 /tasks/call-terminal   a call reached a terminal status: settle its entry and run, auto-recall,
                        and hand missed calls to the SMS follow-up
 /tasks/knowledge-shadow  shadow mode: store what the knowledge agent would have said to each
@@ -33,7 +34,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Request
 from pydantic import ValidationError
 from voa_core import compliance, languages, lifecycle
 from voa_core.store import Where, new_id, now_iso
@@ -97,6 +98,10 @@ async def enqueue_dials(
         "skipped": [],
         "deferred": [],
         "held": [],
+        # Members whose dial was attempted (placed or failed). With the lists above
+        # it accounts for every member, which the stale-run check relies on.
+        "dialled_ids": [],
+        "updated_at": now,
     }
     if campaign_id:
         run["campaign_id"] = campaign_id
@@ -116,8 +121,26 @@ async def enqueue_dials(
     return run
 
 
+#: Ringing and answering-machine time on top of the longest allowed conversation.
+RING_ALLOWANCE_S = 120
+#: Cloud Tasks stops retrying a failing dial task after this (the dial queue's
+#: retry_config max_retry_duration in infra/envs/demo/services.tf). Keep in step.
+DIAL_TASK_RETRY_WINDOW_S = 900
+
+
+def _call_timeout_s(api: Api) -> int:
+    """How long a call without a terminal status still holds a call slot. Never
+    shorter than the longest allowed call, so a long call is not counted out early
+    (which would let one more call start than the limit)."""
+    return max(api.cfg.dialing.call_timeout_s, api.cfg.voice.max_call_seconds + RING_ALLOWANCE_S)
+
+
 async def _calls_in_flight(api: Api) -> int:
-    since = (api.now() - timedelta(seconds=api.cfg.dialing.call_timeout_s)).isoformat()
+    """Calls holding a slot: placed by a run or the dashboard, no terminal status
+    yet, started within the call timeout. A call whose terminal status never
+    arrives (lost webhook, gateway crash) stops counting after the timeout, so a
+    stranded call cannot block a slot for good."""
+    since = (api.now() - timedelta(seconds=_call_timeout_s(api))).isoformat()
     rows = await api.store.query(CALLS, [Where("initiated_at", ">=", since)])
     return sum(
         1
@@ -145,6 +168,7 @@ async def _run_update(api: Api, run_id: str, fn) -> None:
         if not run or run.get("run_id") != run_id:
             return None
         new = fn(dict(run))
+        new["updated_at"] = now_iso(api.now())  # last progress: the stale-run check
         if new["status"] == "running" and _done(new) >= new["total"]:
             new["status"] = "completed"
             new["finished_at"] = now_iso(api.now())
@@ -251,6 +275,38 @@ async def _member_not_dialled(api: Api, run_id: str, entry_id: str, kind: str) -
     await _run_update(api, run_id, mark)
 
 
+async def _wait_for_slot(
+    api: Api, payload: dict, run_id: str, entry_id: str, attempt: int
+) -> dict[str, Any]:
+    """No free call slot: put the same patient back on the dial queue
+    ``dialing.slot_wait_s`` later and answer 200. Cloud Tasks retries stay for real
+    errors. Each wait step is its own named task (``...-w<n>``), so a redelivered
+    or retried step never forks the chain, and a patient never waits forever:
+    after ``dialing.max_slot_wait_s`` it is recorded as deferred (still pending).
+
+    Order: tasks are created in list order and every waiting patient re-checks on
+    the same fixed delay, so earlier patients generally reach a freed slot first;
+    it is not a strict queue."""
+    d = api.cfg.dialing
+    wait = int(payload.get("wait") or 0) + 1
+    since = compliance.parse_when(payload.get("waiting_since")) or api.now()
+    if api.now() - since >= timedelta(seconds=d.max_slot_wait_s):
+        await _member_not_dialled(api, run_id, entry_id, "deferred")
+        log.warning(
+            "gave up waiting for a call slot",
+            extra={"event": "dial.slot_wait_expired", "run_id": run_id, "waits": wait - 1},
+        )
+        return {"skipped": "no free call slot", "waits": wait - 1}
+    await api.tasks.enqueue(
+        api.cfg.services.queue_dial,
+        "/tasks/dial",
+        {**payload, "wait": wait, "waiting_since": now_iso(since)},
+        name=f"dial-{run_id}-{entry_id}-{attempt}-w{wait}",
+        delay_s=d.slot_wait_s,
+    )
+    return {"waiting": "call slot busy", "wait": wait, "retry_in_s": d.slot_wait_s}
+
+
 @router.post("/tasks/dial")
 async def task_dial(payload: dict, request: Request):
     from .routes_list import recall_settings
@@ -260,7 +316,12 @@ async def task_dial(payload: dict, request: Request):
     explicit = bool(payload.get("explicit"))
     run = await api.store.get(LIST_RUNS, CURRENT_RUN) or {}
     ours = run.get("run_id") == run_id
-    if ours and (run.get("cancel_requested") or run.get("status") != "running"):
+    if not ours:
+        # A later run replaced this one (or the stale-run check closed it and the
+        # next run started): its bookkeeping is gone, and dialling now could take
+        # the attempt number the newer run's own task for this patient expects.
+        return {"skipped": "run superseded"}
+    if run.get("cancel_requested") or run.get("status") != "running":
         return {"skipped": "run canceled"}
     entry = await api.store.get(CALL_LIST, entry_id)
     if not entry:
@@ -286,9 +347,9 @@ async def task_dial(payload: dict, request: Request):
         await _member_not_dialled(api, run_id, entry_id, "deferred")
         return {"skipped": "outside calling hours"}
     if await _calls_in_flight(api) >= api.cfg.dialing.max_concurrent_calls:
-        # No free call slot: Cloud Tasks retries with backoff (this replaces the old
-        # in-memory semaphore + wait loop).
-        return Response(status_code=503, content="call slot busy")
+        # No free call slot. Every check above runs again on the next delivery, so
+        # a cancel, a closed calling window or a cancelled patient stops the wait.
+        return await _wait_for_slot(api, payload, run_id, entry_id, attempt)
 
     def claim(cur):
         # Re-checked inside the claim: an edit to the language since the check
@@ -306,7 +367,12 @@ async def task_dial(payload: dict, request: Request):
             # Cancelled between the check above and the claim.
             await _member_not_dialled(api, run_id, entry_id, "skipped")
             return {"skipped": f"entry {claimed.get('list_status')}"}
-        return {"skipped": "already claimed"}
+        if not claimed or int(claimed.get("attempts") or 0) < attempt:
+            # Never ours: the row was deleted, or is being called from the
+            # dashboard. Record it so the run still completes.
+            await _member_not_dialled(api, run_id, entry_id, "skipped")
+            return {"skipped": f"entry {(claimed or {}).get('list_status', 'deleted')}"}
+        return {"skipped": "already claimed"}  # a duplicate delivery of our own claim
     campaign_id = claimed.get("campaign_id") or (run.get("campaign_id") if ours else None)
     try:
         try:
@@ -367,6 +433,7 @@ async def task_dial(payload: dict, request: Request):
 
         def failed(r):
             r["failed"] += 1
+            r["dialled_ids"] = [*(r.get("dialled_ids") or []), entry_id]
             r["errors"] = [*r["errors"], {"entry_id": entry_id, "error": err.detail}][-50:]
             if err.status == 429:
                 r["status"], r["finished_at"] = "budget_exhausted", now_iso(api.now())
@@ -382,6 +449,7 @@ async def task_dial(payload: dict, request: Request):
 
     def dispatched(r):
         r["dispatched"] += 1
+        r["dialled_ids"] = [*(r.get("dialled_ids") or []), entry_id]
         r["in_flight"] = [
             *r["in_flight"],
             {
@@ -685,6 +753,95 @@ async def close_unused_test_calls(api: Api) -> int:
     return closed
 
 
+def _run_stale_after(api: Api) -> timedelta:
+    """How long a running run may go without progress (a member dialled, settled,
+    skipped, deferred or held) before its remaining dial tasks are presumed lost.
+    Longer than any live task can stay silent: a full slot wait, Cloud Tasks'
+    error retries, one call, and the queue's spread at 1 dispatch a second."""
+    d = api.cfg.dialing
+    return timedelta(
+        seconds=d.max_slot_wait_s
+        + d.slot_wait_s
+        + DIAL_TASK_RETRY_WINDOW_S
+        + _call_timeout_s(api)
+        + d.max_dials_per_run
+        + 300
+    )
+
+
+async def reconcile_stale_run(api: Api, run: dict) -> dict | None:
+    """Close a run whose dial tasks were lost, so no patient is silently dropped
+    and the next scheduled run is not blocked behind it for good.
+
+    A dial task can vanish when Cloud Tasks exhausts its error retries. Its
+    patient then never reaches the run's counts and the run stays "running",
+    which also stops ``/cron/dispatch-due`` from starting anything else. Once the
+    run has made no progress for ``_run_stale_after`` and none of its calls is
+    still live, every member not accounted for is recorded: still pending ->
+    deferred (a scheduled run carries them to the next opening), anything else ->
+    skipped. Returns a summary, or None when the run is not stale."""
+    run_id = run.get("run_id")
+    if not run_id or run.get("status") != "running":
+        return None
+    last = compliance.parse_when(run.get("updated_at") or run.get("started_at"))
+    if last is None or api.now() - last < _run_stale_after(api):
+        return None
+    since = (api.now() - timedelta(seconds=_call_timeout_s(api))).isoformat()
+    for _, c in await api.store.query(CALLS, [Where("run_id", "==", run_id)]):
+        if (
+            c.get("call_status") not in lifecycle.TERMINAL_STATUSES
+            and (c.get("initiated_at") or "") >= since
+        ):
+            return None  # a call of this run is still live: not stale
+    accounted = set(run.get("dialled_ids") or [])
+    for kind in NOT_DIALLED_KINDS:
+        accounted.update(run.get(kind) or [])
+    lost: dict[str, str] = {}
+    for eid in run.get("entry_ids") or []:
+        if eid in accounted:
+            continue
+        e = await api.store.get(CALL_LIST, eid)
+        if e and e.get("last_run_id") == run_id:
+            continue  # dialled by this run (a run started before dialled_ids existed)
+        lost[eid] = "deferred" if e and e.get("list_status") == "pending" else "skipped"
+    closed: dict[str, Any] = {}
+
+    def close(cur):
+        closed.clear()
+        if not cur or cur.get("run_id") != run_id or cur.get("status") != "running":
+            return None
+        new = dict(cur)
+        for eid, kind in lost.items():
+            if not any(eid in (new.get(k) or []) for k in NOT_DIALLED_KINDS):
+                new[kind] = [*(new.get(kind) or []), eid]
+        stamp = now_iso(api.now())
+        new.update(
+            status="completed",
+            finished_at=stamp,
+            updated_at=stamp,
+            reconciled_at=stamp,
+            in_flight=[],  # none is live (checked above)
+            note=f"Closed by the stale-run check: {len(lost)} patient(s) never dialled.",
+        )
+        closed["run"] = new
+        return new
+
+    await api.store.transact(LIST_RUNS, CURRENT_RUN, close)
+    if not closed.get("run"):
+        return None
+    log.warning(
+        "stale run reconciled",
+        extra={
+            "event": "run.reconciled",
+            "run_id": run_id,
+            "deferred": sum(1 for k in lost.values() if k == "deferred"),
+            "skipped": sum(1 for k in lost.values() if k == "skipped"),
+        },
+    )
+    await run_finished(api, closed["run"])
+    return {"run_id": run_id, "lost": lost}
+
+
 @router.post("/cron/dispatch-due")
 async def cron_dispatch_due(request: Request):
     """Every minute (Cloud Scheduler). Claims due scheduled runs; always 200.
@@ -709,7 +866,13 @@ async def cron_dispatch_due(request: Request):
         )
     current = await api.store.get(LIST_RUNS, CURRENT_RUN)
     if current and current.get("status") == "running":
-        return {"started": False, "reason": "a run is in progress"}
+        try:
+            reconciled = await reconcile_stale_run(api, current)
+        except Exception:
+            log.exception("stale-run check failed", extra={"event": "run.reconcile_failed"})
+            reconciled = None
+        if not reconciled:
+            return {"started": False, "reason": "a run is in progress"}
     cfg = await recall_settings(api)
     now = api.now()
     tz = api.cfg.site.timezone

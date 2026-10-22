@@ -509,10 +509,12 @@ async def log_message(
     body: str,
     message_sid: str | None,
     call_sid: str | None,
+    extra: dict | None = None,
 ) -> str | None:
     """Stored for the nurse-facing thread; never written to logs (bodies can carry
     clinical answers from the questionnaire onwards). The message's id, or None
-    when the write failed."""
+    when the write failed. ``extra``: more fields (the demo auto-approve's
+    ``wording`` stamp on a machine-translated text)."""
     at = _ts(api)
     doc_id = f"{at}_{new_id()[:8]}"
     try:
@@ -526,6 +528,7 @@ async def log_message(
                 "message_sid": message_sid,
                 "call_sid": call_sid,
                 "at": at,
+                **(extra or {}),
             },
         )
     except Exception:
@@ -553,7 +556,8 @@ async def list_messages(api: Api, phone: str, call_sid: str | None = None) -> li
             "call_sid": r.get("call_sid"),
             # Set at filing time by /tasks/transcript-translate (step 2); absent
             # until then, and body_en is null for a message already in English.
-            **{k: r[k] for k in ("lang", "body_en") if k in r},
+            # ``wording``: a demo auto-approved text's source and its English.
+            **{k: r[k] for k in ("lang", "body_en", "wording") if k in r},
         }
         for r in rows
     ]
@@ -603,7 +607,35 @@ def wording_block(api: Api, session: dict | None) -> str | None:
         language_packs.sms_pack(cid, lang, allow_drafts=True) is not None
     ):
         return None
+    if languages.auto_approved():
+        # Demo only: no pack, so send_sms machine-translates the English text.
+        return None
     return f"No approved {languages.name(lang)} text wording."
+
+
+async def machine_wording(api: Api, session: dict | None, body: str) -> tuple[str, dict | None]:
+    """The text to send and its ``wording`` stamp, for the demo auto-approve.
+
+    A conversation in a language with no usable SMS pack (``machine_language``)
+    gets ``body`` (composed in English) machine-translated, cached per (text,
+    language), with STOP / 911 / tel:911 / C checked to survive. If translation
+    fails or drops one, the whole English text goes out instead (never a mix),
+    and the stamp says why. The emergency text is no exception: its English
+    carries 911. Any other conversation: (body, None), unchanged."""
+    from voa_core import translate
+    from voa_core.sms.conversation import machine_language
+
+    lang = machine_language(session)
+    if lang is None:
+        return body, None
+    out = await translate.translate_outbound(api.get_translator(), body, lang)
+    stamp = {
+        "language": lang,
+        "source": languages.MACHINE if out.translated else "english_fallback",
+        "english": body,
+        **({"error": out.error} if out.error else {}),
+    }
+    return out.text, stamp
 
 
 async def send_sms(
@@ -675,6 +707,7 @@ async def send_sms(
         raise SendBlocked(f"Conversation reached {s.max_messages_per_session} messages.")
     if why := wording_block(api, session):
         raise SendBlocked(why)
+    body, wording = await machine_wording(api, session, body)
 
     units = budget_units(body)
     try:
@@ -730,13 +763,20 @@ async def send_sms(
         body=body,
         message_sid=message_sid,
         call_sid=call_id,
+        extra={"wording": wording} if wording else None,
     )
     if session is not None:
+        failed = (wording or {}).get("error")
 
         def bump(cur):
             if cur is None:
                 return None
-            return {**cur, "message_count": int(cur.get("message_count") or 0) + 1}
+            out = {**cur, "message_count": int(cur.get("message_count") or 0) + 1}
+            if failed:
+                # Demo auto-approve: this text went out in English (reason kept).
+                out["last_translation_error"] = failed[:300]
+                out["english_fallbacks"] = int(cur.get("english_fallbacks") or 0) + 1
+            return out
 
         try:
             await api.store.transact(SESSIONS, phone, bump)
@@ -1614,6 +1654,17 @@ async def send_invite(api: Api, payload: dict) -> dict:
                 else {}
             ),
             **({"sms_language": text_lang} if text_lang else {}),
+            # approved | draft_pack | machine (demo auto-approve): reviewers and
+            # analytics can tell which conversations used unreviewed wording.
+            **(
+                {
+                    "language_source": languages.wording_source(
+                        text_lang, ctx.get("campaign_id"), "sms"
+                    )
+                }
+                if text_lang
+                else {}
+            ),
             "state": st.STATE_AWAITING_CHOICE,
             "retry_count": 0,
             "message_count": 0,  # per conversation, not per handset

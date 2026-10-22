@@ -27,6 +27,7 @@ locals {
     VOA__DIALING__ALLOWLIST          = var.static_allowlist
     VOA__SMS__DRY_RUN                = tostring(var.sms_dry_run)
     VOA__SMS__SURVEY_ENABLED         = tostring(var.sms_survey_enabled)
+    VOA__LANGUAGES__AUTO_APPROVE     = tostring(var.languages_auto_approve) # demo only
     VOA__SMS__FROM_NUMBER            = var.sms_from_number
     VOA__SMS__VOICE_NUMBER           = var.twilio_from_number
     VOA__SERVICES__RECORDINGS_BUCKET = module.recordings.name
@@ -61,11 +62,28 @@ module "build_staging" {
 
 # --------------------------------------------------------------------------- queues
 
+# The dial queue is not the cap on simultaneous calls: a dial task only places the
+# call and returns; the call itself then runs for minutes. The cap is the API's
+# dialing.max_concurrent_calls (var.max_concurrent_calls). With no free slot the
+# dial task re-enqueues itself a few seconds later and answers 200, so the dial
+# queue's retries are for real errors only: bounded, and short enough that the
+# API's stale-run check (routes_tasks.DIAL_TASK_RETRY_WINDOW_S = 900) outlasts
+# them. Keep max_retry_duration and that constant in step.
+# Rate 1/s keeps dials within Twilio's default 1 call per second.
 resource "google_cloud_tasks_queue" "this" {
   for_each = {
-    dial   = { concurrent = var.dial_concurrency, rate = 1 }
-    events = { concurrent = 10, rate = 10 }
-    sms    = { concurrent = 5, rate = 5 }
+    dial = {
+      concurrent = var.dial_concurrency, rate = 1
+      retry      = { attempts = 5, min = "10s", max = "120s", doublings = 3, duration = "900s" }
+    }
+    events = {
+      concurrent = 10, rate = 10
+      retry      = { attempts = 5, min = "5s", max = "300s", doublings = 4, duration = "3600s" }
+    }
+    sms = {
+      concurrent = 5, rate = 5
+      retry      = { attempts = 5, min = "5s", max = "300s", doublings = 4, duration = "3600s" }
+    }
   }
   project  = var.project_id
   location = var.region
@@ -75,11 +93,17 @@ resource "google_cloud_tasks_queue" "this" {
     max_dispatches_per_second = each.value.rate
   }
   retry_config {
-    max_attempts       = 5
-    min_backoff        = "5s"
-    max_backoff        = "300s"
-    max_doublings      = 4
-    max_retry_duration = "3600s"
+    max_attempts       = each.value.retry.attempts
+    min_backoff        = each.value.retry.min
+    max_backoff        = each.value.retry.max
+    max_doublings      = each.value.retry.doublings
+    max_retry_duration = each.value.retry.duration
+  }
+  lifecycle {
+    precondition {
+      condition     = var.dial_concurrency <= var.max_concurrent_calls
+      error_message = "dial_concurrency must not exceed max_concurrent_calls (see variables.tf)."
+    }
   }
   depends_on = [module.services]
 }
@@ -103,15 +127,22 @@ resource "google_service_account_iam_member" "gateway_acts_as_invoker" {
 # --------------------------------------------------------------------------- services
 
 module "gateway" {
-  count            = var.gateway_image == "" ? 0 : 1
-  source           = "../../modules/cloud_run_service"
-  project_id       = var.project_id
-  region           = var.region
-  name             = "${local.p}-gateway"
-  image            = var.gateway_image
-  service_account  = module.sa.emails["${local.p}-gateway"]
-  public           = true # Twilio webhooks + media streams; every route is signature-checked
-  min_instances    = var.gateway_min_instances
+  count           = var.gateway_image == "" ? 0 : 1
+  source          = "../../modules/cloud_run_service"
+  project_id      = var.project_id
+  region          = var.region
+  name            = "${local.p}-gateway"
+  image           = var.gateway_image
+  service_account = module.sa.emails["${local.p}-gateway"]
+  public          = true # Twilio webhooks + media streams; every route is signature-checked
+  min_instances   = var.gateway_min_instances
+  # Capacity: each call holds one Twilio media WebSocket here (one request toward
+  # `concurrency`) plus an outbound Gemini Live session, short webhooks aside.
+  # Transcoding is audioop (C) and the recording is 8 kHz PCM in memory (~1 MB
+  # per call-minute), so one 2 vCPU / 2 GiB instance carries max_concurrent_calls
+  # = 3 with room to spare; 10 x 8 = 80 is far above any dial limit. Raise
+  # max_instances only if max_concurrent_calls goes past ~60. docs/RUNBOOK.md
+  # "Scaling calls".
   max_instances    = 10
   concurrency      = 8 # simultaneous calls per instance (audio is CPU-light; Live is remote)
   timeout_s        = 3600
@@ -140,8 +171,10 @@ module "api" {
   concurrency   = 40
   timeout_s     = 3600 # SSE streams to the dashboard
   memory        = "1Gi"
-  env           = local.common_env
-  depends_on    = [module.secrets, google_cloud_tasks_queue.this]
+  env = merge(local.common_env, {
+    VOA__DIALING__MAX_CONCURRENT_CALLS = tostring(var.max_concurrent_calls)
+  })
+  depends_on = [module.secrets, google_cloud_tasks_queue.this]
 }
 
 resource "google_cloud_scheduler_job" "dispatch_due" {

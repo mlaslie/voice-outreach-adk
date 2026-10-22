@@ -161,7 +161,7 @@ function Body({
               <Dialog.Title className="truncate font-display text-xl font-semibold">{s.name}</Dialog.Title>
               <LanguageChip code={s.language ?? (call ? callLanguage(call) : undefined)} className="bg-white/15 text-white ring-white/25" />
               {call ? (
-                <SpokeChip requested={callLanguage(call)} used={call.language_used} className="bg-white/15 text-white ring-white/25" />
+                <SpokeChip requested={callLanguage(call)} used={call.language_used} source={call.language_source} className="bg-white/15 text-white ring-white/25" />
               ) : null}
             </div>
             <Dialog.Description className="mt-0.5 text-[13px] text-white/70">

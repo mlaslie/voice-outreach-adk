@@ -93,6 +93,23 @@ Read-only. It uses the Twilio secrets in Secret Manager and prints only the URLs
 
 If it fails, fix the number in the Twilio Console (Phone Numbers → the number → Messaging: "A message comes in" → Webhook, `<gateway_url>/twilio/sms`, HTTP POST), then rerun the check.
 
+## Scaling calls
+
+Simultaneous calls are capped by `dialing.max_concurrent_calls`: Terraform `max_concurrent_calls`, default 3 in the demo, at most 20. A dial task that finds every slot taken re-queues itself `dialing.slot_wait_s` later (15 s). It gives up after `dialing.max_slot_wait_s` (1 h), and the patient is recorded as deferred and stays pending. Before raising the cap, check each of these limits:
+
+| Limit | Where | What it means for N calls |
+|---|---|---|
+| Gemini Live concurrent sessions | Vertex AI quota for the Live model in `models.live_location` | One session per call. Keep N plus browser test calls under the quota (see `live_errors` above). |
+| Twilio calls per second | Twilio account (outbound CPS, 1 by default) | The dial queue sends at most 1 dial per second, one at a time (`max_dispatches_per_second = 1`, `dial_concurrency = 1`). Raise the queue rate only after Twilio raises the CPS. |
+| Hourly dial budget | `dialing.max_dials_per_hour` (30) | At 3 calls of about 4 minutes, a run can place about 45 dials an hour, so the budget, not the slots, stops a large run ("budget_exhausted"). Raise it with N. |
+| Patients per run | `dialing.max_dials_per_run` (50) | A run larger than this is refused (a nurse's run) or cut (a scheduled run). |
+| Gateway | `module "gateway"` in `services.tf`: `concurrency = 8`, `max_instances = 10`, 2 vCPU and 2 GiB, CPU always on, session affinity | Each call holds one media WebSocket. One instance carries 3 calls with room to spare: audio transcoding is C (`audioop`), and the 8 kHz recording is about 1 MB per call-minute in memory. 80 streams in total is far above any dial cap. Set `gateway_min_instances = 1` when calls start cold. |
+| Waiting load on the dial queue | 1 dispatch per second, shared by dials and slot re-checks | With W patients waiting, each re-checks about every max(15 s, W s). A freed slot can sit idle that long; it is not lost. |
+
+`dial_concurrency` is NOT the call cap. It is how many `/tasks/dial` requests run at once. Keep it at 1. One at a time makes the free-slot check and the dial that follows it race-free, and a dial takes about a second, so it already matches Twilio's 1 call per second. Terraform refuses `dial_concurrency > max_concurrent_calls`.
+
+**A run that never finishes.** A dial task that Cloud Tasks gave up on (5 attempts within 15 minutes, after real errors only) would leave its patient uncounted. `/cron/dispatch-due` closes such a run once it has made no progress for about 1 h 40 min (the full slot wait, the error retries and one call) and none of its calls is still live. It logs `run.reconciled`; still-pending patients are deferred (a scheduled run carries them to the next opening). To end a stuck run sooner, cancel it from the dashboard.
+
 ## Known behaviours and traps
 
 | Symptom | Cause | Status |

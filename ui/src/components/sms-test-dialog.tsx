@@ -8,10 +8,14 @@ import type { SmsMessage } from "@/lib/followups";
 import { formatTime } from "@/lib/format";
 import {
   DEFAULT_LANGUAGE,
+  MACHINE_WORDING_LABEL,
+  isAutoApproved,
   textTestWording,
   type LanguageInfo,
   type LanguagePackInfo,
+  type LanguagesResponse,
 } from "@/lib/languages";
+import { AutoApproveBanner } from "@/components/auto-approve-banner";
 import { cn } from "@/lib/utils";
 import type { AllowlistEntry } from "@/lib/types";
 import {
@@ -72,6 +76,7 @@ export function SmsTestDialog({
   const [language, setLanguage] = useState(DEFAULT_LANGUAGE);
   const [langs, setLangs] = useState<LanguageInfo[]>([]);
   const [packs, setPacks] = useState<LanguagePackInfo[] | undefined>(undefined);
+  const [langResp, setLangResp] = useState<LanguagesResponse | null>(null);
   const [session, setSession] = useState<SmsTestStartResponse | null>(null);
   const [messages, setMessages] = useState<SmsMessage[]>([]);
   const [state, setState] = useState<string | null>(null);
@@ -113,6 +118,7 @@ export function SmsTestDialog({
         if (!alive) return;
         setLangs(r.languages);
         setPacks(r.packs);
+        setLangResp(r);
       })
       .catch(() => {
         if (alive) setLangs([]);
@@ -183,7 +189,8 @@ export function SmsTestDialog({
   }
 
   const closed = state === "closed" || state === "expired" || state === "opted_out";
-  const chosen = textTestWording(language, packs);
+  const auto = isAutoApproved(langResp);
+  const chosen = textTestWording(language, packs, undefined, langResp);
   const wordingLabel = session?.wording?.label || "";
   const dayFirst = (session?.wording?.language ?? DEFAULT_LANGUAGE) !== DEFAULT_LANGUAGE
     && session?.wording?.language !== "en-IN";
@@ -210,6 +217,7 @@ export function SmsTestDialog({
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
           Simulated: nothing is sent to the phone.
         </div>
+        <AutoApproveBanner resp={langResp} />
 
         {!session ? (
           <div className="space-y-4">
@@ -248,11 +256,17 @@ export function SmsTestDialog({
                     ? langs
                     : [{ code: DEFAULT_LANGUAGE, name: "English (US)", native: "English (US)", available: true }]
                   ).map((l) => {
-                    const w = textTestWording(l.code, packs);
+                    const w = textTestWording(l.code, packs, undefined, langResp);
                     return (
                       <SelectItem key={l.code} value={l.code} disabled={w === null}>
                         {l.name}
-                        {w === null ? " (no text wording yet)" : w.label ? " (draft wording)" : ""}
+                        {w === null
+                          ? " (no text wording yet)"
+                          : w.label === MACHINE_WORDING_LABEL
+                            ? " (machine-translated, demo)"
+                            : w.label
+                              ? " (draft wording)"
+                              : ""}
                       </SelectItem>
                     );
                   })}
@@ -260,8 +274,9 @@ export function SmsTestDialog({
               </Select>
               {chosen?.label ? (
                 <p className="text-xs font-medium text-brand-red-dark">
-                  {chosen.label}: a machine draft no translator has reviewed. Real texts never use
-                  it; this test sends nothing.
+                  {auto
+                    ? `${chosen.label}: no translator has reviewed it. Demo only; this test sends nothing.`
+                    : `${chosen.label}: a machine draft no translator has reviewed. Real texts never use it; this test sends nothing.`}
                 </p>
               ) : null}
             </div>
@@ -308,8 +323,9 @@ export function SmsTestDialog({
                 role="note"
                 className="rounded-lg border border-brand-red/40 bg-brand-red/10 px-3 py-1.5 text-xs font-semibold text-brand-red-dark"
               >
-                {wordingLabel}. Real texts in this language stay off until a translator reviews it
-                and it is approved.
+                {auto || session.wording?.status === "machine"
+                  ? `${wordingLabel}. Demo: all languages auto-approved, so texts in this language use unreviewed wording. Not for real patients.`
+                  : `${wordingLabel}. Real texts in this language stay off until a translator reviews it and it is approved.`}
               </p>
             ) : null}
             {!session.survey_enabled ? (
