@@ -1,6 +1,6 @@
 # EHR export plan: a configurable FHIR exporter
 
-Status: **step 1 done (23 Oct 2026); step 2, the API, done (code, not deployed; §4.2c)**. The plan, the mapping engine (`packages/voa_ehr`), a worked example profile and the tests are in place. Nothing is deployed and no real EHR has been called. Step 2 is the admin UI (§4). Step 3 is the `voa-ehr-export` service (§3).
+Status: **steps 1–3 done and deployed to demo (23 Oct 2026).** The mapping engine (`packages/voa_ehr`), the API (§4.2c) and the admin UI (graphical mapper, side-by-side collapsible preview with traceability, simulate, versions, outbox, upload/download) are in place. No real EHR has been called: the `voa-ehr-export` service (step 5) is not built, so Test connection is disabled.
 
 The request: *"the FHIR structure needs to be configurable such that parameters/info can be easily mapped by admins; perhaps give a simple to use web UI that drives a yaml/json configuration file to map app parameters to EHR FHIR parameters."*
 
@@ -600,8 +600,8 @@ It never shows the token. The call runs from the export service, not the browser
 | # | Step | Size | Status |
 |---|---|---|---|
 | 1 | Plan, profile schema, mapping engine, fake server, exporter loop, example profile, preview script, tests | M | **done** |
-| 2 | API (§4.2b): versions, draft/activate, audit, live validate, preview **with source map**, simulate against the fake server, YAML import/export, outbox list and requeue | M | **done** (code, not deployed; see §4.2c) |
-| 3 | Admin UI: the graphical mapper (§4.1, §4.2a), the **side-by-side collapsible preview with traceability** (§4.2), simulate, versions, outbox, upload/download | L | in progress |
+| 2 | API (§4.2b): versions, draft/activate, audit, live validate, preview **with source map**, simulate against the fake server, YAML import/export, outbox list and requeue | M | **done**, deployed (see §4.2c) |
+| 3 | Admin UI: the graphical mapper (§4.1, §4.2a), the **side-by-side collapsible preview with traceability** (§4.2), simulate, versions, outbox, upload/download | L | **done**, deployed |
 | 4 | `ehr_payload`: also stamp `campaign_id` / `spec_version` on the outbox record. A one-line additive change. Today the exporter reads them from the call doc. | S | |
 | 5 | `voa-ehr-export` Cloud Run service + Terraform: its service account, the Scheduler (+ Eventarc), Secret Manager access, egress. Test connection endpoint. | M | |
 | 6 | `client_credentials` and `smart_backend` (JWT) auth, with token caching | S–M | |
