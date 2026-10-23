@@ -977,3 +977,73 @@ The user asked for the FHIR structure to be mappable by admins, through a simple
   - The owner considers it deprecated for this deployment; the number won't be shared.
   - The shared-caller-ID item is closed.
   - Its code stays in its own repo as a reference for future use cases.
+
+## 23 Oct: EHR export API (step 2)
+
+The API behind Admin → Integrations → EHR export, built to the §4.2b contract while the admin UI is built against it in parallel. Code and tests only: not deployed, no real EHR, nothing committed.
+
+**What exists.**
+- **The source map** (`voa_ehr/transform.py`). `build_export` now also returns `source_map`: `[{source, target, question_id?, note?}]`, JSON Pointers into the outbox record and into the bundle. It is recorded while the bundle is built, never by re-walking it, so the bundle is unchanged: the existing tests and "preview == sent" pass as they were. It covers:
+  - each QuestionnaireResponse item and answer (list answers per element, `patient_questions` to `/answer/<k>/text`; concat parts each);
+  - the Task's status, priority, owner, note, reason and dates;
+  - Observation values;
+  - subject (`/patient/mrn`, "patient lookup (placeholder in preview)");
+  - identifiers (`/call_sid`);
+  - the summary (from encounter, disposition and review) and the transcript (`source: null`).
+- **`exporter.preview`** returns the contract's shape `{ok, source_record, bundle, source_map, skipped, warnings, errors}`. Skipped rows carry their answer's pointer, and excluded answers are listed too. Errors are `{path, message}` with a bundle pointer (`fhir_check.fhir_problem_details`). `source_record` has every DOB key removed at any depth.
+- **`exporter.simulate`** runs `run_once` twice against `FakeFhirServer` on an in-memory copy of the record. It returns the requests (method, URL, status), created and updated counts per run, and the stored resources. The DOB is stripped from the copied call doc.
+- **`voa_ehr/versions.py`:** the storage layout, plus `active_profile(store)` for the step 5 service.
+- **`services/api/src/voa_api/routes_ehr_export.py`:** the 15 routes of §4.2b. All are ADMIN in `ROUTE_POLICY`. validate, preview and simulate are in `audit.READ_ONLY`; the other writes are audited by the existing dependency.
+- **Wiring:** `voa-api` depends on `voa-ehr` (`uv.lock` updated). The image ships `config/ehr` (`deploy/service.Dockerfile` and `.dockerignore`).
+- **Tests:** `packages/voa_ehr/tests/test_ehr_source_map.py` (every pointer resolves on both sides, across 7 profile variants; coverage of items and answers; DOB; simulate idempotency) and `services/api/tests/test_ehr_export_api.py`.
+
+**Decisions and their reasons.**
+- **Storage is §4.4's subcollection.** That is `settings/ehr_export/versions/{n}`, under the pointer doc `settings/ehr_export`. A DocStore collection name may be a path, which Firestore accepts. It keeps the versions next to their pointer, as the plan drew it.
+- **A draft is saved even with errors.** This includes model errors, where the raw JSON is kept. Otherwise a half-edited mapping could not be saved, and the admin would lose work. Activation is the gate: 409 with the problems.
+- **The draft keeps its number until activated.** Restore and reset replace the draft's content. Saving stamps the number into the profile's `version`, so `export_profile` on each sent record names the version that produced it.
+- **Simulate's second run re-queues the in-memory copy.** Without that, run 2 finds the record `exported` and does nothing, which would prove nothing about idempotency. Re-sending shows 0 created and 4 updated.
+- **Requeue refuses withdrawn records.** Re-exporting a withdrawn record would put back in the EHR what the nurse reopened.
+- **`source: null` for values from outside the record.** This covers the transcript doc, and the call doc's answers for old records. A pointer into the record there would be a lie.
+
+**Deviations from §4.2b** (all listed in the plan's new §4.2c):
+- additive fields only: `use_cases`, `parser`/`engine` on questions, `profile_source`, `created_refs`/`updated_refs`/`outcome` on simulate runs, `label` on outbox rows;
+- `source` may be `null`;
+- the 409 and 422 bodies are `{detail: {message, problems}}`.
+
+**Not done / watch out.**
+- **Problem paths come in two formats.** Engine checks write `use_cases[0].questionnaire_response.items.x`; pydantic model errors write `use_cases.0.questionnaire_response.items.x`. Both are the engine's existing formats, and the UI must match both.
+- **No diff in the audit log.** §4.4 asks for it; the existing mechanism stores no bodies.
+- **Concurrent writes are not fully atomic.** Activation writes the version docs, then the pointer in a transaction. Two admins activating at the same moment could both retire the old version: harmless, but not atomic.
+- **The test-connection route is not built.** It is step 5, with the export service.
+- **`scripts/ehr_export_ui_fixtures.py`** (the UI agent's) has one ruff E501 on line 258. It was left for its owner.
+
+**Checks.**
+- Full suite: 2426 passed, 12 skipped.
+- `ruff format` clean. `ruff check` clean except the line noted above.
+- `scripts/pii_scan.py`: clean.
+
+## 23 Oct: EHR export admin UI (step 3)
+
+Admin → **EHR export** (new nav entry after Knowledge base; the section blurb names it as an integration). Code only: nothing committed, pushed or deployed. Checks: `tsc`, `vitest` (740 passed), both builds (nurse and `NEXT_PUBLIC_APP_MODE=admin`), and a visual check of `/admin?data=demo` on port 3002 (desktop and 375 px).
+
+**What exists.**
+- **Mapping tab** (`ui/src/components/admin/ehr-mapping.tsx`): profile, connection (secret *name* only, shown as `secret://<name>`; Test connection disabled with the tooltip "Available when the export service is deployed"), patient and identifiers, use-case tabs with Add use case, the questions table (Send, linkId, answer type limited to `allowed_types`, inline code-map grid with the missing-code warning, unit fields, row problems), QuestionnaireResponse, Task (emit when, status map, tier → priority grid, owner, note and reason), Observations (add/remove, LOINC / SNOMED / custom), Summary and Transcript (off; turning one on needs the privacy checkbox, then a PHI warning shows). The right column is the live Problems panel (`POST validate`, debounced 400 ms) and a live FHIR preview (`POST preview` with the unsaved profile, debounced).
+- **Toolbar** (`ehr-export-panel.tsx`): Save draft, Activate (confirm dialog with a readable JSON diff against the active version; blocked by errors; a 409's problems replace the panel's), Draft / Active YAML download, Upload YAML/JSON, Reset draft to active, and "Start from the example" when nothing exists.
+- **Preview tab** (`ehr-preview.tsx`): source picker (samples, recent calls), two collapsible JSON trees side by side, expand/collapse per pane and for both, copy and download per pane, the Skipped / Warnings / FHIR errors strip, and Simulate (both runs' requests, counts, refs, outcome, and the stored resources in the same tree).
+- **Versions and Outbox tabs:** restore as draft and YAML per version; outbox status filter (server-side `?status=`) and Requeue on failed or skipped (409s show as a toast).
+- **Reusable JSON tree** `ui/src/components/json-tree.tsx` (no dependency) with pure pointer helpers in `ui/src/lib/json-pointer.ts`.
+- **Wiring:** `api.ts` methods and types (`lib/ehr-export.ts`), 15 BFF routes all admin-only (`bff.test.ts`: the nurse build is refused every `ehr-export/*` path and method), audit labels for the five write routes. `ApiError` now carries the parsed error body, and an object `detail` reads its `message`.
+- **Sample mode:** `lib/ehr-export-client.ts` (one interface, live or in-tab) and `lib/ehr-export-demo.ts`. Fixtures come from the real engine and the API's own `questions` route: `scripts/ehr_export_ui_fixtures.py` writes `ui/src/lib/ehr-export-sample.json` (preview, with the engine's source map) and `ehr-export-fixtures.json` (example profile in the API's canonical JSON, sample, questions, problems, simulate).
+
+**Decisions and their reasons.**
+- **The demo recomputes, it does not replay.** A precomputed preview cannot show a code-map edit, and the visual check needs that. So validate, preview (with the source map) and simulate are a small TypeScript port of the engine's rules. The tests hold the port to the engine's output on the example: same bundle, same source map, same problems, same simulate runs and resources. Live data never uses it. **Rerun the script after any engine change**, or those tests fail; that is their purpose.
+- **The editor edits the profile JSON in place.** The reducers are path updates (`setIn`), so unknown and advanced keys (value_map, constant, concat, date formats, document types) survive and are listed as "advanced: edit in YAML". Changing an answer type removes only the keys the model forbids for the new type.
+- **Traceability resolves clicks by pointer containment.** An exact end first, else the nearest mapped ancestor (a leaf like `valueCoding/code`), else everything mapped inside a container. The other pane opens the path and scrolls to it. Links with `source: null` badge their target with the note and are never linked to the left pane.
+- **"Dirty" compares with what is saved**: the draft, else the active profile. Without that, the screen showed "unsaved changes" right after an activation.
+- **`overflow-hidden` → `overflow-clip` on the admin frame** (`admin-console.tsx`). `hidden` makes a scroll container, which stopped the sticky preview column (and the sidebar) from sticking; `clip` still clips the backdrop blobs. No other visible change.
+
+**Not done / watch out.**
+- **Not tried against the live API.** The contract and the other agent's deviations (§4.2c) are coded for, and the shapes are tested, but no request has gone through the BFF to a running API.
+- **YAML upload in sample mode** is refused with a note (no YAML parser in the browser); JSON works. Sample-mode "YAML" downloads are JSON files (JSON is YAML).
+- **The demo port is abridged:** no date transform beyond ISO dates, no transcript (the sample has none). These only affect `?data=demo`.
+- **Review fix (23 Oct):** in the EHR export Preview, a selected node's counterpart was highlighted but not scrolled into view. Both panes call a smooth `scrollIntoView` at the same moment, and Chrome runs only one smooth scrollIntoView at a time, so the second pane never moved. `json-tree.tsx` now scrolls each pane's own container (`revealInScroller`), which also never scrolls the page.

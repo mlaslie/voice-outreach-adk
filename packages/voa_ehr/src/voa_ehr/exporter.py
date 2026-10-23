@@ -29,6 +29,7 @@ it; the transcript is read ONLY when the profile sends it.
 
 from __future__ import annotations
 
+import copy
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -39,7 +40,7 @@ from voa_core.store import DocStore, Where, now_iso
 
 from . import transform
 from .client import FhirClient, FhirResponse
-from .fhir_check import fhir_problems
+from .fhir_check import fhir_problem_details, fhir_problems
 from .profile import Profile, UseCaseMap
 
 log = logging.getLogger(__name__)
@@ -242,6 +243,10 @@ def _use_case(profile: Profile, record: Mapping, call: Mapping | None) -> UseCas
     return profile.for_use_case(cid, ver)
 
 
+#: The mapping a record uses (the call doc's use case and spec version).
+use_case_for = _use_case
+
+
 async def _export_one(
     store: DocStore,
     client: FhirClient,
@@ -385,6 +390,42 @@ async def run_once(
     return out
 
 
+def _scrub(obj: Any) -> Any:
+    """A copy with every NEVER_SEND key (the DOB, under any of its names) removed,
+    at any depth. Lists keep their length, so source pointers still resolve."""
+    if isinstance(obj, Mapping):
+        return {k: _scrub(v) for k, v in obj.items() if str(k).lower() not in transform.NEVER_SEND}
+    if isinstance(obj, list):
+        return [_scrub(v) for v in obj]
+    return obj
+
+
+def _skipped_rows(
+    record: Mapping[str, Any], uc: UseCaseMap, export: transform.ExportBundle
+) -> list[dict[str, Any]]:
+    """[{question_id, reason, source}]: the engine's skipped answers, plus the
+    excluded ones, each with its answer's pointer in the record (None when the
+    answer came from the call doc)."""
+    srcs = transform.answer_sources(record)
+    rows = [
+        {"question_id": s["question"], "reason": s["reason"], "source": srcs.get(s["question"])}
+        for s in export.skipped
+    ]
+    qr = uc.questionnaire_response
+    if qr is not None and qr.enabled:
+        answers = transform.answers_from(record)
+        for qid in qr.exclude:
+            if qid in answers and transform.answered(answers[qid]):
+                rows.append(
+                    {
+                        "question_id": qid,
+                        "reason": "excluded by the profile",
+                        "source": srcs.get(qid),
+                    }
+                )
+    return rows
+
+
 async def preview(
     store: DocStore | None,
     profile: Profile,
@@ -394,13 +435,29 @@ async def preview(
     call: Doc | None = None,
     patient_id: str = "example-patient",
 ) -> dict[str, Any]:
-    """What the console's Preview shows: the bundle and its problems. No FHIR
-    server is contacted; the patient reference is a placeholder."""
+    """What the console's Preview shows (docs/EHR-EXPORT-PLAN.md §4.2b)::
+
+        {ok, source_record, bundle, source_map, skipped, warnings, errors}
+
+    ``bundle`` is byte-identical to what would be sent; ``source_map`` links each
+    mapped value to the record (JSON Pointers both sides); ``errors`` are FHIR
+    structure problems ``{path, message}``, ``path`` a pointer into the bundle.
+    ``source_record`` is the record with any DOB removed. No FHIR server is
+    contacted; the patient reference is a placeholder."""
     if call is None and store is not None:
         call = await store.get(CALLS, call_id)
+    source_record = _scrub(record)
     uc = _use_case(profile, record, call)
     if uc is None:
-        return {"ok": False, "errors": ["the profile has no mapping for this use case"]}
+        return {
+            "ok": False,
+            "source_record": source_record,
+            "bundle": None,
+            "source_map": [],
+            "skipped": [],
+            "warnings": [],
+            "errors": [{"message": "the profile has no mapping for this use case"}],
+        }
     transcript = None
     if uc.transcript.enabled and store is not None:
         transcript = ((await store.get(TRANSCRIPTS, call_id)) or {}).get("turns")
@@ -413,11 +470,108 @@ async def preview(
         call=call,
         transcript=transcript,
     )
-    errors = fhir_problems(export.bundle)
+    errors = fhir_problem_details(export.bundle)
     return {
         "ok": not errors,
-        "errors": errors,
-        "skipped": export.skipped,
-        "warnings": export.warnings,
+        "source_record": source_record,
         "bundle": export.bundle,
+        "source_map": export.source_map,
+        "skipped": _skipped_rows(record, uc, export),
+        "warnings": export.warnings,
+        "errors": errors,
     }
+
+
+class _Recorder:
+    """A FhirClient that logs (method, url, status) of every request it passes on."""
+
+    def __init__(self, inner: FhirClient):
+        self.inner = inner
+        self.requests: list[dict[str, Any]] = []
+
+    async def request(self, method, url, *, body=None, headers=None) -> FhirResponse:
+        r = await self.inner.request(method, url, body=body, headers=headers)
+        self.requests.append({"method": method, "url": url or "(transaction)", "status": r.status})
+        return r
+
+
+def _versions(server: Any) -> dict[str, str]:
+    return {
+        f"{t}/{rid}": str((res.get("meta") or {}).get("versionId"))
+        for t, rows in server.data.items()
+        if t != "Patient"
+        for rid, res in rows.items()
+    }
+
+
+async def simulate(
+    profile: Profile,
+    record: Doc,
+    *,
+    call_id: str,
+    call: Doc | None = None,
+    transcript: list[Doc] | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Run the real export loop twice against the in-memory fake FHIR server,
+    with an in-memory copy of the record (§4.2 "Simulate export"). The second
+    run re-sends the same record, as a retry or a re-sign-off would: it should
+    create nothing. No network; nothing real is stored.
+
+    ``{runs: [{requests: [{method, url, status}], created, updated, created_refs,
+    updated_refs, outcome: {status, error, refs}}], resources: [...]}``
+    """
+    from voa_core.store import MemoryStore
+
+    from .fake_fhir import FakeFhirServer
+
+    now = now or datetime.now(UTC)
+    store = MemoryStore()
+    rec = {
+        k: v
+        for k, v in copy.deepcopy(record).items()
+        if k not in ("export_lease_until", "last_error", "export_attempts", "ehr_refs")
+    }
+    rec["status"] = PENDING
+    await store.set(OUTBOX, call_id, rec)
+    if call is not None:
+        # The DOB never enters the simulation: the fake patient has none either.
+        await store.set(CALLS, call_id, _scrub(call))
+    if transcript is not None:
+        await store.set(TRANSCRIPTS, call_id, {"turns": transcript})
+    server = FakeFhirServer()
+    mrn = (record.get("patient") or {}).get("mrn")
+    if mrn:
+        server.add_patient(str(mrn), profile.patient.identifier_system)
+    runs = []
+    for i in range(2):
+        if i:
+            await store.merge(OUTBOX, call_id, {"status": PENDING})
+        before = _versions(server)
+        client = _Recorder(server)
+        outcomes = await run_once(store, profile, client, now=now, max_attempts=1)
+        after = _versions(server)
+        created = sorted(r for r in after if r not in before)
+        updated = sorted(r for r in after if r in before and after[r] != before[r])
+        out = outcomes[0] if outcomes else None
+        runs.append(
+            {
+                "requests": client.requests,
+                "created": len(created),
+                "updated": len(updated),
+                "created_refs": created,
+                "updated_refs": updated,
+                "outcome": {
+                    "status": out.status if out else None,
+                    "error": out.error if out else None,
+                    "refs": out.refs if out else [],
+                },
+            }
+        )
+    resources = [
+        copy.deepcopy(res)
+        for t, rows in server.data.items()
+        if t != "Patient"
+        for res in rows.values()
+    ]
+    return {"runs": runs, "resources": resources}

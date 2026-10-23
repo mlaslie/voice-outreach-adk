@@ -14,6 +14,11 @@ describe("describeAction", () => {
     ["POST /api/admin/knowledge/documents/{doc_id}/approve", "Approved a guideline"],
     ["POST /api/admin/knowledge/documents/{doc_id}/retire", "Retired a guideline"],
     ["DELETE /api/admin/knowledge/documents/{doc_id}", "Deleted a guideline"],
+    ["PUT /api/ehr-export/draft", "Saved the EHR export draft"],
+    ["POST /api/ehr-export/activate", "Activated the EHR export profile"],
+    ["POST /api/ehr-export/draft/reset", "Reset the EHR export draft to the active profile"],
+    ["POST /api/ehr-export/versions/{n}/restore", "Restored an EHR export version as the draft"],
+    ["POST /api/ehr-export/outbox/{call_id}/requeue", "Requeued an EHR export"],
   ])("%s reads as %s", (action, words) => {
     expect(describeAction(action)).toBe(words);
   });

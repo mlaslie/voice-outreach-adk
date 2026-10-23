@@ -13,6 +13,7 @@ import {
   Headphones,
   MessageSquareText,
   Palette,
+  Share2,
   ScrollText,
   ShieldCheck,
   Stethoscope,
@@ -36,8 +37,9 @@ import { AuditPanel } from "./audit-panel";
 import { BrandingPanel } from "./branding-panel";
 import { KnowledgePanel } from "./knowledge-panel";
 import { AnalyticsPanel } from "./analytics-panel";
+import { EhrExportPanel } from "./ehr-export-panel";
 
-export type Section = "analytics" | "schedules" | "patients" | "numbers" | "messaging" | "knowledge" | "display" | "branding" | "testing" | "diagnostics" | "audit";
+export type Section = "analytics" | "schedules" | "patients" | "numbers" | "messaging" | "knowledge" | "ehr" | "display" | "branding" | "testing" | "diagnostics" | "audit";
 
 const SECTIONS: { key: Section; label: string; short: string; blurb: string; icon: NavIcon }[] = [
   { key: "analytics", label: "Analytics", short: "Stats", icon: BarChart3,
@@ -52,6 +54,8 @@ const SECTIONS: { key: Section; label: string; short: string; blurb: string; ico
     blurb: "The missed-call text limit, text conversations and booked callbacks." },
   { key: "knowledge", label: "Knowledge base", short: "Q&A", icon: BookOpenCheck,
     blurb: "Guidelines and example answers the agent may answer patients from, off, in shadow or live. Medication and symptom questions always go to a nurse." },
+  { key: "ehr", label: "EHR export", short: "EHR", icon: Share2,
+    blurb: "Integrations: how a signed-off call becomes FHIR R4 for your EHR. Map the questions, preview the bundle side by side, and activate a version. Nothing clinical depends on the export." },
   { key: "display", label: "Display", short: "Display", icon: Clock,
     blurb: "The company name patients hear and read, and how times show for nurses." },
   { key: "branding", label: "Branding", short: "Brand", icon: Palette,
@@ -135,7 +139,7 @@ export function AdminConsole({
   };
 
   return (
-    <div className="relative min-h-[calc(100vh-37px)] overflow-hidden bg-console font-sans text-ink">
+    <div className="relative min-h-[calc(100vh-37px)] overflow-clip bg-console font-sans text-ink">
       <Backdrop />
       <div className="relative mx-auto flex max-w-[1500px] gap-6 p-4 lg:p-6">
         <SidebarShell
@@ -225,6 +229,7 @@ export function AdminConsole({
               {section === "analytics" ? (
                 <AnalyticsPanel mode={mode} entries={data.entries} calls={data.calls} onOpenCall={diagnose} />
               ) : null}
+              {section === "ehr" ? <EhrExportPanel live={actions.live} /> : null}
               {section === "knowledge" ? <KnowledgePanel live={actions.live} timeZone={tz} calls={callsError ? undefined : data.calls} /> : null}
               {section === "testing" ? (
                 <>

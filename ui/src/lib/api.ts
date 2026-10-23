@@ -25,6 +25,17 @@ import {
 import type { SmsMessage } from "./followups";
 import type { LanguagesResponse } from "./languages";
 import type { CampaignsResponse } from "./campaigns";
+import type {
+  EhrExportState,
+  EhrPreviewSources,
+  EhrProblem,
+  EhrProfile,
+  EhrQuestionsResponse,
+  EhrSimulation,
+  EhrVersion,
+  OutboxRecord,
+  PreviewSource,
+} from "./ehr-export";
 import type { AssetKind, BrandingPatch, BrandingResponse } from "./branding";
 import type {
   KnowledgeDoc,
@@ -96,7 +107,9 @@ export const BACKEND_PREFIX = "/api/backend";
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
-    message: string
+    message: string,
+    /** The parsed error body, when it was JSON (e.g. a 409 with `problems`). */
+    public readonly body?: unknown
   ) {
     super(message);
     this.name = "ApiError";
@@ -113,8 +126,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let detail: unknown = res.statusText;
+    let parsed: unknown;
     try {
       const body = await res.json();
+      parsed = body;
       detail = body.detail ?? detail;
       if (Array.isArray(detail) && detail[0]?.msg) {
         detail = detail[0].msg;
@@ -122,7 +137,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // ignore parse errors
     }
-    throw new ApiError(res.status, String(detail));
+    if (detail !== null && typeof detail === "object" && !Array.isArray(detail)) {
+      const d = detail as { message?: unknown; detail?: unknown };
+      detail = d.message ?? d.detail ?? res.statusText;
+    }
+    throw new ApiError(res.status, String(detail), parsed);
   }
   return res.json() as Promise<T>;
 }
@@ -448,6 +467,86 @@ export const api = {
       `/calls/${encodeURIComponent(callId)}/questions/${encodeURIComponent(String(index))}/shadow-review`,
       json("POST", body),
     );
+  },
+
+  // ---- EHR export (Admin → Integrations → EHR export; docs/EHR-EXPORT-PLAN.md §4.2b) ----
+  //
+  // Admin build only. The profile travels as JSON (the YAML's shape). Writes
+  // (draft, reset, activate, restore, requeue) are audited by the API;
+  // validate, preview and simulate save nothing.
+
+  getEhrExport(): Promise<EhrExportState> {
+    return request<EhrExportState>("/ehr-export");
+  },
+
+  /** The use case's questions, with the answer types each one allows. */
+  getEhrQuestions(campaignId: string): Promise<EhrQuestionsResponse> {
+    return request<EhrQuestionsResponse>(`/ehr-export/questions?campaign_id=${encodeURIComponent(campaignId)}`);
+  },
+
+  /** profile_problems on an unsaved profile. Nothing saved. */
+  validateEhrProfile(profile: EhrProfile): Promise<{ problems: EhrProblem[] }> {
+    return request<{ problems: EhrProblem[] }>("/ehr-export/validate", json("POST", { profile }));
+  },
+
+  /** Create or replace the draft: a JSON profile, or `{yaml}` text (an upload). */
+  saveEhrDraft(body: { profile: EhrProfile; note?: string } | { yaml: string; note?: string }): Promise<EhrVersion> {
+    return request<EhrVersion>("/ehr-export/draft", json("PUT", body));
+  },
+
+  /** The draft becomes a copy of the active profile. */
+  resetEhrDraft(): Promise<EhrVersion> {
+    return request<EhrVersion>("/ehr-export/draft/reset", { method: "POST" });
+  },
+
+  /** 409 (ApiError.body.problems) when the draft has errors. */
+  activateEhrDraft(note?: string): Promise<EhrVersion> {
+    return request<EhrVersion>("/ehr-export/activate", json("POST", note ? { note } : {}));
+  },
+
+  getEhrVersions(): Promise<{ versions: EhrVersion[] }> {
+    return request<{ versions: EhrVersion[] }>("/ehr-export/versions");
+  },
+
+  /** A copy of version `n` becomes the new draft. */
+  restoreEhrVersion(n: number): Promise<EhrVersion> {
+    return request<EhrVersion>(`/ehr-export/versions/${encodeURIComponent(String(n))}/restore`, { method: "POST" });
+  },
+
+  /** A text/yaml attachment (followed as a link, so the browser downloads it). */
+  ehrYamlUrl(version: "draft" | "active" | number): string {
+    return `${BACKEND_PREFIX}/ehr-export/yaml?version=${encodeURIComponent(String(version))}`;
+  },
+
+  getEhrExample(): Promise<{ profile: EhrProfile }> {
+    return request<{ profile: EhrProfile }>("/ehr-export/example");
+  },
+
+  getEhrPreviewSources(): Promise<EhrPreviewSources> {
+    return request<EhrPreviewSources>("/ehr-export/preview-sources");
+  },
+
+  /**
+   * The bundle a profile (default: the saved draft, else active, else the
+   * example) makes from one source. Raw: lib/ehr-export normalizePreview()
+   * reads it.
+   */
+  previewEhr(body: { profile?: EhrProfile; source: PreviewSource }): Promise<unknown> {
+    return request<unknown>("/ehr-export/preview", json("POST", body));
+  },
+
+  /** Two runs against the built-in fake FHIR server. Nothing leaves the system. */
+  simulateEhr(body: { profile?: EhrProfile; source: PreviewSource }): Promise<EhrSimulation> {
+    return request<EhrSimulation>("/ehr-export/simulate", json("POST", body));
+  },
+
+  getEhrOutbox(status?: string): Promise<{ records: OutboxRecord[] }> {
+    return request<{ records: OutboxRecord[] }>(`/ehr-export/outbox${status ? `?status=${encodeURIComponent(status)}` : ""}`);
+  },
+
+  /** A failed or skipped record goes back to pending_export. */
+  requeueEhrOutbox(callId: string): Promise<unknown> {
+    return request<unknown>(`/ehr-export/outbox/${encodeURIComponent(callId)}/requeue`, { method: "POST" });
   },
 
   /** Same-origin SSE feed of call updates (proxied, streamed, by the BFF). */

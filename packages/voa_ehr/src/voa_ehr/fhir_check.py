@@ -93,37 +93,66 @@ _REQUIRED_CODES: dict[str, dict[str, frozenset[str]]] = {
 }
 
 
-def _codes(res: Mapping[str, Any], where: str) -> list[str]:
+def _codes(res: Mapping[str, Any], where: str, at: str = "") -> list[tuple[str, str]]:
     out = []
     for field, allowed in _REQUIRED_CODES.get(str(res.get("resourceType")), {}).items():
         v = res.get(field)
         if v is not None and v not in allowed:
-            out.append(f"{where}.{field}: {v!r} is not a valid code")
+            out.append((f"{at}/{field}", f"{where}.{field}: {v!r} is not a valid code"))
+    return out
+
+
+def _deepest(doc: Any, parts: list[Any]) -> str:
+    """The JSON Pointer of the deepest node of ``parts`` that exists in ``doc``
+    (a missing required element points at its parent)."""
+    path = ""
+    cur = doc
+    for p in parts:
+        if isinstance(cur, Mapping) and p in cur:
+            cur = cur[p]
+        elif isinstance(cur, list) and isinstance(p, int) and 0 <= p < len(cur):
+            cur = cur[p]
+        else:
+            break
+        path += "/" + str(p).replace("~", "~0").replace("/", "~1")
+    return path
+
+
+def fhir_problem_details(resource: Mapping[str, Any]) -> list[dict[str, str]]:
+    """:func:`fhir_problems` as ``[{path, message}]``; ``path`` is a JSON Pointer
+    into ``resource`` (the deepest node that exists), for the console to flag."""
+    from fhir.resources.R4B import get_fhir_model_class
+
+    rtype = resource.get("resourceType")
+    if not isinstance(rtype, str):
+        return [{"path": "", "message": "resourceType is missing"}]
+    try:
+        model = get_fhir_model_class(rtype)
+    except (KeyError, ValueError):
+        return [{"path": "/resourceType", "message": f"unknown resourceType {rtype!r}"}]
+    out: list[dict[str, str]] = []
+    try:
+        model.model_validate(dict(resource))
+    except ValidationError as e:
+        for err in e.errors():
+            parts = [x for x in err["loc"] if x != "root"]
+            loc = ".".join(str(x) for x in parts)
+            out.append(
+                {"path": _deepest(resource, parts), "message": f"{rtype}.{loc}: {err['msg']}"}
+            )
+    if rtype == "Bundle":
+        for i, entry in enumerate(resource.get("entry") or []):
+            res = (entry or {}).get("resource") or {}
+            for path, msg in _codes(
+                res, f"entry[{i}].{res.get('resourceType')}", f"/entry/{i}/resource"
+            ):
+                out.append({"path": path, "message": msg})
+    else:
+        for path, msg in _codes(resource, rtype):
+            out.append({"path": path, "message": msg})
     return out
 
 
 def fhir_problems(resource: Mapping[str, Any]) -> list[str]:
     """Problems with one resource or a Bundle (each entry checked too). [] = OK."""
-    from fhir.resources.R4B import get_fhir_model_class
-
-    rtype = resource.get("resourceType")
-    if not isinstance(rtype, str):
-        return ["resourceType is missing"]
-    try:
-        model = get_fhir_model_class(rtype)
-    except (KeyError, ValueError):
-        return [f"unknown resourceType {rtype!r}"]
-    out: list[str] = []
-    try:
-        model.model_validate(dict(resource))
-    except ValidationError as e:
-        for err in e.errors():
-            loc = ".".join(str(x) for x in err["loc"] if x != "root")
-            out.append(f"{rtype}.{loc}: {err['msg']}")
-    if rtype == "Bundle":
-        for i, entry in enumerate(resource.get("entry") or []):
-            res = (entry or {}).get("resource") or {}
-            out.extend(_codes(res, f"entry[{i}].{res.get('resourceType')}"))
-    else:
-        out.extend(_codes(resource, rtype))
-    return out
+    return [p["message"] for p in fhir_problem_details(resource)]

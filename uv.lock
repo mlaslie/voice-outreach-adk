@@ -1617,6 +1617,7 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "voa-agents" },
     { name = "voa-core" },
+    { name = "voa-ehr" },
     { name = "voa-knowledge" },
     { name = "voa-providers" },
 ]
@@ -1628,6 +1629,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.38,<1" },
     { name = "voa-agents", editable = "packages/voa_agents" },
     { name = "voa-core", editable = "packages/voa_core" },
+    { name = "voa-ehr", editable = "packages/voa_ehr" },
     { name = "voa-knowledge", editable = "packages/voa_knowledge" },
     { name = "voa-providers", editable = "packages/voa_providers" },
 ]

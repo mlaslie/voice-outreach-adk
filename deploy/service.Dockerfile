@@ -15,6 +15,8 @@ COPY config/app.yaml ./config/app.yaml
 COPY config/campaigns ./config/campaigns
 # Per-language STOP/HELP and red-flag keywords (docs/LANGUAGES-PLAN.md §3.3).
 COPY config/languages ./config/languages
+# EHR export: the example profile and the fictional preview samples (EHR-EXPORT-PLAN §4.2).
+COPY config/ehr ./config/ehr
 RUN uv sync --frozen --no-dev --package voa-${SERVICE} \
  && useradd --uid 10001 --no-create-home app
 USER app

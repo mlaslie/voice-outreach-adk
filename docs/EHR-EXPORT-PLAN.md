@@ -1,6 +1,6 @@
 # EHR export plan: a configurable FHIR exporter
 
-Status: **step 1 done (23 Oct 2026)**. The plan, the mapping engine (`packages/voa_ehr`), a worked example profile and the tests are in place. Nothing is deployed and no real EHR has been called. Step 2 is the admin UI (§4). Step 3 is the `voa-ehr-export` service (§3).
+Status: **step 1 done (23 Oct 2026); step 2, the API, done (code, not deployed; §4.2c)**. The plan, the mapping engine (`packages/voa_ehr`), a worked example profile and the tests are in place. Nothing is deployed and no real EHR has been called. Step 2 is the admin UI (§4). Step 3 is the `voa-ehr-export` service (§3).
 
 The request: *"the FHIR structure needs to be configurable such that parameters/info can be easily mapped by admins; perhaps give a simple to use web UI that drives a yaml/json configuration file to map app parameters to EHR FHIR parameters."*
 
@@ -378,18 +378,112 @@ pending_export ──> exported
   - Summary and Transcript. Each shows a PHI warning, and switching it on requires ticking "Our privacy office approved sending this to the EHR", which sets `phi_acknowledged`.
 - **Problems panel:** errors block "Activate"; warnings don't. It is `profile_problems` live: the API runs it on every save and returns `Problem.as_dict()`.
 
-### 4.2 Preview
+### 4.2 Preview: app output and mapped FHIR, side by side
 
-- **Pick:**
-  - a recent signed-off call (the last 20 outbox records, any status);
-  - or the fictional sample (`config/ehr/samples/<use case>.outbox.json`).
-- **Show:**
-  - the exact Bundle JSON (`exporter.preview`), collapsible per resource;
-  - the skipped answers and why;
-  - warnings;
-  - FHIR structure errors.
-- **No FHIR call:** the patient reference is a placeholder.
-- **PHI in previews:** a preview of a real call shows PHI to an admin who can already see it in the console. It is not stored.
+The admin sees exactly what the app produced and what the profile turns it into, with every link between the two.
+
+```
+┌ Source: [Recent signed-off call ▾] [Fictional sample ▾]  [Expand all] [Collapse all] ──────────────┐
+│ App output (outbox record)              │ Mapped FHIR (transaction Bundle)                        │
+│ ▾ patient                               │ ▾ entry[0] QuestionnaireResponse                        │
+│     mrn: "A1234567"                     │   ▾ item                                                │
+│ ▾ questionnaire_response.item           │     ▸ [0] linkId "1"   overall_feeling                  │
+│   ▾ [4] pain_trend: "worse"  ◀────────────▶ ▾ [3] linkId "2.3"                                    │
+│   ░ [9] blood_sugar_status (skipped:      │       ▾ answer[0].valueCoding                         │
+│        not mapped)                      │           code: "worsening"  ← pain_trend               │
+│ ▸ disposition                           │ ▸ entry[1] Task (priority: urgent ← follow_up)          │
+│ ▸ review                                │ ▸ entry[2] Observation (72514-3 ← pain_severity)        │
+└─────────────────────────────────────────┴─────────────────────────────────────────────────────────┘
+  Skipped (2) · Warnings (1) · FHIR errors (0)                         [Copy JSON] [Download JSON]
+```
+
+**Two panes,** each a fully collapsible JSON tree: objects and arrays expand and collapse at every level, with expand-all and collapse-all.
+- **Left: app output.** The outbox record as the app writes it, with the answers keyed by the app's question ids.
+- **Right: mapped FHIR.** The transaction Bundle the profile produces (`exporter.preview`), byte-identical to what would be sent.
+
+**Traceability.** The engine returns a **source map**: a list of `{source, target, question_id, note}`, both paths as JSON Pointers.
+- Selecting a node on either side highlights its counterpart(s) on the other.
+- Mapped targets carry a small badge naming their source, e.g. `← pain_trend`.
+- Unmapped or excluded answers are greyed on the left, with the reason.
+- FHIR structure errors are flagged on the right node that caused them.
+
+**Live.** The preview runs against the **unsaved draft** as it is edited in the mapper, debounced. Editing a code map updates the right pane at once.
+
+**Sources:**
+- the last 20 signed-off calls (outbox records, any status);
+- or the fictional sample per use case (`config/ehr/samples/<use case>.outbox.json`).
+
+**Simulate export.** Runs the real exporter loop against the built-in **fake FHIR server**, twice. The second run shows the idempotency: no new resources. The result lists the requests (method, URL, status) and the resources as stored. No network.
+
+**PHI.** A real call's preview shows what the console already shows the admin. Nothing is stored. The patient reference is a placeholder (`Patient/example-patient`), because there is no EHR lookup in a preview.
+
+### 4.2a The mapper (graphical editor)
+
+**Layout:** one screen, **Admin → Integrations → EHR export**, with tabs **Mapping · Preview · Versions · Outbox**. The Mapping tab has the §4.1 sections as cards. Its key widgets:
+
+- **Questions table** (per use case): one row per app question, in spec order:
+  - the app question (id, wording, type, choices);
+  - **Send** toggle;
+  - **EHR linkId** (text);
+  - **Answer type**: a dropdown offering only the types that fit the question type;
+  - **Code map**: for `coding`, an inline grid with one row per app choice and columns for code, display and system;
+  - **Unit** (for `quantity`).
+
+  The row shows its problems inline.
+- **Resource toggle cards:**
+  - **QuestionnaireResponse:** the canonical URL.
+  - **Task:** when it is emitted; the status map; a tier → priority grid with dropdowns.
+  - **Observations:** add or remove rows. Each row has the source question, code system (LOINC, SNOMED or custom), code, display and value type.
+  - **Summary / Transcript:** off by default. Turning one on needs the PHI acknowledgement checkbox.
+- **Patient and Identifiers card,** and a **Connection** card. The Connection card takes secret *names* only. Test connection is disabled until the export service exists (step 5).
+- **Problems panel** (live from `profile_problems`): errors block **Activate**; warnings don't.
+- **Toolbar:**
+  - **Save draft**;
+  - **Activate** (confirm, with a diff against the active version);
+  - **Download YAML**, **Upload YAML/JSON**;
+  - **Reset draft to active**.
+- **First run:** with no profile yet, offer "Start from the example" (`config/ehr/profiles/post_op.example.yaml`).
+
+### 4.2b API contract (step 2)
+
+All routes are **ADMIN** in `auth.py` `ROUTE_POLICY`, and writes are audited. The profile travels as JSON (the same shape as the YAML).
+
+| Route | Body | Returns |
+|---|---|---|
+| `GET /api/ehr-export` | | `{active_version, draft_version, active: Version\|null, draft: Version\|null}` |
+| `GET /api/ehr-export/questions?campaign_id=` | | `{campaign_id, spec_version, questions: [{id, ask, type, choices, allowed_types: [...]}]}` |
+| `POST /api/ehr-export/validate` | `{profile}` | `{problems: [Problem]}`, nothing saved |
+| `PUT /api/ehr-export/draft` | `{profile, note?}` | `Version` (with problems); also accepts `{yaml: "..."}` |
+| `POST /api/ehr-export/draft/reset` | | the draft is replaced by a copy of the active profile |
+| `POST /api/ehr-export/activate` | `{note?}` | `Version`. 409 with problems if there are errors. |
+| `GET /api/ehr-export/versions` | | `{versions: [Version without profile]}` |
+| `POST /api/ehr-export/versions/{n}/restore` | | the restored copy becomes the new draft |
+| `GET /api/ehr-export/yaml?version=draft\|active\|{n}` | | `text/yaml` attachment |
+| `GET /api/ehr-export/example` | | `{profile}` from `config/ehr/profiles/post_op.example.yaml` |
+| `GET /api/ehr-export/preview-sources` | | `{samples: [{campaign_id, label}], calls: [{call_id, campaign_id, signed_off_at, status, label}]}`, the last 20 outbox records (label = first name + last initial) |
+| `POST /api/ehr-export/preview` | `{profile?, source: {sample: campaign_id} \| {call_id}}` | `{ok, source_record, bundle, source_map: [{source, target, question_id?, note?}], skipped: [{question_id, reason, source}], warnings: [str], errors: [{path?, message}]}` |
+| `POST /api/ehr-export/simulate` | `{profile?, source}` | `{runs: [{requests: [{method, url, status}], created, updated}], resources: [...]}` |
+| `GET /api/ehr-export/outbox?status=` | | `{records: [{call_id, status, created_at, exported_at?, last_error?, attempts?}]}` |
+| `POST /api/ehr-export/outbox/{call_id}/requeue` | | the record is back to `pending_export` |
+
+- **`Version`:** `{version, status: draft|active|retired, profile, problems, saved_by, saved_at, activated_by?, activated_at?, note?}`.
+- **`Problem`:** `{level: error|warning, path, message}`.
+- **The profile when `profile` is omitted:** `preview` and `simulate` use the saved draft, else the active profile, else the example.
+
+### 4.2c As built (step 2)
+
+`services/api/src/voa_api/routes_ehr_export.py`, the engine's source map in `voa_ehr/transform.py`, storage helpers in `voa_ehr/versions.py`. The contract above holds; these are the additions and the choices it left open:
+
+- **Storage** is §4.4's: the pointer doc `settings/ehr_export` (`{active_version, draft_version, next_version}`) and the subcollection `settings/ehr_export/versions/{n}`. A draft keeps its number until activated; the next save after an activation starts a new number. Saving stamps `n` into the profile's own `version`.
+- **A draft is saved even with errors,** including model errors (the raw JSON is kept), so work is never lost. Activate refuses with 409 `{detail: {message, problems}}`. `preview`/`simulate` refuse a profile that does not parse with 422 `{detail: {message, problems}}`.
+- **`source_map[].source` is `null`** when the value does not come from the outbox record: the transcript (from `transcripts/{id}`) and answers read from the call doc for an old record with no items. The QuestionnaireResponse identifier points at `/call_sid`.
+- **`skipped`** also lists excluded answers (`reason: "excluded by the profile"`).
+- **`errors[].path`** is a JSON Pointer into the bundle: the deepest node that exists (a missing required element points at its parent). A no-mapping preview has an error without a path and `bundle: null`.
+- **Additive fields:** `GET /api/ehr-export` adds `use_cases` (the spec ids); `questions[]` adds `parser` and `engine` (engine fields such as `patient_questions`); preview and simulate add `profile_source` (`body|draft|active|example`); each simulate run adds `created_refs`, `updated_refs` and `outcome {status, error, refs}`; `created`/`updated` are counts; the outbox rows add `label`.
+- **Simulate's second run** puts the in-memory copy back to `pending_export` (a retry or re-sign-off), so it re-sends: 0 created, every resource updated.
+- **Requeue** clears the lease, `last_error` and `export_attempts`; a `withdrawn`/`withdrawn_done` record is refused (409), because re-exporting would undo the withdrawal.
+- **Limits:** the profile JSON and the YAML are at most 200 KB each (413); the whole body at most 216 KB (413).
+- **Audit:** the existing per-route line (who, when, route, target). It does not carry the diff that §4.4 mentions.
 
 ### 4.3 Test connection
 
@@ -506,8 +600,8 @@ It never shows the token. The call runs from the export service, not the browser
 | # | Step | Size | Status |
 |---|---|---|---|
 | 1 | Plan, profile schema, mapping engine, fake server, exporter loop, example profile, preview script, tests | M | **done** |
-| 2 | API: `settings/ehr_export` versions, draft/activate, audit, preview, YAML import/export, outbox list and requeue | M | |
-| 3 | Admin UI: the profile editor (§4.1), preview, problems panel, versions, upload/download | L | |
+| 2 | API (§4.2b): versions, draft/activate, audit, live validate, preview **with source map**, simulate against the fake server, YAML import/export, outbox list and requeue | M | **done** (code, not deployed; see §4.2c) |
+| 3 | Admin UI: the graphical mapper (§4.1, §4.2a), the **side-by-side collapsible preview with traceability** (§4.2), simulate, versions, outbox, upload/download | L | in progress |
 | 4 | `ehr_payload`: also stamp `campaign_id` / `spec_version` on the outbox record. A one-line additive change. Today the exporter reads them from the call doc. | S | |
 | 5 | `voa-ehr-export` Cloud Run service + Terraform: its service account, the Scheduler (+ Eventarc), Secret Manager access, egress. Test connection endpoint. | M | |
 | 6 | `client_credentials` and `smart_backend` (JWT) auth, with token caching | S–M | |

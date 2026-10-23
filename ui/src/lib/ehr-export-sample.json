@@ -1,0 +1,640 @@
+{
+  "ok": true,
+  "source_record": {
+    "call_sid": "CAexample0001",
+    "patient": {
+      "mrn": "A1234567",
+      "name": "Jordan Rivera"
+    },
+    "encounter": {
+      "date": "2026-10-21T15:05:12.000+00:00",
+      "channel": "phone",
+      "identity_check": "verified"
+    },
+    "questionnaire_response": {
+      "resourceType": "QuestionnaireResponse",
+      "status": "completed",
+      "item": [
+        {
+          "linkId": "overall_feeling",
+          "answer": "Tired, and the knee is sore"
+        },
+        {
+          "linkId": "pain_present",
+          "answer": "yes"
+        },
+        {
+          "linkId": "pain_severity",
+          "answer": 8
+        },
+        {
+          "linkId": "pain_location",
+          "answer": "right knee, throbbing"
+        },
+        {
+          "linkId": "pain_trend",
+          "answer": "worse"
+        },
+        {
+          "linkId": "fever_reported",
+          "answer": "no"
+        },
+        {
+          "linkId": "incision_concerns",
+          "answer": "no"
+        },
+        {
+          "linkId": "legs_swollen",
+          "answer": "unknown"
+        },
+        {
+          "linkId": "sleeping_well",
+          "answer": "no"
+        },
+        {
+          "linkId": "has_questions",
+          "answer": "yes"
+        },
+        {
+          "linkId": "patient_questions",
+          "answer": [
+            {
+              "text": "When can I shower?",
+              "category": "care",
+              "priority": "routine"
+            }
+          ]
+        }
+      ]
+    },
+    "disposition": {
+      "follow_up": "urgent_same_day",
+      "reason": "pain 8/10; pain worsening",
+      "agent_follow_up": "urgent_same_day",
+      "changed_by_nurse": null
+    },
+    "review": {
+      "status": "signed_off",
+      "by": "nurse.one@example.org",
+      "at": "2026-10-21T16:20:00.000+00:00",
+      "note": "Called back, pain plan reviewed, ice and elevation.",
+      "follow_up": "urgent_same_day",
+      "resolved": true
+    },
+    "task": {
+      "resourceType": "Task",
+      "status": "completed",
+      "description": "Post-op RN follow-up",
+      "note": "Called back, pain plan reviewed, ice and elevation.",
+      "owner": "nurse.one@example.org",
+      "lastModified": "2026-10-21T16:20:00.000+00:00"
+    },
+    "status": "pending_export",
+    "created_at": "2026-10-21T16:20:00.000+00:00"
+  },
+  "bundle": {
+    "resourceType": "Bundle",
+    "type": "transaction",
+    "entry": [
+      {
+        "fullUrl": "urn:uuid:fd2418ca-7c77-5634-8f0e-3fbb3cffa2e1",
+        "resource": {
+          "resourceType": "QuestionnaireResponse",
+          "identifier": {
+            "system": "https://voice-outreach.example.org/identifiers/call",
+            "value": "CAexample0001"
+          },
+          "questionnaire": "https://fhir.example.org/Questionnaire/post-op-phone-check|1",
+          "status": "completed",
+          "subject": {
+            "reference": "Patient/example-patient"
+          },
+          "authored": "2026-10-21T15:05:12.000+00:00",
+          "author": {
+            "display": "Automated outreach (patient-reported)"
+          },
+          "item": [
+            {
+              "linkId": "1",
+              "text": "How are you feeling overall?",
+              "answer": [
+                {
+                  "valueString": "Tired, and the knee is sore"
+                }
+              ]
+            },
+            {
+              "linkId": "2",
+              "answer": [
+                {
+                  "valueBoolean": true
+                }
+              ]
+            },
+            {
+              "linkId": "2.1",
+              "text": "Pain score (0-10)",
+              "answer": [
+                {
+                  "valueInteger": 8
+                }
+              ]
+            },
+            {
+              "linkId": "2.2",
+              "answer": [
+                {
+                  "valueString": "right knee, throbbing"
+                }
+              ]
+            },
+            {
+              "linkId": "2.3",
+              "answer": [
+                {
+                  "valueCoding": {
+                    "system": "https://fhir.example.org/CodeSystem/symptom-trend",
+                    "code": "worsening",
+                    "display": "Worsening"
+                  }
+                }
+              ]
+            },
+            {
+              "linkId": "3",
+              "answer": [
+                {
+                  "valueCoding": {
+                    "system": "http://loinc.org",
+                    "code": "LA32-8",
+                    "display": "No"
+                  }
+                }
+              ]
+            },
+            {
+              "linkId": "4",
+              "answer": [
+                {
+                  "valueBoolean": false
+                }
+              ]
+            },
+            {
+              "linkId": "5",
+              "answer": [
+                {
+                  "valueCoding": {
+                    "system": "http://loinc.org",
+                    "code": "LA4489-6",
+                    "display": "Unknown"
+                  }
+                }
+              ]
+            },
+            {
+              "linkId": "6",
+              "answer": [
+                {
+                  "valueCoding": {
+                    "system": "http://loinc.org",
+                    "code": "LA32-8",
+                    "display": "No"
+                  }
+                }
+              ]
+            },
+            {
+              "linkId": "8",
+              "answer": [
+                {
+                  "valueBoolean": true
+                }
+              ]
+            },
+            {
+              "linkId": "8.1",
+              "answer": [
+                {
+                  "valueString": "When can I shower?"
+                }
+              ]
+            }
+          ]
+        },
+        "request": {
+          "method": "PUT",
+          "url": "QuestionnaireResponse?identifier=https://voice-outreach.example.org/identifiers/call%7CCAexample0001"
+        }
+      },
+      {
+        "fullUrl": "urn:uuid:3bc07787-98c6-57ab-b198-156b210b6877",
+        "resource": {
+          "resourceType": "Task",
+          "identifier": [
+            {
+              "system": "https://voice-outreach.example.org/identifiers/call",
+              "value": "CAexample0001-task"
+            }
+          ],
+          "status": "completed",
+          "intent": "order",
+          "priority": "urgent",
+          "description": "RN follow-up after automated post-op outreach",
+          "for": {
+            "reference": "Patient/example-patient"
+          },
+          "code": {
+            "coding": [
+              {
+                "system": "https://fhir.example.org/CodeSystem/task-type",
+                "code": "rn-post-op-callback",
+                "display": "RN post-op callback"
+              }
+            ]
+          },
+          "focus": {
+            "reference": "urn:uuid:fd2418ca-7c77-5634-8f0e-3fbb3cffa2e1"
+          },
+          "authoredOn": "2026-10-21T16:20:00.000+00:00",
+          "lastModified": "2026-10-21T16:20:00.000+00:00",
+          "owner": {
+            "identifier": {
+              "system": "https://fhir.example.org/identifiers/staff-email",
+              "value": "nurse.one@example.org"
+            },
+            "display": "nurse.one@example.org"
+          },
+          "reasonCode": {
+            "text": "pain 8/10; pain worsening"
+          },
+          "note": [
+            {
+              "text": "Called back, pain plan reviewed, ice and elevation.",
+              "time": "2026-10-21T16:20:00.000+00:00",
+              "authorString": "nurse.one@example.org"
+            }
+          ]
+        },
+        "request": {
+          "method": "PUT",
+          "url": "Task?identifier=https://voice-outreach.example.org/identifiers/call%7CCAexample0001-task"
+        }
+      },
+      {
+        "fullUrl": "urn:uuid:34e0e587-48a2-5d36-ad31-0b990dbbd809",
+        "resource": {
+          "resourceType": "Observation",
+          "identifier": [
+            {
+              "system": "https://voice-outreach.example.org/identifiers/call",
+              "value": "CAexample0001-obs-pain_severity"
+            }
+          ],
+          "status": "final",
+          "category": [
+            {
+              "coding": [
+                {
+                  "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                  "code": "survey"
+                }
+              ]
+            }
+          ],
+          "code": {
+            "coding": [
+              {
+                "system": "http://loinc.org",
+                "code": "72514-3",
+                "display": "Pain severity 0-10 reported"
+              }
+            ]
+          },
+          "subject": {
+            "reference": "Patient/example-patient"
+          },
+          "performer": [
+            {
+              "reference": "Patient/example-patient"
+            }
+          ],
+          "valueInteger": 8,
+          "effectiveDateTime": "2026-10-21T15:05:12.000+00:00",
+          "derivedFrom": [
+            {
+              "reference": "urn:uuid:fd2418ca-7c77-5634-8f0e-3fbb3cffa2e1"
+            }
+          ]
+        },
+        "request": {
+          "method": "PUT",
+          "url": "Observation?identifier=https://voice-outreach.example.org/identifiers/call%7CCAexample0001-obs-pain_severity"
+        }
+      },
+      {
+        "fullUrl": "urn:uuid:837cdb66-9166-5d57-9278-16a57fdceab1",
+        "resource": {
+          "resourceType": "Observation",
+          "identifier": [
+            {
+              "system": "https://voice-outreach.example.org/identifiers/call",
+              "value": "CAexample0001-obs-fever_reported"
+            }
+          ],
+          "status": "final",
+          "category": [
+            {
+              "coding": [
+                {
+                  "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                  "code": "survey"
+                }
+              ]
+            }
+          ],
+          "code": {
+            "coding": [
+              {
+                "system": "http://snomed.info/sct",
+                "code": "386661006",
+                "display": "Fever"
+              }
+            ]
+          },
+          "subject": {
+            "reference": "Patient/example-patient"
+          },
+          "performer": [
+            {
+              "reference": "Patient/example-patient"
+            }
+          ],
+          "valueBoolean": false,
+          "effectiveDateTime": "2026-10-21T15:05:12.000+00:00",
+          "derivedFrom": [
+            {
+              "reference": "urn:uuid:fd2418ca-7c77-5634-8f0e-3fbb3cffa2e1"
+            }
+          ]
+        },
+        "request": {
+          "method": "PUT",
+          "url": "Observation?identifier=https://voice-outreach.example.org/identifiers/call%7CCAexample0001-obs-fever_reported"
+        }
+      }
+    ]
+  },
+  "source_map": [
+    {
+      "source": "/questionnaire_response/item/0",
+      "target": "/entry/0/resource/item/0",
+      "question_id": "overall_feeling",
+      "note": "linkId 1"
+    },
+    {
+      "source": "/questionnaire_response/item/0/answer",
+      "target": "/entry/0/resource/item/0/answer/0/valueString",
+      "question_id": "overall_feeling",
+      "note": "string"
+    },
+    {
+      "source": "/questionnaire_response/item/1",
+      "target": "/entry/0/resource/item/1",
+      "question_id": "pain_present",
+      "note": "linkId 2"
+    },
+    {
+      "source": "/questionnaire_response/item/1/answer",
+      "target": "/entry/0/resource/item/1/answer/0/valueBoolean",
+      "question_id": "pain_present",
+      "note": "boolean"
+    },
+    {
+      "source": "/questionnaire_response/item/2",
+      "target": "/entry/0/resource/item/2",
+      "question_id": "pain_severity",
+      "note": "linkId 2.1"
+    },
+    {
+      "source": "/questionnaire_response/item/2/answer",
+      "target": "/entry/0/resource/item/2/answer/0/valueInteger",
+      "question_id": "pain_severity",
+      "note": "integer"
+    },
+    {
+      "source": "/questionnaire_response/item/3",
+      "target": "/entry/0/resource/item/3",
+      "question_id": "pain_location",
+      "note": "linkId 2.2"
+    },
+    {
+      "source": "/questionnaire_response/item/3/answer",
+      "target": "/entry/0/resource/item/3/answer/0/valueString",
+      "question_id": "pain_location",
+      "note": "string"
+    },
+    {
+      "source": "/questionnaire_response/item/4",
+      "target": "/entry/0/resource/item/4",
+      "question_id": "pain_trend",
+      "note": "linkId 2.3"
+    },
+    {
+      "source": "/questionnaire_response/item/4/answer",
+      "target": "/entry/0/resource/item/4/answer/0/valueCoding",
+      "question_id": "pain_trend",
+      "note": "coding"
+    },
+    {
+      "source": "/questionnaire_response/item/5",
+      "target": "/entry/0/resource/item/5",
+      "question_id": "fever_reported",
+      "note": "linkId 3"
+    },
+    {
+      "source": "/questionnaire_response/item/5/answer",
+      "target": "/entry/0/resource/item/5/answer/0/valueCoding",
+      "question_id": "fever_reported",
+      "note": "coding"
+    },
+    {
+      "source": "/questionnaire_response/item/6",
+      "target": "/entry/0/resource/item/6",
+      "question_id": "incision_concerns",
+      "note": "linkId 4"
+    },
+    {
+      "source": "/questionnaire_response/item/6/answer",
+      "target": "/entry/0/resource/item/6/answer/0/valueBoolean",
+      "question_id": "incision_concerns",
+      "note": "boolean"
+    },
+    {
+      "source": "/questionnaire_response/item/7",
+      "target": "/entry/0/resource/item/7",
+      "question_id": "legs_swollen",
+      "note": "linkId 5"
+    },
+    {
+      "source": "/questionnaire_response/item/7/answer",
+      "target": "/entry/0/resource/item/7/answer/0/valueCoding",
+      "question_id": "legs_swollen",
+      "note": "coding"
+    },
+    {
+      "source": "/questionnaire_response/item/8",
+      "target": "/entry/0/resource/item/8",
+      "question_id": "sleeping_well",
+      "note": "linkId 6"
+    },
+    {
+      "source": "/questionnaire_response/item/8/answer",
+      "target": "/entry/0/resource/item/8/answer/0/valueCoding",
+      "question_id": "sleeping_well",
+      "note": "coding"
+    },
+    {
+      "source": "/questionnaire_response/item/9",
+      "target": "/entry/0/resource/item/9",
+      "question_id": "has_questions",
+      "note": "linkId 8"
+    },
+    {
+      "source": "/questionnaire_response/item/9/answer",
+      "target": "/entry/0/resource/item/9/answer/0/valueBoolean",
+      "question_id": "has_questions",
+      "note": "boolean"
+    },
+    {
+      "source": "/questionnaire_response/item/10",
+      "target": "/entry/0/resource/item/10",
+      "question_id": "patient_questions",
+      "note": "linkId 8.1"
+    },
+    {
+      "source": "/questionnaire_response/item/10/answer/0/text",
+      "target": "/entry/0/resource/item/10/answer/0/valueString",
+      "question_id": "patient_questions",
+      "note": "string"
+    },
+    {
+      "source": "/encounter/date",
+      "target": "/entry/0/resource/authored"
+    },
+    {
+      "source": "/call_sid",
+      "target": "/entry/0/resource/identifier/value",
+      "note": "identifier from the call id"
+    },
+    {
+      "source": "/patient/mrn",
+      "target": "/entry/0/resource/subject",
+      "note": "patient lookup (placeholder in preview)"
+    },
+    {
+      "source": "/call_sid",
+      "target": "/entry/1/resource/identifier/0/value",
+      "note": "identifier from the call id"
+    },
+    {
+      "source": "/review/resolved",
+      "target": "/entry/1/resource/status",
+      "note": "resolved -> completed"
+    },
+    {
+      "source": "/disposition/follow_up",
+      "target": "/entry/1/resource/priority",
+      "note": "tier urgent_same_day -> urgent"
+    },
+    {
+      "source": "/patient/mrn",
+      "target": "/entry/1/resource/for",
+      "note": "patient lookup (placeholder in preview)"
+    },
+    {
+      "source": "/created_at",
+      "target": "/entry/1/resource/authoredOn"
+    },
+    {
+      "source": "/review/at",
+      "target": "/entry/1/resource/lastModified"
+    },
+    {
+      "source": "/review/by",
+      "target": "/entry/1/resource/owner",
+      "note": "owner: identifier"
+    },
+    {
+      "source": "/disposition/reason",
+      "target": "/entry/1/resource/reasonCode/text"
+    },
+    {
+      "source": "/review/note",
+      "target": "/entry/1/resource/note/0/text",
+      "note": "the nurse's note"
+    },
+    {
+      "source": "/review/at",
+      "target": "/entry/1/resource/note/0/time"
+    },
+    {
+      "source": "/review/by",
+      "target": "/entry/1/resource/note/0/authorString"
+    },
+    {
+      "source": "/questionnaire_response/item/2/answer",
+      "target": "/entry/2/resource/valueInteger",
+      "question_id": "pain_severity",
+      "note": "observation 72514-3; integer"
+    },
+    {
+      "source": "/call_sid",
+      "target": "/entry/2/resource/identifier/0/value",
+      "note": "identifier from the call id"
+    },
+    {
+      "source": "/patient/mrn",
+      "target": "/entry/2/resource/subject",
+      "note": "patient lookup (placeholder in preview)"
+    },
+    {
+      "source": "/patient/mrn",
+      "target": "/entry/2/resource/performer/0",
+      "note": "patient lookup (placeholder in preview)"
+    },
+    {
+      "source": "/encounter/date",
+      "target": "/entry/2/resource/effectiveDateTime"
+    },
+    {
+      "source": "/questionnaire_response/item/5/answer",
+      "target": "/entry/3/resource/valueBoolean",
+      "question_id": "fever_reported",
+      "note": "observation 386661006; boolean"
+    },
+    {
+      "source": "/call_sid",
+      "target": "/entry/3/resource/identifier/0/value",
+      "note": "identifier from the call id"
+    },
+    {
+      "source": "/patient/mrn",
+      "target": "/entry/3/resource/subject",
+      "note": "patient lookup (placeholder in preview)"
+    },
+    {
+      "source": "/patient/mrn",
+      "target": "/entry/3/resource/performer/0",
+      "note": "patient lookup (placeholder in preview)"
+    },
+    {
+      "source": "/encounter/date",
+      "target": "/entry/3/resource/effectiveDateTime"
+    }
+  ],
+  "skipped": [],
+  "warnings": [],
+  "errors": [],
+  "profile_source": "example"
+}

@@ -33,6 +33,8 @@ const ID = "[A-Za-z0-9_-]{1,64}";
 const PHONE = "\\+[0-9]{6,15}";
 /** A patient question's position on its call (survey_responses.patient_questions). */
 const INDEX = "(0|[1-9][0-9]{0,2})";
+/** An EHR export profile version number. */
+const VERSION_N = "[1-9][0-9]{0,5}";
 /** A branding image (lib/branding.ts ASSET_KINDS). */
 const ASSET = "(logo|logo_wide|favicon)";
 
@@ -147,6 +149,26 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["DELETE", new RegExp(`^admin/knowledge/documents/${ID}$`), "admin"],
   ["POST", new RegExp(`^admin/knowledge/documents/${ID}/approve$`), "admin"],
   ["POST", new RegExp(`^admin/knowledge/documents/${ID}/retire$`), "admin"],
+
+  // EHR export (Admin → Integrations → EHR export, docs/EHR-EXPORT-PLAN.md
+  // §4.2b): the export profile (draft / active / versions, YAML in and out),
+  // its live check, preview and simulation, and the outbox. Admin only, reads
+  // included: a preview shows a call's answers, and the profile is configuration.
+  ["GET", /^ehr-export$/, "admin"],
+  ["GET", /^ehr-export\/questions$/, "admin"],
+  ["POST", /^ehr-export\/validate$/, "admin"],
+  ["PUT", /^ehr-export\/draft$/, "admin"],
+  ["POST", /^ehr-export\/draft\/reset$/, "admin"],
+  ["POST", /^ehr-export\/activate$/, "admin"],
+  ["GET", /^ehr-export\/versions$/, "admin"],
+  ["POST", new RegExp(`^ehr-export/versions/${VERSION_N}/restore$`), "admin"],
+  ["GET", /^ehr-export\/yaml$/, "admin"],
+  ["GET", /^ehr-export\/example$/, "admin"],
+  ["GET", /^ehr-export\/preview-sources$/, "admin"],
+  ["POST", /^ehr-export\/preview$/, "admin"],
+  ["POST", /^ehr-export\/simulate$/, "admin"],
+  ["GET", /^ehr-export\/outbox$/, "admin"],
+  ["POST", new RegExp(`^ehr-export/outbox/${ID}/requeue$`), "admin"],
 ];
 
 /** Whether a route of this scope is served by a build in this mode. */

@@ -1,0 +1,1296 @@
+{
+  "_comment": "FICTIONAL. From scripts/ehr_export_ui_fixtures.py; do not edit.",
+  "example_profile": {
+    "profile_schema": 1,
+    "id": "post_op_example",
+    "name": "Example Health - post-op results",
+    "version": 1,
+    "description": "Worked example. Fictional EHR and local codes.",
+    "target": {
+      "fhir_version": "R4",
+      "base_url": "https://fhir.example.org/R4",
+      "auth": {
+        "type": "bearer",
+        "secret": "secret://ehr-fhir-token",
+        "client_id": "",
+        "token_url": "",
+        "scope": ""
+      },
+      "timeout_s": 30.0,
+      "submit": "transaction",
+      "write_mode": "conditional_update"
+    },
+    "patient": {
+      "identifier_system": "https://fhir.example.org/identifiers/mrn",
+      "not_found": "retry",
+      "search_with_birthdate": false,
+      "include_display_name": false
+    },
+    "identifiers": {
+      "system": "https://voice-outreach.example.org/identifiers/call"
+    },
+    "use_cases": [
+      {
+        "campaign_id": "post_op",
+        "spec_versions": [],
+        "questionnaire_response": {
+          "enabled": true,
+          "questionnaire": "https://fhir.example.org/Questionnaire/post-op-phone-check|1",
+          "unmapped": "skip",
+          "unmapped_prefix": "",
+          "exclude": [],
+          "author_display": "Automated outreach (patient-reported)",
+          "items": {
+            "overall_feeling": {
+              "type": "string",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "1",
+              "text": "How are you feeling overall?"
+            },
+            "pain_present": {
+              "type": "boolean",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "2",
+              "text": ""
+            },
+            "pain_severity": {
+              "type": "integer",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "2.1",
+              "text": "Pain score (0-10)"
+            },
+            "pain_location": {
+              "type": "string",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "2.2",
+              "text": ""
+            },
+            "pain_trend": {
+              "type": "coding",
+              "system": "https://fhir.example.org/CodeSystem/symptom-trend",
+              "codes": {
+                "better": {
+                  "code": "improving",
+                  "display": "Improving",
+                  "system": ""
+                },
+                "same": {
+                  "code": "unchanged",
+                  "display": "Unchanged",
+                  "system": ""
+                },
+                "worse": {
+                  "code": "worsening",
+                  "display": "Worsening",
+                  "system": ""
+                }
+              },
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "2.3",
+              "text": ""
+            },
+            "fever_reported": {
+              "type": "coding",
+              "system": "http://loinc.org",
+              "codes": {
+                "yes": {
+                  "code": "LA33-6",
+                  "display": "Yes",
+                  "system": ""
+                },
+                "no": {
+                  "code": "LA32-8",
+                  "display": "No",
+                  "system": ""
+                },
+                "unknown": {
+                  "code": "LA4489-6",
+                  "display": "Unknown",
+                  "system": ""
+                }
+              },
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "3",
+              "text": ""
+            },
+            "incision_concerns": {
+              "type": "boolean",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "4",
+              "text": ""
+            },
+            "incision_description": {
+              "type": "string",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "4.1",
+              "text": ""
+            },
+            "legs_swollen": {
+              "type": "coding",
+              "system": "http://loinc.org",
+              "codes": {
+                "yes": {
+                  "code": "LA33-6",
+                  "display": "Yes",
+                  "system": ""
+                },
+                "no": {
+                  "code": "LA32-8",
+                  "display": "No",
+                  "system": ""
+                },
+                "unknown": {
+                  "code": "LA4489-6",
+                  "display": "Unknown",
+                  "system": ""
+                }
+              },
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "5",
+              "text": ""
+            },
+            "swelling_description": {
+              "type": "string",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "5.1",
+              "text": ""
+            },
+            "sleeping_well": {
+              "type": "coding",
+              "system": "http://loinc.org",
+              "codes": {
+                "yes": {
+                  "code": "LA33-6",
+                  "display": "Yes",
+                  "system": ""
+                },
+                "no": {
+                  "code": "LA32-8",
+                  "display": "No",
+                  "system": ""
+                },
+                "unknown": {
+                  "code": "LA4489-6",
+                  "display": "Unknown",
+                  "system": ""
+                }
+              },
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "6",
+              "text": ""
+            },
+            "blood_sugar_status": {
+              "type": "coding",
+              "system": "https://fhir.example.org/CodeSystem/glucose-self-report",
+              "codes": {
+                "high": {
+                  "code": "high",
+                  "display": "Above target",
+                  "system": ""
+                },
+                "low": {
+                  "code": "low",
+                  "display": "Below target",
+                  "system": ""
+                },
+                "in_range": {
+                  "code": "in-range",
+                  "display": "In target range",
+                  "system": ""
+                }
+              },
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "7",
+              "text": ""
+            },
+            "blood_sugar_reading": {
+              "type": "string",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "7.1",
+              "text": "Patient's own words"
+            },
+            "has_questions": {
+              "type": "boolean",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "8",
+              "text": ""
+            },
+            "patient_questions": {
+              "type": "string",
+              "system": "",
+              "codes": {},
+              "value_map": {},
+              "constant": null,
+              "concat": [],
+              "separator": "; ",
+              "date_formats": [
+                "%Y-%m-%d"
+              ],
+              "unit": "",
+              "unit_system": "http://unitsofmeasure.org",
+              "unit_code": "",
+              "link_id": "8.1",
+              "text": ""
+            }
+          }
+        },
+        "task": {
+          "enabled": true,
+          "emit_when": "resolved",
+          "status": {
+            "resolved": "completed",
+            "open": "requested"
+          },
+          "intent": "order",
+          "priority": {
+            "emergency": "stat",
+            "urgent_same_day": "urgent",
+            "routine_next_business_day": "routine",
+            "informational": "routine",
+            "none": "routine"
+          },
+          "code": {
+            "code": "rn-post-op-callback",
+            "display": "RN post-op callback",
+            "system": "https://fhir.example.org/CodeSystem/task-type"
+          },
+          "code_system": "",
+          "description": "RN follow-up after automated post-op outreach",
+          "include_nurse_note": true,
+          "include_reason": true,
+          "owner": {
+            "mode": "identifier",
+            "identifier_system": "https://fhir.example.org/identifiers/staff-email"
+          }
+        },
+        "observations": [
+          {
+            "type": "integer",
+            "system": "",
+            "codes": {},
+            "value_map": {},
+            "constant": null,
+            "concat": [],
+            "separator": "; ",
+            "date_formats": [
+              "%Y-%m-%d"
+            ],
+            "unit": "",
+            "unit_system": "http://unitsofmeasure.org",
+            "unit_code": "",
+            "source": "pain_severity",
+            "code": {
+              "code": "72514-3",
+              "display": "Pain severity 0-10 reported",
+              "system": "http://loinc.org"
+            },
+            "code_system": "",
+            "category": "survey"
+          },
+          {
+            "type": "boolean",
+            "system": "",
+            "codes": {},
+            "value_map": {},
+            "constant": null,
+            "concat": [],
+            "separator": "; ",
+            "date_formats": [
+              "%Y-%m-%d"
+            ],
+            "unit": "",
+            "unit_system": "http://unitsofmeasure.org",
+            "unit_code": "",
+            "source": "fever_reported",
+            "code": {
+              "code": "386661006",
+              "display": "Fever",
+              "system": "http://snomed.info/sct"
+            },
+            "code_system": "",
+            "category": "survey"
+          }
+        ],
+        "summary": {
+          "enabled": false,
+          "resource": "DocumentReference",
+          "phi_acknowledged": false,
+          "type": null,
+          "type_system": "",
+          "language": "original"
+        },
+        "transcript": {
+          "enabled": false,
+          "resource": "DocumentReference",
+          "phi_acknowledged": false,
+          "type": null,
+          "type_system": "",
+          "language": "original"
+        }
+      }
+    ],
+    "validate_output": true
+  },
+  "sample": {
+    "campaign_id": "post_op",
+    "call_id": "CAexample0001",
+    "record": {
+      "call_sid": "CAexample0001",
+      "patient": {
+        "mrn": "A1234567",
+        "name": "Jordan Rivera"
+      },
+      "encounter": {
+        "date": "2026-10-21T15:05:12.000+00:00",
+        "channel": "phone",
+        "identity_check": "verified"
+      },
+      "questionnaire_response": {
+        "resourceType": "QuestionnaireResponse",
+        "status": "completed",
+        "item": [
+          {
+            "linkId": "overall_feeling",
+            "answer": "Tired, and the knee is sore"
+          },
+          {
+            "linkId": "pain_present",
+            "answer": "yes"
+          },
+          {
+            "linkId": "pain_severity",
+            "answer": 8
+          },
+          {
+            "linkId": "pain_location",
+            "answer": "right knee, throbbing"
+          },
+          {
+            "linkId": "pain_trend",
+            "answer": "worse"
+          },
+          {
+            "linkId": "fever_reported",
+            "answer": "no"
+          },
+          {
+            "linkId": "incision_concerns",
+            "answer": "no"
+          },
+          {
+            "linkId": "legs_swollen",
+            "answer": "unknown"
+          },
+          {
+            "linkId": "sleeping_well",
+            "answer": "no"
+          },
+          {
+            "linkId": "has_questions",
+            "answer": "yes"
+          },
+          {
+            "linkId": "patient_questions",
+            "answer": [
+              {
+                "text": "When can I shower?",
+                "category": "care",
+                "priority": "routine"
+              }
+            ]
+          }
+        ]
+      },
+      "disposition": {
+        "follow_up": "urgent_same_day",
+        "reason": "pain 8/10; pain worsening",
+        "agent_follow_up": "urgent_same_day",
+        "changed_by_nurse": null
+      },
+      "review": {
+        "status": "signed_off",
+        "by": "nurse.one@example.org",
+        "at": "2026-10-21T16:20:00.000+00:00",
+        "note": "Called back, pain plan reviewed, ice and elevation.",
+        "follow_up": "urgent_same_day",
+        "resolved": true
+      },
+      "task": {
+        "resourceType": "Task",
+        "status": "completed",
+        "description": "Post-op RN follow-up",
+        "note": "Called back, pain plan reviewed, ice and elevation.",
+        "owner": "nurse.one@example.org",
+        "lastModified": "2026-10-21T16:20:00.000+00:00"
+      },
+      "status": "pending_export",
+      "created_at": "2026-10-21T16:20:00.000+00:00"
+    },
+    "call": {
+      "patient_id": "A1234567",
+      "patient_name": "Jordan Rivera",
+      "channel": "phone",
+      "initiated_at": "2026-10-21T14:58:02.000+00:00",
+      "ended_at": "2026-10-21T15:05:12.000+00:00",
+      "dob_verification_result": "verified",
+      "outcome": "questionnaire_completed",
+      "follow_up": "urgent_same_day",
+      "follow_up_reason": "pain 8/10; pain worsening",
+      "campaign_id": "post_op",
+      "spec_version": 1,
+      "survey_responses": {
+        "overall_feeling": "Tired, and the knee is sore",
+        "pain_present": "yes",
+        "pain_severity": 8,
+        "pain_location": "right knee, throbbing",
+        "pain_trend": "worse",
+        "fever_reported": "no",
+        "incision_concerns": "no",
+        "legs_swollen": "unknown",
+        "sleeping_well": "no",
+        "has_questions": "yes",
+        "patient_questions": [
+          {
+            "text": "When can I shower?",
+            "category": "care",
+            "priority": "routine"
+          }
+        ],
+        "_turns": 14
+      }
+    }
+  },
+  "questions": {
+    "post_op": {
+      "campaign_id": "post_op",
+      "spec_version": 1,
+      "questions": [
+        {
+          "id": "overall_feeling",
+          "ask": "How are you feeling?",
+          "type": "text",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "pain_present",
+          "ask": "Are you having any pain?",
+          "type": "yes_no",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "pain_severity",
+          "ask": "On a scale from zero to ten, how bad is the pain?",
+          "type": "scale",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "coding",
+            "decimal",
+            "integer",
+            "quantity",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "pain_location",
+          "ask": "Can you describe the pain for me, like where it is and what it feels like?",
+          "type": "text",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "pain_trend",
+          "ask": "Is it getting better, staying the same, or getting worse?",
+          "type": "choice",
+          "parser": "trend",
+          "choices": [
+            "better",
+            "same",
+            "worse"
+          ],
+          "allowed_types": [
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "fever_reported",
+          "ask": "Have you had a fever, a temperature over one hundred point four, since you went home?",
+          "type": "yes_no_unknown",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no",
+            "unknown"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "incision_concerns",
+          "ask": "Have you noticed anything unusual with your incision, like spreading redness, drainage, warmth, or opening?",
+          "type": "yes_no",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "incision_description",
+          "ask": "Can you describe what you see?",
+          "type": "text",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "legs_swollen",
+          "ask": "Are your legs or feet swollen?",
+          "type": "yes_no_unknown",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no",
+            "unknown"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "swelling_description",
+          "ask": "Is it in one leg or both, and is it getting worse?",
+          "type": "text",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "sleeping_well",
+          "ask": "Are you sleeping well?",
+          "type": "yes_no_unknown",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no",
+            "unknown"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "blood_sugar_status",
+          "ask": "What has the range of your blood sugars been?",
+          "type": "text",
+          "parser": "blood_sugar",
+          "choices": [],
+          "allowed_types": [
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "has_questions",
+          "ask": "Do you have any questions for the care team?",
+          "type": "open_questions",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "patient_questions",
+          "ask": "The patient's own questions (a list)",
+          "type": "questions",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "string"
+          ],
+          "engine": true
+        },
+        {
+          "id": "blood_sugar_reading",
+          "ask": "The blood sugar, in the patient's words",
+          "type": "text",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "string"
+          ],
+          "engine": true
+        }
+      ]
+    },
+    "pre_op": {
+      "campaign_id": "pre_op",
+      "spec_version": 1,
+      "questions": [
+        {
+          "id": "arrival_confirmed",
+          "ask": "Do you know what time to arrive on the day of your procedure, and does that time still work for you?",
+          "type": "yes_no",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "fasting_understood",
+          "ask": "Do you know when to stop eating and drinking before your procedure?",
+          "type": "yes_no",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "ride_home",
+          "ask": "Do you have an adult who can drive you home and stay with you afterwards?",
+          "type": "yes_no",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "stop_meds_instructions",
+          "ask": "Were you told which of your medicines to stop before your procedure?",
+          "type": "yes_no_unknown",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no",
+            "unknown"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "feeling_unwell",
+          "ask": "Have you had a fever, a cough or a cold in the last few days?",
+          "type": "yes_no",
+          "parser": null,
+          "choices": [
+            "yes",
+            "no"
+          ],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "unwell_description",
+          "ask": "Can you tell me a little about that?",
+          "type": "text",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "has_questions",
+          "ask": "Do you have any questions for the surgical team?",
+          "type": "open_questions",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "boolean",
+            "coding",
+            "string"
+          ],
+          "engine": false
+        },
+        {
+          "id": "patient_questions",
+          "ask": "The patient's own questions (a list)",
+          "type": "questions",
+          "parser": null,
+          "choices": [],
+          "allowed_types": [
+            "string"
+          ],
+          "engine": true
+        }
+      ]
+    }
+  },
+  "example_problems": [
+    {
+      "level": "warning",
+      "path": "use_cases[0].observations[1]",
+      "message": "'fever_reported' can be 'unknown', which is not a boolean: such an answer is left out (in a QuestionnaireResponse, handled per 'unmapped'); a coding keeps it"
+    }
+  ],
+  "simulate": {
+    "runs": [
+      {
+        "requests": [
+          {
+            "method": "GET",
+            "url": "Patient?identifier=https://fhir.example.org/identifiers/mrn%7CA1234567",
+            "status": 200
+          },
+          {
+            "method": "POST",
+            "url": "(transaction)",
+            "status": 200
+          }
+        ],
+        "created": 4,
+        "updated": 0,
+        "created_refs": [
+          "Observation/4",
+          "Observation/5",
+          "QuestionnaireResponse/2",
+          "Task/3"
+        ],
+        "updated_refs": [],
+        "outcome": {
+          "status": "exported",
+          "error": null,
+          "refs": [
+            "QuestionnaireResponse/2",
+            "Task/3",
+            "Observation/4",
+            "Observation/5"
+          ]
+        }
+      },
+      {
+        "requests": [
+          {
+            "method": "GET",
+            "url": "Patient?identifier=https://fhir.example.org/identifiers/mrn%7CA1234567",
+            "status": 200
+          },
+          {
+            "method": "POST",
+            "url": "(transaction)",
+            "status": 200
+          }
+        ],
+        "created": 0,
+        "updated": 4,
+        "created_refs": [],
+        "updated_refs": [
+          "Observation/4",
+          "Observation/5",
+          "QuestionnaireResponse/2",
+          "Task/3"
+        ],
+        "outcome": {
+          "status": "exported",
+          "error": null,
+          "refs": [
+            "QuestionnaireResponse/2",
+            "Task/3",
+            "Observation/4",
+            "Observation/5"
+          ]
+        }
+      }
+    ],
+    "resources": [
+      {
+        "resourceType": "QuestionnaireResponse",
+        "identifier": {
+          "system": "https://voice-outreach.example.org/identifiers/call",
+          "value": "CAexample0001"
+        },
+        "questionnaire": "https://fhir.example.org/Questionnaire/post-op-phone-check|1",
+        "status": "completed",
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "authored": "2026-10-21T15:05:12.000+00:00",
+        "author": {
+          "display": "Automated outreach (patient-reported)"
+        },
+        "item": [
+          {
+            "linkId": "1",
+            "text": "How are you feeling overall?",
+            "answer": [
+              {
+                "valueString": "Tired, and the knee is sore"
+              }
+            ]
+          },
+          {
+            "linkId": "2",
+            "answer": [
+              {
+                "valueBoolean": true
+              }
+            ]
+          },
+          {
+            "linkId": "2.1",
+            "text": "Pain score (0-10)",
+            "answer": [
+              {
+                "valueInteger": 8
+              }
+            ]
+          },
+          {
+            "linkId": "2.2",
+            "answer": [
+              {
+                "valueString": "right knee, throbbing"
+              }
+            ]
+          },
+          {
+            "linkId": "2.3",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "https://fhir.example.org/CodeSystem/symptom-trend",
+                  "code": "worsening",
+                  "display": "Worsening"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "3",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "http://loinc.org",
+                  "code": "LA32-8",
+                  "display": "No"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "4",
+            "answer": [
+              {
+                "valueBoolean": false
+              }
+            ]
+          },
+          {
+            "linkId": "5",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "http://loinc.org",
+                  "code": "LA4489-6",
+                  "display": "Unknown"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "6",
+            "answer": [
+              {
+                "valueCoding": {
+                  "system": "http://loinc.org",
+                  "code": "LA32-8",
+                  "display": "No"
+                }
+              }
+            ]
+          },
+          {
+            "linkId": "8",
+            "answer": [
+              {
+                "valueBoolean": true
+              }
+            ]
+          },
+          {
+            "linkId": "8.1",
+            "answer": [
+              {
+                "valueString": "When can I shower?"
+              }
+            ]
+          }
+        ],
+        "id": "2",
+        "meta": {
+          "versionId": "2"
+        }
+      },
+      {
+        "resourceType": "Task",
+        "identifier": [
+          {
+            "system": "https://voice-outreach.example.org/identifiers/call",
+            "value": "CAexample0001-task"
+          }
+        ],
+        "status": "completed",
+        "intent": "order",
+        "priority": "urgent",
+        "description": "RN follow-up after automated post-op outreach",
+        "for": {
+          "reference": "Patient/1"
+        },
+        "code": {
+          "coding": [
+            {
+              "system": "https://fhir.example.org/CodeSystem/task-type",
+              "code": "rn-post-op-callback",
+              "display": "RN post-op callback"
+            }
+          ]
+        },
+        "focus": {
+          "reference": "QuestionnaireResponse/2"
+        },
+        "authoredOn": "2026-10-21T16:20:00.000+00:00",
+        "lastModified": "2026-10-21T16:20:00.000+00:00",
+        "owner": {
+          "identifier": {
+            "system": "https://fhir.example.org/identifiers/staff-email",
+            "value": "nurse.one@example.org"
+          },
+          "display": "nurse.one@example.org"
+        },
+        "reasonCode": {
+          "text": "pain 8/10; pain worsening"
+        },
+        "note": [
+          {
+            "text": "Called back, pain plan reviewed, ice and elevation.",
+            "time": "2026-10-21T16:20:00.000+00:00",
+            "authorString": "nurse.one@example.org"
+          }
+        ],
+        "id": "3",
+        "meta": {
+          "versionId": "2"
+        }
+      },
+      {
+        "resourceType": "Observation",
+        "identifier": [
+          {
+            "system": "https://voice-outreach.example.org/identifiers/call",
+            "value": "CAexample0001-obs-pain_severity"
+          }
+        ],
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "survey"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "72514-3",
+              "display": "Pain severity 0-10 reported"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "performer": [
+          {
+            "reference": "Patient/1"
+          }
+        ],
+        "valueInteger": 8,
+        "effectiveDateTime": "2026-10-21T15:05:12.000+00:00",
+        "derivedFrom": [
+          {
+            "reference": "QuestionnaireResponse/2"
+          }
+        ],
+        "id": "4",
+        "meta": {
+          "versionId": "2"
+        }
+      },
+      {
+        "resourceType": "Observation",
+        "identifier": [
+          {
+            "system": "https://voice-outreach.example.org/identifiers/call",
+            "value": "CAexample0001-obs-fever_reported"
+          }
+        ],
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "survey"
+              }
+            ]
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://snomed.info/sct",
+              "code": "386661006",
+              "display": "Fever"
+            }
+          ]
+        },
+        "subject": {
+          "reference": "Patient/1"
+        },
+        "performer": [
+          {
+            "reference": "Patient/1"
+          }
+        ],
+        "valueBoolean": false,
+        "effectiveDateTime": "2026-10-21T15:05:12.000+00:00",
+        "derivedFrom": [
+          {
+            "reference": "QuestionnaireResponse/2"
+          }
+        ],
+        "id": "5",
+        "meta": {
+          "versionId": "2"
+        }
+      }
+    ]
+  }
+}

@@ -186,6 +186,15 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["DELETE", "admin/knowledge/documents/kg_knee"],
     ["POST", "admin/knowledge/documents/kg_knee/approve"],
     ["POST", "admin/knowledge/documents/kg_knee/retire"],
+    // Admin → Integrations → EHR export (docs/EHR-EXPORT-PLAN.md §4.2b)
+    ["POST", "ehr-export/validate"],
+    ["PUT", "ehr-export/draft"],
+    ["POST", "ehr-export/draft/reset"],
+    ["POST", "ehr-export/activate"],
+    ["POST", "ehr-export/versions/3/restore"],
+    ["POST", "ehr-export/preview"],
+    ["POST", "ehr-export/simulate"],
+    ["POST", "ehr-export/outbox/CAexample0003/requeue"],
   ];
   // Admin-only reads: the engineering timeline and the audit log.
   const ADMIN_READS: [string, string][] = [
@@ -194,6 +203,13 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["GET", "admin/knowledge/items"],
     ["GET", "admin/knowledge/settings"],
     ["GET", "admin/knowledge/documents"],
+    ["GET", "ehr-export"],
+    ["GET", "ehr-export/questions"],
+    ["GET", "ehr-export/versions"],
+    ["GET", "ehr-export/yaml"],
+    ["GET", "ehr-export/example"],
+    ["GET", "ehr-export/preview-sources"],
+    ["GET", "ehr-export/outbox"],
   ];
   // Clinical work: the nurse console only.
   const NURSE_ROUTES: [string, string][] = [
@@ -279,6 +295,46 @@ describe("matchRoute: each build calls only its own routes", () => {
       }
     }
     expect(ALLOWED_ROUTES.filter(([, re]) => re.source.includes("knowledge")).every(([, , scope]) => scope === "admin")).toBe(true);
+  });
+
+  it("never lets the nurse build reach any EHR export path, whatever the method", () => {
+    const paths = [
+      "ehr-export",
+      "ehr-export/questions",
+      "ehr-export/validate",
+      "ehr-export/draft",
+      "ehr-export/draft/reset",
+      "ehr-export/activate",
+      "ehr-export/versions",
+      "ehr-export/versions/1/restore",
+      "ehr-export/yaml",
+      "ehr-export/example",
+      "ehr-export/preview-sources",
+      "ehr-export/preview",
+      "ehr-export/simulate",
+      "ehr-export/outbox",
+      "ehr-export/outbox/CAexample0001/requeue",
+      "ehr-export/test-connection",
+    ];
+    for (const path of paths) {
+      for (const method of ["GET", "POST", "PATCH", "PUT", "DELETE"]) {
+        expect(matchRoute(method, path, "nurse"), `${method} ${path}`).toBeNull();
+      }
+    }
+    expect(ALLOWED_ROUTES.filter(([, re]) => re.source.includes("ehr-export")).every(([, , scope]) => scope === "admin")).toBe(true);
+  });
+
+  it("refuses EHR export paths outside the contract", () => {
+    for (const mode of ["nurse", "admin"] as const) {
+      expect(matchRoute("DELETE", "ehr-export/draft", mode)).toBeNull();
+      expect(matchRoute("GET", "ehr-export/draft", mode)).toBeNull();
+      expect(matchRoute("POST", "ehr-export/versions/0/restore", mode)).toBeNull();
+      expect(matchRoute("POST", "ehr-export/versions/x/restore", mode)).toBeNull();
+      expect(matchRoute("POST", "ehr-export/versions/1234567/restore", mode)).toBeNull();
+      expect(matchRoute("POST", "ehr-export/outbox/..%2Fx/requeue", mode)).toBeNull();
+      expect(matchRoute("GET", "ehr-export/preview", mode)).toBeNull();
+      expect(matchRoute("POST", "ehr-export/test-connection", mode)).toBeNull(); // step 5
+    }
   });
 
   it("refuses knowledge paths outside the contract", () => {

@@ -72,6 +72,12 @@ class ExportBundle:
     #: [{"question": id, "reason": ...}] answers not sent, and why.
     skipped: list[dict[str, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    #: [{source, target, question_id?, note?}]: where each mapped value came from.
+    #: ``source`` is a JSON Pointer into the outbox record (None when the value
+    #: comes from outside it: the transcript doc, or the call doc's answers);
+    #: ``target`` is a JSON Pointer into ``bundle``. Built alongside the bundle,
+    #: never changes it.
+    source_map: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def resources(self) -> list[Doc]:
@@ -100,6 +106,28 @@ def answers_from(record: Mapping[str, Any], call: Mapping[str, Any] | None = Non
     }
 
 
+def pointer(*parts: Any) -> str:
+    """A JSON Pointer (RFC 6901) from path parts: ``pointer("a", 0, "b/c")`` is
+    ``/a/0/b~1c``."""
+    return "".join("/" + str(p).replace("~", "~0").replace("/", "~1") for p in parts)
+
+
+def _ptr(base: str | None, *parts: Any) -> str | None:
+    return None if base is None else base + pointer(*parts)
+
+
+def answer_sources(record: Mapping[str, Any]) -> dict[str, str]:
+    """App question id -> the JSON Pointer of its answer in the outbox record
+    (``/questionnaire_response/item/<i>/answer``). The last item wins, as in
+    :func:`answers_from`. Answers taken from the call doc have no pointer."""
+    items = ((record.get("questionnaire_response") or {}).get("item")) or []
+    out: dict[str, str] = {}
+    for i, it in enumerate(items):
+        if isinstance(it, Mapping) and it.get("linkId") is not None:
+            out[str(it["linkId"])] = pointer("questionnaire_response", "item", i, "answer")
+    return out
+
+
 def _answered(v: Any) -> bool:
     if v is None:
         return False
@@ -108,6 +136,10 @@ def _answered(v: Any) -> bool:
     if isinstance(v, list | dict):
         return bool(v)
     return True
+
+
+#: Whether an answer counts as given (not None, blank, or empty).
+answered = _answered
 
 
 def _key(v: Any) -> str:
@@ -192,31 +224,51 @@ def values_for(
     Nothing (([], [])) when the question was not answered. Transforms, in order:
     constant | concat, then value_map, then the type.
     """
+    typed, bad = _traced_values(spec, qid, answers, {})
+    return [t for t, _ in typed], [b for b, _ in bad]
+
+
+#: (value, the JSON Pointers of the answers it came from)
+_Traced = tuple[Any, list[str | None]]
+
+
+def _traced_values(
+    spec: ValueSpec, qid: str, answers: Mapping[str, Any], srcs: Mapping[str, str]
+) -> tuple[list[_Traced], list[_Traced]]:
+    """:func:`values_for`, with each value's source pointers (``srcs``: qid ->
+    the answer's pointer, from :func:`answer_sources`)."""
     raw = answers.get(qid)
+    vals: list[_Traced]
     if spec.concat:
-        parts = [answers.get(c) for c in spec.concat]
-        texts = [" ".join(str(p).split()) for p in parts if _answered(p)]
-        if not texts:
+        parts = [(answers.get(c), srcs.get(c)) for c in spec.concat]
+        hits = [(" ".join(str(p).split()), s) for p, s in parts if _answered(p)]
+        if not hits:
             return [], []
-        vals: list[Any] = [spec.separator.join(texts)]
+        vals = [(spec.separator.join(t for t, _ in hits), [s for _, s in hits])]
     elif not _answered(raw):
         return [], []
     elif spec.constant is not None:
-        vals = [spec.constant]
+        vals = [(spec.constant, [srcs.get(qid)])]
     else:
-        vals = raw if isinstance(raw, list) else [raw]
-        # patient_questions: [{text, category, priority}] -> the question text.
-        vals = [v.get("text") if isinstance(v, Mapping) else v for v in vals]
-        vals = [v for v in vals if _answered(v)]
-    typed: list[Doc] = []
-    bad: list[Any] = []
-    for v in vals:
+        base = srcs.get(qid)
+        listed = isinstance(raw, list)
+        vals = []
+        for k, v in enumerate(raw if listed else [raw]):
+            src = _ptr(base, k) if listed else base
+            # patient_questions: [{text, category, priority}] -> the question text.
+            if isinstance(v, Mapping):
+                v, src = v.get("text"), _ptr(src, "text")
+            if _answered(v):
+                vals.append((v, [src]))
+    typed: list[_Traced] = []
+    bad: list[_Traced] = []
+    for v, src in vals:
         if spec.value_map and not spec.concat:
             v = spec.value_map.get(_key(v), v)
         try:
-            typed.append(_typed(spec, v))
+            typed.append((_typed(spec, v), src))
         except Unmappable:
-            bad.append(v)
+            bad.append((v, src))
     return typed, bad
 
 
@@ -244,6 +296,93 @@ def _dt(*candidates: Any) -> str | None:
         if isinstance(c, str) and _ISO_DT.match(c):
             return c
     return None
+
+
+def _dt_src(record: Mapping[str, Any], *paths: tuple[str, ...]) -> str | None:
+    """The pointer of the candidate :func:`_dt` picks from these record paths."""
+    for path in paths:
+        cur: Any = record
+        for p in path:
+            cur = cur.get(p) if isinstance(cur, Mapping) else None
+        if isinstance(cur, str) and _ISO_DT.match(cur):
+            return pointer(*path)
+    return None
+
+
+class _Trace:
+    """Source-map entries for one resource; targets are relative to the resource
+    until :meth:`rebase` puts them under ``/entry/<i>/resource``."""
+
+    def __init__(self, record: Mapping[str, Any], call_id: str):
+        self.record = record
+        self.call_id = call_id
+        self.rows: list[dict[str, Any]] = []
+
+    def add(
+        self,
+        source: str | None,
+        target: str,
+        question_id: str | None = None,
+        note: str | None = None,
+    ) -> None:
+        row: dict[str, Any] = {"source": source, "target": target}
+        if question_id is not None:
+            row["question_id"] = question_id
+        if note:
+            row["note"] = note
+        self.rows.append(row)
+
+    def has(self, *path: str) -> str | None:
+        """The pointer of a record path when the record has that key."""
+        cur: Any = self.record
+        for p in path:
+            if not isinstance(cur, Mapping) or p not in cur:
+                return None
+            cur = cur[p]
+        return pointer(*path)
+
+    def when(self, target: str, *path: str, note: str | None = None) -> None:
+        src = self.has(*path)
+        if src is not None:
+            self.add(src, target, note=note)
+
+    def subject(self, *targets: str) -> None:
+        src = self.has("patient", "mrn")
+        if src is not None:
+            for t in targets:
+                self.add(src, t, note="patient lookup (placeholder in preview)")
+
+    def identifier(self, target: str) -> None:
+        src = "/call_sid" if self.record.get("call_sid") == self.call_id else None
+        self.add(src, target, note="identifier from the call id")
+
+    def dt(self, target: str, *paths: tuple[str, ...]) -> None:
+        src = _dt_src(self.record, *paths)
+        if src is not None:
+            self.add(src, target)
+
+    def rebase(self, index: int) -> list[dict[str, Any]]:
+        base = pointer("entry", index, "resource")
+        return [{**r, "target": base + r["target"]} for r in self.rows]
+
+
+def _value_key(typed: Mapping[str, Any]) -> str:
+    return next(iter(typed))
+
+
+def _how(spec: ValueSpec) -> str:
+    how = [spec.type]
+    if spec.constant is not None:
+        how.append("constant")
+    if spec.concat:
+        how.append("concat " + ", ".join(spec.concat))
+    if spec.value_map and not spec.concat:
+        how.append("value map")
+    return "; ".join(how)
+
+
+def _concat_ids(spec: ValueSpec, qid: str) -> list[str]:
+    return list(spec.concat) if spec.concat else [qid]
 
 
 def identifier_values(call_id: str, uc: UseCaseMap) -> list[tuple[str, str]]:
@@ -281,30 +420,49 @@ def _qr(
     subject: Doc,
     ident: Doc,
     skipped: list[dict[str, str]],
+    trace: _Trace | None = None,
 ) -> Doc | None:
     qr = uc.questionnaire_response
     if qr is None or not qr.enabled:
         return None
+    tr = trace or _Trace({}, "")
+    srcs = answer_sources(tr.record)
     items: list[Doc] = []
     excluded = set(qr.exclude)
+
+    def item_sources(qids: list[str], j: int, note: str) -> None:
+        for q in qids:
+            src = srcs.get(q)
+            tr.add(src[: -len("/answer")] if src else None, pointer("item", j), q, note)
+
     for qid, m in qr.items.items():
         if qid in excluded:
             continue
-        typed, bad = values_for(m, qid, answers)
+        typed, bad = _traced_values(m, qid, answers, srcs)
         if typed:
             item: Doc = {"linkId": m.link_id}
             if m.text:
                 item["text"] = m.text
-            item["answer"] = typed
+            item["answer"] = [t for t, _ in typed]
+            j = len(items)
+            item_sources(_concat_ids(m, qid), j, f"linkId {m.link_id}")
+            for k, (t, ss) in enumerate(typed):
+                for src in ss:
+                    tr.add(src, pointer("item", j, "answer", k, _value_key(t)), qid, _how(m))
             items.append(item)
-        for b in bad:
+        for b, ss in bad:
             if qr.unmapped == "text":
+                j = len(items)
                 items.append(
                     {
                         "linkId": f"{qr.unmapped_prefix}{qid}",
                         "answer": [{"valueString": " ".join(str(b).split())}],
                     }
                 )
+                note = "could not be typed; sent as text"
+                item_sources(_concat_ids(m, qid), j, note)
+                for src in ss:
+                    tr.add(src, pointer("item", j, "answer", 0, "valueString"), qid, note)
                 skipped.append({"question": qid, "reason": "could not be typed; sent as text"})
             else:
                 skipped.append({"question": qid, "reason": f"could not be typed ({m.type})"})
@@ -315,11 +473,26 @@ def _qr(
         if qid in concat_sources:
             continue
         if qr.unmapped == "text":
-            vals = v if isinstance(v, list) else [v]
-            vals = [x.get("text") if isinstance(x, Mapping) else x for x in vals]
-            ans = [{"valueString": " ".join(str(x).split())} for x in vals if _answered(x)]
+            listed = isinstance(v, list)
+            vals: list[tuple[Any, str | None]] = []
+            for k, x in enumerate(v if listed else [v]):
+                src = _ptr(srcs.get(qid), k) if listed else srcs.get(qid)
+                if isinstance(x, Mapping):
+                    x, src = x.get("text"), _ptr(src, "text")
+                if _answered(x):
+                    vals.append((x, src))
+            ans = [{"valueString": " ".join(str(x).split())} for x, _ in vals]
             if ans:
+                j = len(items)
                 items.append({"linkId": f"{qr.unmapped_prefix}{qid}", "answer": ans})
+                item_sources([qid], j, "not mapped; sent as text")
+                for k, (_, src) in enumerate(vals):
+                    tr.add(
+                        src,
+                        pointer("item", j, "answer", k, "valueString"),
+                        qid,
+                        "not mapped; sent as text",
+                    )
                 skipped.append({"question": qid, "reason": "not mapped; sent as text"})
         else:
             skipped.append({"question": qid, "reason": "not mapped"})
@@ -335,10 +508,13 @@ def _qr(
     authored = _dt(enc.get("date"), rev.get("at"), record.get("created_at"))
     if authored:
         res["authored"] = authored
+        tr.dt("/authored", ("encounter", "date"), ("review", "at"), ("created_at",))
     if qr.author_display:
         res["author"] = {"display": qr.author_display}
     if items:
         res["item"] = items
+    tr.identifier("/identifier/value")
+    tr.subject("/subject")
     return res
 
 
@@ -348,10 +524,12 @@ def _task(
     subject: Doc,
     ident: list[Doc],
     focus: str | None,
+    trace: _Trace | None = None,
 ) -> Doc | None:
     t = uc.task
     if t is None or not t.enabled:
         return None
+    tr = trace or _Trace({}, "")
     rev = record.get("review") or {}
     disp = record.get("disposition") or {}
     tier = disp.get("follow_up") or "none"
@@ -369,6 +547,10 @@ def _task(
         "description": t.description,
         "for": subject,
     }
+    tr.identifier("/identifier/0/value")
+    tr.when("/status", "review", "resolved", note=f"resolved -> {res['status']}")
+    tr.when("/priority", "disposition", "follow_up", note=f"tier {tier} -> {res['priority']}")
+    tr.subject("/for")
     if t.code:
         res["code"] = {"coding": [_coding(t.code, t.code_system)]}
     if focus:
@@ -376,25 +558,33 @@ def _task(
     authored = _dt(record.get("created_at"), rev.get("at"))
     if authored:
         res["authoredOn"] = authored
+        tr.dt("/authoredOn", ("created_at",), ("review", "at"))
     modified = _dt(rev.get("at"))
     if modified:
         res["lastModified"] = modified
+        tr.when("/lastModified", "review", "at")
     signer = rev.get("by")
     if signer and t.owner.mode == "display":
         res["owner"] = {"display": str(signer)}
+        tr.when("/owner", "review", "by", note="owner: display")
     elif signer and t.owner.mode == "identifier":
         res["owner"] = {
             "identifier": {"system": t.owner.identifier_system, "value": str(signer)},
             "display": str(signer),
         }
+        tr.when("/owner", "review", "by", note="owner: identifier")
     if t.include_reason and disp.get("reason"):
         res["reasonCode"] = {"text": str(disp["reason"])}
+        tr.when("/reasonCode/text", "disposition", "reason")
     if t.include_nurse_note and rev.get("note"):
         note: Doc = {"text": str(rev["note"])}
+        tr.when("/note/0/text", "review", "note", note="the nurse's note")
         if modified:
             note["time"] = modified
+            tr.when("/note/0/time", "review", "at")
         if signer:
             note["authorString"] = str(signer)
+            tr.when("/note/0/authorString", "review", "by")
         res["note"] = [note]
     return res
 
@@ -418,8 +608,11 @@ def _obs(
     ident: list[Doc],
     derived: str | None,
     skipped: list[dict[str, str]],
+    trace: _Trace | None = None,
 ) -> Doc | None:
-    typed, bad = values_for(ob, ob.source, answers)
+    tr = trace or _Trace({}, "")
+    typed_src, bad = _traced_values(ob, ob.source, answers, answer_sources(tr.record))
+    typed = [t for t, _ in typed_src]
     if bad and not typed:
         skipped.append({"question": ob.source, "reason": f"observation: not a {ob.type}"})
     if not typed:
@@ -427,10 +620,18 @@ def _obs(
     ((k, v),) = typed[0].items()
     if k == "valueCoding":
         value: Doc = {"valueCodeableConcept": {"coding": [v]}}
+        target = "/valueCodeableConcept/coding/0"
     elif k == "valueDecimal":
         value = {"valueQuantity": {"value": v}}
+        target = "/valueQuantity/value"
     else:
         value = {_OBS_VALUE[k]: v}
+        target = pointer(_OBS_VALUE[k])
+    note = f"observation {ob.code.code}; {_how(ob)}"
+    for src in typed_src[0][1]:
+        tr.add(src, target, ob.source, note)
+    tr.identifier("/identifier/0/value")
+    tr.subject("/subject", "/performer/0")
     enc = record.get("encounter") or {}
     res: Doc = {
         "resourceType": "Observation",
@@ -446,6 +647,7 @@ def _obs(
     eff = _dt(enc.get("date"), (record.get("review") or {}).get("at"))
     if eff:
         res["effectiveDateTime"] = eff
+        tr.dt("/effectiveDateTime", ("encounter", "date"), ("review", "at"))
     if derived:
         res["derivedFrom"] = [{"reference": derived}]
     return res
@@ -552,18 +754,23 @@ def build_export(
     subject = dict(patient)
     skipped: list[dict[str, str]] = []
     entries: list[Entry] = []
+    source_map: list[dict[str, Any]] = []
+    tr = _Trace(record, call_id)
 
     def add(rtype: str, value: str, res: Doc | None) -> str | None:
+        rows = tr.rebase(len(entries))
+        tr.rows = []
         if res is None:
             return None
         url = full_url(system, value)
+        source_map.extend(rows)
         entries.append(Entry(rtype, value, url, res))
         return url
 
     qr_url = add(
         "QuestionnaireResponse",
         call_id,
-        _qr(record, uc, answers, subject, {"system": system, "value": call_id}, skipped),
+        _qr(record, uc, answers, subject, {"system": system, "value": call_id}, skipped, tr),
     )
     add(
         "Task",
@@ -574,6 +781,7 @@ def build_export(
             subject,
             [{"system": system, "value": f"{call_id}-task"}],
             qr_url,
+            tr,
         ),
     )
     for ob in uc.observations:
@@ -589,10 +797,14 @@ def build_export(
                 [{"system": system, "value": value}],
                 qr_url,
                 skipped,
+                tr,
             ),
         )
     if uc.summary.enabled:
         value = f"{call_id}-summary"
+        _doc_trace(tr, uc.summary.resource, call_id)
+        for part in ("encounter", "disposition", "review"):
+            tr.when(_doc_text_target(uc.summary.resource), part, note="summary text")
         add(
             uc.summary.resource,
             value,
@@ -611,6 +823,12 @@ def build_export(
         text = transcript_text(list(transcript or []), uc.transcript.language)
         if text:
             value = f"{call_id}-transcript"
+            _doc_trace(tr, uc.transcript.resource, call_id)
+            tr.add(
+                None,
+                _doc_text_target(uc.transcript.resource),
+                note=f"transcript ({uc.transcript.language}) from transcripts/{call_id}",
+            )
             add(
                 uc.transcript.resource,
                 value,
@@ -638,7 +856,28 @@ def build_export(
             for e in entries
         ],
     }
-    return ExportBundle(entries=entries, bundle=bundle, skipped=skipped, warnings=warnings)
+    return ExportBundle(
+        entries=entries,
+        bundle=bundle,
+        skipped=skipped,
+        warnings=warnings,
+        source_map=source_map,
+    )
+
+
+def _doc_text_target(resource: str) -> str:
+    if resource == "Communication":
+        return "/payload/0/contentString"
+    return "/content/0/attachment/data"
+
+
+def _doc_trace(tr: _Trace, resource: str, call_id: str) -> None:
+    tr.identifier("/identifier/0/value")
+    tr.subject("/subject")
+    if resource == "Communication":
+        tr.dt("/sent", ("review", "at"), ("created_at",))
+    else:
+        tr.dt("/date", ("review", "at"), ("created_at",))
 
 
 def patient_reference(

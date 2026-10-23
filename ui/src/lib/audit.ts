@@ -37,6 +37,12 @@ const ACTIONS: Record<string, string> = {
   "POST /api/admin/knowledge/documents/{doc_id}/retire": "Retired a guideline",
   "DELETE /api/admin/knowledge/documents/{doc_id}": "Deleted a guideline",
   "POST /api/calls/{call_id}/questions/{index}/shadow-review": "Rated the agent's draft answer",
+  "PUT /api/ehr-export/draft": "Saved the EHR export draft",
+  "POST /api/ehr-export/draft/reset": "Reset the EHR export draft to the active profile",
+  "POST /api/ehr-export/activate": "Activated the EHR export profile",
+  "POST /api/ehr-export/versions/{n}/restore": "Restored an EHR export version as the draft",
+  "POST /api/ehr-export/versions/{version}/restore": "Restored an EHR export version as the draft",
+  "POST /api/ehr-export/outbox/{call_id}/requeue": "Requeued an EHR export",
 };
 
 /** "PUT /api/call-settings/display" -> "Changed time display"; unknown actions unchanged. */
@@ -54,6 +60,8 @@ const TARGET_LABELS: Record<string, string> = {
   item_id: "Knowledge entry",
   doc_id: "Guideline",
   index: "Question",
+  n: "Version",
+  version: "Version",
 };
 
 /** {phone: "+1•••4567"} -> "Number +1•••4567"; several joined with " · "; "" when none. */

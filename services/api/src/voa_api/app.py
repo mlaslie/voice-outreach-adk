@@ -10,7 +10,14 @@ from fastapi.responses import JSONResponse
 from voa_core.config import AppConfig, load_config
 from voa_core.logging import bind, configure_logging, parse_cloud_trace_header
 
-from . import routes_branding, routes_calls, routes_knowledge, routes_list, routes_tasks
+from . import (
+    routes_branding,
+    routes_calls,
+    routes_ehr_export,
+    routes_knowledge,
+    routes_list,
+    routes_tasks,
+)
 from .context import Api
 
 log = logging.getLogger("voa_api")
@@ -53,6 +60,7 @@ def create_app(cfg: AppConfig | None = None, api: Api | None = None) -> FastAPI:
     app.include_router(routes_branding.router)
     app.include_router(routes_knowledge.router)
     app.include_router(routes_knowledge.calls_router)
+    app.include_router(routes_ehr_export.router)
     from . import routes_ingest
 
     app.include_router(routes_ingest.router)

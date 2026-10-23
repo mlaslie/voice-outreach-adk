@@ -11,6 +11,7 @@ config/*
 !config/app.yaml
 !config/campaigns
 !config/languages
+!config/ehr
 *.wav
 *.ulaw
 .env*

@@ -30,8 +30,16 @@ EXTRA = frozenset(
         "POST /api/calls/{call_id}/questions/{index}/shadow-review",
     }
 )
-#: POSTs that change nothing (Admin → Knowledge base "Try it").
-READ_ONLY = frozenset({"POST /api/admin/knowledge/try"})
+#: POSTs that change nothing (Admin → Knowledge base "Try it"; Admin → EHR
+#: export validate, preview and simulate, which runs against an in-memory fake).
+READ_ONLY = frozenset(
+    {
+        "POST /api/admin/knowledge/try",
+        "POST /api/ehr-export/validate",
+        "POST /api/ehr-export/preview",
+        "POST /api/ehr-export/simulate",
+    }
+)
 
 
 def audited(key: str) -> bool:

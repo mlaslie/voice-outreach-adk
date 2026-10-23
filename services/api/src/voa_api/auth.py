@@ -144,6 +144,23 @@ ROUTE_POLICY: dict[str, frozenset[str]] = {
     "GET /api/admin/knowledge/settings": ADMIN,
     "PUT /api/admin/knowledge/settings": ADMIN,
     "POST /api/admin/knowledge/try": ADMIN,  # read-only: not audited (audit.READ_ONLY)
+    # EHR export (docs/EHR-EXPORT-PLAN.md §4.2b): the admin console only.
+    # validate, preview and simulate change nothing: not audited (audit.READ_ONLY)
+    "GET /api/ehr-export": ADMIN,
+    "GET /api/ehr-export/questions": ADMIN,
+    "POST /api/ehr-export/validate": ADMIN,
+    "PUT /api/ehr-export/draft": ADMIN,
+    "POST /api/ehr-export/draft/reset": ADMIN,
+    "POST /api/ehr-export/activate": ADMIN,
+    "GET /api/ehr-export/versions": ADMIN,
+    "POST /api/ehr-export/versions/{n}/restore": ADMIN,
+    "GET /api/ehr-export/yaml": ADMIN,
+    "GET /api/ehr-export/example": ADMIN,
+    "GET /api/ehr-export/preview-sources": ADMIN,
+    "POST /api/ehr-export/preview": ADMIN,
+    "POST /api/ehr-export/simulate": ADMIN,
+    "GET /api/ehr-export/outbox": ADMIN,
+    "POST /api/ehr-export/outbox/{call_id}/requeue": ADMIN,
     # EHR feed (admin plan step 3): idempotent call batches
     "PUT /api/v1/call-batches/{source}/{batch_id}": FEED,
     "GET /api/v1/call-batches/{source}/{batch_id}": FEED | ADMIN,

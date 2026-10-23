@@ -524,6 +524,27 @@ def _choices(campaign: Campaign, qid: str) -> list[str] | None:
     return None
 
 
+def question_kind(campaign: Campaign, qid: str) -> str | None:
+    """The kind the type rules use (``text_parsed`` for a text question with a
+    parser), or the engine field's kind; None when ``qid`` is not a question."""
+    return _kind(campaign, qid)
+
+
+def question_choices(campaign: Campaign, qid: str) -> list[str] | None:
+    """The answers a code map should cover (yes/no[/unknown], or the choices)."""
+    return _choices(campaign, qid)
+
+
+def allowed_types(kind: str, *, value_map: bool = False) -> frozenset[str]:
+    """The answer types that fit a question kind (the §2.8 table). A value map
+    widens them: the admin is mapping the values explicitly."""
+    allowed = TYPE_COMPAT.get(kind, frozenset({"string"}))
+    if value_map:
+        # A value map can turn any enum into anything; trust the admin's map.
+        allowed = allowed | {"boolean", "integer", "decimal", "coding", "string"}
+    return allowed
+
+
 def _check_value(
     campaign: Campaign, qid: str, spec: ValueSpec, path: str, out: list[Problem]
 ) -> None:
@@ -535,10 +556,7 @@ def _check_value(
         if _kind(campaign, c) is None:
             out.append(Problem("error", path, f"concat: {c!r} is not a question in {campaign.id}"))
     if spec.constant is None and not spec.concat:
-        allowed = TYPE_COMPAT.get(kind, frozenset({"string"}))
-        if spec.value_map:
-            # A value map can turn any enum into anything; trust the admin's map.
-            allowed = allowed | {"boolean", "integer", "decimal", "coding", "string"}
+        allowed = allowed_types(kind, value_map=bool(spec.value_map))
         if spec.type not in allowed:
             out.append(
                 Problem(

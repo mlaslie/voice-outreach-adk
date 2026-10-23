@@ -54,12 +54,12 @@ def main(argv: list[str] | None = None) -> int:
         preview(None, profile, record, call_id=call_id, call=call, patient_id=a.patient_id)
     )
     for s in result.get("skipped", []):
-        print(f"skipped {s['question']}: {s['reason']}", file=sys.stderr)
+        print(f"skipped {s['question_id']}: {s['reason']} ({s['source']})", file=sys.stderr)
     for w in result.get("warnings", []):
         print(f"warning {w}", file=sys.stderr)
     for err in result.get("errors", []):
-        print(f"error   {err}", file=sys.stderr)
-    if "bundle" in result:
+        print(f"error   {err.get('path') or ''} {err['message']}", file=sys.stderr)
+    if result.get("bundle") is not None:
         print(json.dumps(result["bundle"], indent=2))
     return 0 if result["ok"] else 1
 
