@@ -232,7 +232,11 @@ def test_a_patient_who_never_gets_a_slot_is_deferred_and_the_run_reconciled():
     clock.advance(_run_stale_after(api).total_seconds() + 1)
     client.post("/cron/dispatch-due")
     r = current_run(client)
-    assert r["status"] == "completed" and r["reconciled_at"] and r["in_flight"] == []
+    # e1's call is past the in-flight TTL by now, so the stranded-row recovery
+    # (which runs before the stale-run check) re-queues e1 and counts it failed,
+    # and that completes the run before the stale-run check needs to.
+    assert r["status"] == "completed" and r["in_flight"] == []
+    assert run(api.store.get("call_list", e1))["list_status"] == "pending"
     assert run(api.store.get("call_list", e2))["list_status"] == "pending"
 
 

@@ -55,7 +55,8 @@ from __future__ import annotations
 import logging
 import uuid
 from collections import deque
-from datetime import timedelta
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from voa_core import language_packs, languages, organization
@@ -80,6 +81,35 @@ NAMESPACE = "simulator__"
 #: texts (``call_settings/organization``) and the SMS runtime switches.
 READ_THROUGH = frozenset({ALLOWLIST, organization.COLLECTION, sms.SETTINGS})
 
+#: The field every simulator document carries for a Firestore TTL policy: test
+#: data deletes itself ``sms.simulator_ttl_days`` (default 7) after its last write.
+EXPIRE_FIELD = "expire_at"
+DEFAULT_TTL = timedelta(days=7)
+
+#: The collections the simulator writes, without the prefix. This is THE list the
+#: Firestore TTL policies are made from: ``local.simulator_ttl_collections`` in
+#: infra/envs/demo/services.tf must equal it (test_sms_simulator_expiry.py checks
+#: both that and that a full simulator run writes nowhere else). It is a list,
+#: not derived at run time, because Terraform needs it before any write happens
+#: and a TTL policy is per collection group (no wildcard). All but two are
+#: written by the simulator runs in the tests; ``call_list`` and ``ehr_outbox``
+#: are reachable in the SMS code (a call with an entry, a nurse sign-off) though
+#: no simulator path writes them today, so they are covered too.
+WRITTEN_COLLECTIONS: tuple[str, ...] = (
+    "calls",
+    "call_list",
+    "ehr_outbox",
+    "rate_limits",
+    "reports",
+    "scheduled_callbacks",
+    "sms_consents",
+    "sms_filings",
+    "sms_inbound_seen",
+    "sms_messages",
+    "sms_optouts",
+    "sms_sessions",
+)
+
 # Fictional. Never a real person.
 TEST_PATIENT = {
     "first_name": "Jordan",
@@ -100,10 +130,28 @@ class SimulatorStore:
     ``coll`` becomes ``simulator__coll`` for every read and write, so nothing the
     simulator does lands in (or is read from) a real collection, except the
     :data:`READ_THROUGH` configuration, which it reads from the real collection
-    and may never write (:class:`SimulatorWriteRefused`)."""
+    and may never write (:class:`SimulatorWriteRefused`).
 
-    def __init__(self, inner) -> None:
+    Every write stamps ``expire_at`` (a datetime, which Firestore stores as the
+    Timestamp a TTL policy needs) at ``clock() + ttl``, so a test conversation
+    deletes itself ``ttl`` after its last write. A transaction that writes
+    nothing (its function returns None) stamps nothing."""
+
+    def __init__(
+        self,
+        inner,
+        *,
+        clock: Callable[[], datetime] | None = None,
+        ttl: timedelta = DEFAULT_TTL,
+    ) -> None:
         self.inner = inner
+        self.clock = clock or (lambda: datetime.now(UTC))
+        self.ttl = ttl
+
+    def _expiring(self, data):
+        if not isinstance(data, dict):
+            return data
+        return {**data, EXPIRE_FIELD: self.clock() + self.ttl}
 
     @staticmethod
     def _read(coll: str) -> str:
@@ -131,19 +179,23 @@ class SimulatorStore:
         return self.inner.watch(self._read(coll), doc_id)
 
     async def set(self, coll, doc_id, data):
-        return await self.inner.set(self._write(coll), doc_id, data)
+        return await self.inner.set(self._write(coll), doc_id, self._expiring(data))
 
     async def merge(self, coll, doc_id, data):
-        return await self.inner.merge(self._write(coll), doc_id, data)
+        return await self.inner.merge(self._write(coll), doc_id, self._expiring(data))
 
     async def delete(self, coll, doc_id):
         return await self.inner.delete(self._write(coll), doc_id)
 
     async def create(self, coll, doc_id, data):
-        return await self.inner.create(self._write(coll), doc_id, data)
+        return await self.inner.create(self._write(coll), doc_id, self._expiring(data))
 
     async def transact(self, coll, doc_id, fn):
-        return await self.inner.transact(self._write(coll), doc_id, fn)
+        def stamped(cur):
+            new = fn(cur)
+            return None if new is None else self._expiring(new)
+
+        return await self.inner.transact(self._write(coll), doc_id, stamped)
 
 
 class DroppedTasks:
@@ -173,7 +225,12 @@ def simulator_api(api: Api) -> Api:
     sim = getattr(api, "_sms_simulator_api", None)
     if sim is None or sim.store.inner is not api.store:
         cfg = api.cfg.model_copy(update={"sms": api.cfg.sms.model_copy(update={"dry_run": True})})
-        sim = Api(cfg=cfg, store=SimulatorStore(api.store), tasks=DroppedTasks(), voice=None)
+        store = SimulatorStore(
+            api.store,
+            clock=lambda: api.now(),
+            ttl=timedelta(days=api.cfg.sms.simulator_ttl_days),
+        )
+        sim = Api(cfg=cfg, store=store, tasks=DroppedTasks(), voice=None)
         sim.sms = DryRunSms()
         api._sms_simulator_api = sim
     sim.clock = api.clock

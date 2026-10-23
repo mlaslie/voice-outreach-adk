@@ -1,0 +1,129 @@
+{
+  "_comment": "FICTIONAL sample: one ehr_outbox record and its call doc (no DOB). Used by the preview script and tests.",
+  "call_id": "CAexample0001",
+  "record": {
+    "call_sid": "CAexample0001",
+    "patient": {
+      "mrn": "A1234567",
+      "name": "Jordan Rivera"
+    },
+    "encounter": {
+      "date": "2026-10-21T15:05:12.000+00:00",
+      "channel": "phone",
+      "identity_check": "verified"
+    },
+    "questionnaire_response": {
+      "resourceType": "QuestionnaireResponse",
+      "status": "completed",
+      "item": [
+        {
+          "linkId": "overall_feeling",
+          "answer": "Tired, and the knee is sore"
+        },
+        {
+          "linkId": "pain_present",
+          "answer": "yes"
+        },
+        {
+          "linkId": "pain_severity",
+          "answer": 8
+        },
+        {
+          "linkId": "pain_location",
+          "answer": "right knee, throbbing"
+        },
+        {
+          "linkId": "pain_trend",
+          "answer": "worse"
+        },
+        {
+          "linkId": "fever_reported",
+          "answer": "no"
+        },
+        {
+          "linkId": "incision_concerns",
+          "answer": "no"
+        },
+        {
+          "linkId": "legs_swollen",
+          "answer": "unknown"
+        },
+        {
+          "linkId": "sleeping_well",
+          "answer": "no"
+        },
+        {
+          "linkId": "has_questions",
+          "answer": "yes"
+        },
+        {
+          "linkId": "patient_questions",
+          "answer": [
+            {
+              "text": "When can I shower?",
+              "category": "care",
+              "priority": "routine"
+            }
+          ]
+        }
+      ]
+    },
+    "disposition": {
+      "follow_up": "urgent_same_day",
+      "reason": "pain 8/10; pain worsening",
+      "agent_follow_up": "urgent_same_day",
+      "changed_by_nurse": null
+    },
+    "review": {
+      "status": "signed_off",
+      "by": "nurse.one@example.org",
+      "at": "2026-10-21T16:20:00.000+00:00",
+      "note": "Called back, pain plan reviewed, ice and elevation.",
+      "follow_up": "urgent_same_day",
+      "resolved": true
+    },
+    "task": {
+      "resourceType": "Task",
+      "status": "completed",
+      "description": "Post-op RN follow-up",
+      "note": "Called back, pain plan reviewed, ice and elevation.",
+      "owner": "nurse.one@example.org",
+      "lastModified": "2026-10-21T16:20:00.000+00:00"
+    },
+    "status": "pending_export",
+    "created_at": "2026-10-21T16:20:00.000+00:00"
+  },
+  "call": {
+    "patient_id": "A1234567",
+    "patient_name": "Jordan Rivera",
+    "channel": "phone",
+    "initiated_at": "2026-10-21T14:58:02.000+00:00",
+    "ended_at": "2026-10-21T15:05:12.000+00:00",
+    "dob_verification_result": "verified",
+    "outcome": "questionnaire_completed",
+    "follow_up": "urgent_same_day",
+    "follow_up_reason": "pain 8/10; pain worsening",
+    "campaign_id": "post_op",
+    "spec_version": 1,
+    "survey_responses": {
+      "overall_feeling": "Tired, and the knee is sore",
+      "pain_present": "yes",
+      "pain_severity": 8,
+      "pain_location": "right knee, throbbing",
+      "pain_trend": "worse",
+      "fever_reported": "no",
+      "incision_concerns": "no",
+      "legs_swollen": "unknown",
+      "sleeping_well": "no",
+      "has_questions": "yes",
+      "patient_questions": [
+        {
+          "text": "When can I shower?",
+          "category": "care",
+          "priority": "routine"
+        }
+      ],
+      "_turns": 14
+    }
+  }
+}

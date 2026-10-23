@@ -37,6 +37,7 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["PUT", "call-settings/recall"],
     ["PUT", "call-settings/display"],
     ["GET", "languages"],
+    ["GET", "campaigns"],
     ["GET", "allowlist"],
     ["POST", "allowlist"],
     ["DELETE", "allowlist/%2B12025550123"],
@@ -104,6 +105,8 @@ describe("matchRoute: the BFF path allowlist", () => {
     ["GET", "admin"],
     ["DELETE", "audit"], // the audit log is read-only
     ["POST", "audit"],
+    ["POST", "campaigns"], // read-only: specs are edited in config/campaigns
+    ["GET", "campaigns/pre_op"],
     ["GET", "audit/x"],
     ["POST", `calls/${SID}/events`],
     ["GET", ""],
@@ -226,6 +229,7 @@ describe("matchRoute: each build calls only its own routes", () => {
     ["GET", "call-runs"],
     ["GET", "call-settings"],
     ["GET", "languages"], // patient languages (docs/LANGUAGES-PLAN.md)
+    ["GET", "campaigns"], // the use cases an entry may name
     ["GET", "allowlist"],
     ["GET", "sms/sessions"],
     ["GET", "sms/callbacks"],

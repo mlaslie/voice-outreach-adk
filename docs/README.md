@@ -28,6 +28,7 @@ Why the system is built the way it is. They are kept up to date with a status li
 | [Use cases](USE-CASES-PLAN.md) | Use cases as versioned specs on a generic engine (post-op, pre-op, …) |
 | [Languages](LANGUAGES-PLAN.md) | The 24 languages, the safety layer, language packs, bilingual transcripts |
 | [Knowledge base](KNOWLEDGE-PLAN.md) | Grounded answers from approved content: off, shadow and live modes |
+| [EHR export](EHR-EXPORT-PLAN.md) | Configurable FHIR export profiles: the mapping engine is built; the admin UI and the export service are planned |
 | [Analytics](ANALYTICS-PLAN.md) | De-identified BigQuery export and the admin Analytics section |
 | [Consoles, scheduling API, branding](ADMIN-PLAN.md) | The nurse/admin split and EHR scheduling |
 

@@ -262,6 +262,8 @@ export interface PlaceCallRequest {
   language?: string;
   /** An admin's override: call in English while the language is not available. */
   call_in_english?: boolean;
+  /** The use case, one of GET /api/campaigns; absent or null = the default (post-op). */
+  campaign_id?: string | null;
 }
 
 export interface PlaceCallResponse {

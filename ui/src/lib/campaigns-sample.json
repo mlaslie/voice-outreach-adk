@@ -1,0 +1,15 @@
+{
+  "default": "post_op",
+  "campaigns": [
+    {
+      "id": "post_op",
+      "name": "Post-operative wellness check",
+      "status": "active"
+    },
+    {
+      "id": "pre_op",
+      "name": "Pre-op readiness call",
+      "status": "draft"
+    }
+  ]
+}

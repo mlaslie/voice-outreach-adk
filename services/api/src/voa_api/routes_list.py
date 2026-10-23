@@ -143,6 +143,28 @@ async def get_languages(request: Request, campaign_id: str | None = None):
     }
 
 
+# --------------------------------------------------------------------------- campaigns
+
+
+@router.get("/campaigns")
+async def get_campaigns(request: Request):
+    """The use cases a call-list entry may name (``campaign_id``): every loadable
+    spec under config/campaigns, with its display name and review status. The
+    admin console's CSV import and patient form check against this list, so a
+    new spec file appears there without a UI change. ``default``: the use case
+    of an entry without one."""
+    from voa_core.campaign import DEFAULT_CAMPAIGN_ID, campaign_ids, load_campaign
+
+    rows = []
+    for cid in campaign_ids():
+        try:
+            c = load_campaign(cid)
+        except (OSError, ValueError):
+            continue  # a broken spec is not offered (validate_campaign_id refuses it too)
+        rows.append({"id": c.id, "name": c.name, "status": c.status})
+    return {"default": DEFAULT_CAMPAIGN_ID, "campaigns": rows}
+
+
 def _pack_rows() -> list[dict]:
     from voa_core import language_packs
 
@@ -230,7 +252,8 @@ async def edit_entry(entry_id: str, body: CallListEntryInput, request: Request):
     # The language and its override change only when the edit sends them: an
     # older client that does not know the fields must never reset a Spanish
     # patient to English (which would make them callable in English).
-    keep = {"language", "call_in_english"} - body.model_fields_set
+    # The use case likewise: an edit from a form without the field keeps it.
+    keep = {"language", "call_in_english", "campaign_id"} - body.model_fields_set
     patch = {**body.model_dump(exclude=keep), "updated_at": now}
     if cur.get("list_status") == "blocked":
         patch |= {"list_status": "pending", "last_error": ""}  # editing a blocked number retries it

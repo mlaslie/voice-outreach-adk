@@ -8,6 +8,7 @@ dependencies = [
     "voa-providers",
     "voa-agents",
     "voa-knowledge",
+    "voa-ehr",
 ]
 
 [dependency-groups]
@@ -27,6 +28,7 @@ voa-core = { workspace = true }
 voa-providers = { workspace = true }
 voa-agents = { workspace = true }
 voa-knowledge = { workspace = true }
+voa-ehr = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

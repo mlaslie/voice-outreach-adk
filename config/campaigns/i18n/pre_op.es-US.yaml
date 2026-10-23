@@ -17,6 +17,10 @@ notes: >
   Spanish for older patients, formal "usted". It must be reviewed by a qualified
   medical translator before approval (HHS Section 1557). The pre-op use case is
   itself a draft and needs clinical sign-off first. Voice only.
+  Demo sign-off (23 Oct 2026): the project owner accepted this machine draft for
+  the demo environment only, where languages_auto_approve is on and the owner is
+  the only recipient. This is NOT a qualified translator review: status stays
+  draft so no other deployment treats it as approved.
 
 scripts:
   opener: "Hola, esta es una llamada automatizada de {org_name}. ¿Podría hablar con {patient_first_name} {patient_last_name}, por favor?"

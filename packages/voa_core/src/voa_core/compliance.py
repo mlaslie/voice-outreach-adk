@@ -393,3 +393,83 @@ def reconcile_entry_patch(
             return outcome_only
     list_status, _ = entry_status_after_call(call_status)
     return {"list_status": list_status, "last_call_status": call_status}
+
+
+# ---------------------------------------------------------------------------
+# Stranded "calling" rows
+# ---------------------------------------------------------------------------
+
+#: The ``last_error`` a stranded row is re-queued with.
+STRANDED_REQUEUED = "call never finished: re-queued"
+
+
+@dataclass(frozen=True)
+class StrandedFix:
+    """What :func:`stranded_entry_fix` decided for one "calling" row.
+
+    ``reason``: ``terminal_unapplied`` (its call ended but the result never reached
+    the row), ``call_never_finished`` (its call has no final status after the
+    in-flight TTL) or ``no_call`` (no call doc for this attempt after the TTL).
+    ``patch``: the fields to write. ``call_status``: the call's final status, or
+    None when the row is re-queued."""
+
+    reason: str
+    patch: dict[str, Any]
+    call_status: str | None
+
+
+def stranded_entry_fix(
+    entry: Mapping[str, Any] | None,
+    call: Mapping[str, Any] | None,
+    *,
+    now: datetime,
+    in_flight_ttl_s: int,
+    terminal_grace_s: int,
+    terminal_statuses: Iterable[str],
+) -> StrandedFix | None:
+    """The fix for a call-list row left in "calling", or None to leave it alone.
+
+    ``call``: the call doc of the row's CURRENT attempt (``entry_attempt`` equal to
+    the row's ``attempts``), or None when there is none.
+
+    * Not "calling": None.
+    * The call has a terminal status: the row takes what that status implies
+      (:func:`entry_status_after_call`), once the call ended at least
+      ``terminal_grace_s`` ago (before that, ``/tasks/call-terminal`` is probably
+      still on its way).
+    * The call has no terminal status: None while it started less than
+      ``in_flight_ttl_s`` ago (a live call is never touched); after that the row
+      goes back to pending.
+    * No call doc: None while the claim is less than ``in_flight_ttl_s`` old (the
+      dial task may still be placing the call); after that, back to pending.
+
+    A missing or unparseable time counts as old: a row stuck with no times would
+    otherwise stay "calling" for good. Pure: the caller writes the patch inside a
+    transaction that re-checks the row is still "calling" on the same attempt."""
+    if not entry or entry.get("list_status") != "calling":
+        return None
+    _aware(now, "now")
+    terminal = frozenset(terminal_statuses)
+    status = (call or {}).get("call_status")
+    if call is not None and status in terminal:
+        ended = parse_when(call.get("ended_at") or call.get("updated_at"))
+        if ended is not None and now - ended < timedelta(seconds=terminal_grace_s):
+            return None
+        list_status, last = entry_status_after_call(status)
+        return StrandedFix(
+            "terminal_unapplied", {"list_status": list_status, "last_call_status": last}, status
+        )
+    if call is not None:
+        started = parse_when(call.get("initiated_at")) or parse_when(entry.get("last_attempt_at"))
+        reason = "call_never_finished"
+    else:
+        started = parse_when(entry.get("last_attempt_at") or entry.get("updated_at"))
+        reason = "no_call"
+    if started is not None and now - started < timedelta(seconds=in_flight_ttl_s):
+        return None
+    list_status, last = entry_status_after_call(None)
+    return StrandedFix(
+        reason,
+        {"list_status": list_status, "last_call_status": last, "last_error": STRANDED_REQUEUED},
+        None,
+    )

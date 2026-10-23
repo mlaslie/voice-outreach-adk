@@ -1,0 +1,170 @@
+# EHR export profile: worked example for the post_op use case.
+#
+# FICTIONAL: the EHR (fhir.example.org), its Questionnaire, its link ids and its
+# local code systems are made up. Codes from real systems are marked
+# "EXAMPLE - VERIFY": they are plausible, and must be checked against your EHR's
+# own terminology (and the LOINC / SNOMED CT release it uses) before any real use.
+#
+# What a profile is: docs/EHR-EXPORT-PLAN.md section 2. Check this file with
+#   uv run python scripts/ehr_export_preview.py config/ehr/profiles/post_op.example.yaml \
+#       config/ehr/samples/post_op.outbox.json
+# Credentials are NEVER written here: only secret://<name> references.
+
+profile_schema: 1
+id: post_op_example
+name: Example Health - post-op results
+version: 1
+description: Worked example. Fictional EHR and local codes.
+
+target:
+  fhir_version: R4
+  base_url: https://fhir.example.org/R4
+  auth:
+    type: bearer
+    secret: secret://ehr-fhir-token      # the token's value lives in Secret Manager
+  timeout_s: 30
+  submit: transaction                    # or individual, for servers without transactions
+  write_mode: conditional_update         # PUT Type?identifier=... : re-runs never duplicate
+
+patient:
+  # Patient?identifier=<system>|<mrn>. Ask the EHR team for the MRN's system.
+  identifier_system: https://fhir.example.org/identifiers/mrn
+  not_found: retry                       # retry | fail | skip
+  search_with_birthdate: false           # true reads the DOB and sends it in the search
+  include_display_name: false
+
+identifiers:
+  # Every resource carries <system>|<call id>[-suffix]: the idempotency key.
+  system: https://voice-outreach.example.org/identifiers/call
+
+validate_output: true
+
+use_cases:
+  - campaign_id: post_op
+    spec_versions: []                    # every version of config/campaigns/post_op.yaml
+
+    questionnaire_response:
+      enabled: true
+      questionnaire: https://fhir.example.org/Questionnaire/post-op-phone-check|1
+      unmapped: skip                     # skip | text
+      exclude: []
+      items:
+        overall_feeling:
+          link_id: "1"
+          text: How are you feeling overall?
+          type: string
+        pain_present:
+          link_id: "2"
+          type: boolean
+        pain_severity:
+          link_id: "2.1"
+          text: Pain score (0-10)
+          type: integer
+        pain_location:
+          link_id: "2.2"
+          type: string
+        pain_trend:
+          link_id: "2.3"
+          type: coding
+          system: https://fhir.example.org/CodeSystem/symptom-trend   # fictional local system
+          codes:
+            better: {code: improving, display: Improving}
+            same: {code: unchanged, display: Unchanged}
+            worse: {code: worsening, display: Worsening}
+        fever_reported:
+          link_id: "3"
+          type: coding
+          # LOINC answer codes. EXAMPLE - VERIFY.
+          system: http://loinc.org
+          codes:
+            "yes": {code: LA33-6, display: "Yes"}
+            "no": {code: LA32-8, display: "No"}
+            unknown: {code: LA4489-6, display: Unknown}
+        incision_concerns:
+          link_id: "4"
+          type: boolean
+        incision_description:
+          link_id: "4.1"
+          type: string
+        legs_swollen:
+          link_id: "5"
+          type: coding
+          system: http://loinc.org       # EXAMPLE - VERIFY
+          codes:
+            "yes": {code: LA33-6, display: "Yes"}
+            "no": {code: LA32-8, display: "No"}
+            unknown: {code: LA4489-6, display: Unknown}
+        swelling_description:
+          link_id: "5.1"
+          type: string
+        sleeping_well:
+          link_id: "6"
+          type: coding
+          system: http://loinc.org       # EXAMPLE - VERIFY
+          codes:
+            "yes": {code: LA33-6, display: "Yes"}
+            "no": {code: LA32-8, display: "No"}
+            unknown: {code: LA4489-6, display: Unknown}
+        blood_sugar_status:
+          link_id: "7"
+          type: coding
+          system: https://fhir.example.org/CodeSystem/glucose-self-report   # fictional
+          codes:
+            high: {code: high, display: Above target}
+            low: {code: low, display: Below target}
+            in_range: {code: in-range, display: In target range}
+        blood_sugar_reading:
+          link_id: "7.1"
+          text: Patient's own words
+          type: string
+        has_questions:
+          link_id: "8"
+          type: boolean
+        patient_questions:
+          link_id: "8.1"
+          type: string                   # one answer per question asked
+
+    task:
+      enabled: true
+      emit_when: resolved                # resolved | needs_follow_up | always
+      status: {resolved: completed, open: requested}
+      intent: order
+      priority:
+        emergency: stat
+        urgent_same_day: urgent
+        routine_next_business_day: routine
+        informational: routine
+        none: routine
+      code:
+        system: https://fhir.example.org/CodeSystem/task-type   # fictional
+        code: rn-post-op-callback
+        display: RN post-op callback
+      description: RN follow-up after automated post-op outreach
+      include_nurse_note: true
+      include_reason: true
+      owner:
+        mode: identifier                 # none | display | identifier
+        identifier_system: https://fhir.example.org/identifiers/staff-email
+
+    observations:
+      - source: pain_severity
+        # LOINC 72514-3 "Pain severity - 0-10 verbal numeric rating [Score] - Reported".
+        # EXAMPLE - VERIFY.
+        code: {system: http://loinc.org, code: 72514-3, display: Pain severity 0-10 reported}
+        category: survey
+        type: integer
+      - source: fever_reported
+        # SNOMED CT 386661006 "Fever (finding)". EXAMPLE - VERIFY.
+        code: {system: http://snomed.info/sct, code: "386661006", display: Fever}
+        category: survey
+        type: boolean
+
+    # Free text with PHI: off. Turning either on needs phi_acknowledged: true,
+    # recorded once your privacy office has agreed (plan section 1).
+    summary:
+      enabled: false
+      resource: DocumentReference
+    transcript:
+      enabled: false
+      resource: DocumentReference
+      language: original

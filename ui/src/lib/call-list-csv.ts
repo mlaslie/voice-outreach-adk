@@ -1,33 +1,53 @@
 import { CallListEntryInput, CareSetting } from "./types";
 import { LanguageInfo, normalizeLanguage, parseYesNo } from "./languages";
+import { CampaignInfo, normalizeCampaign } from "./campaigns";
+
+/**
+ * The columns an import reads: the single source of truth for the parser's
+ * required set, the example CSV's header (in this order) and the "CSV
+ * columns" help in the admin console.
+ */
+export interface CsvColumnInfo {
+  name: string;
+  required: boolean;
+  /** What a cell may hold, in a few words. */
+  format: string;
+  /** One example value (also the first example row's, where it fits). */
+  example: string;
+}
+
+export const CSV_COLUMN_INFO = [
+  { name: "phone", required: true, format: "E.164: + then country code and number", example: "+12025550123" },
+  { name: "patient_name", required: true, format: "Full name (quote it if it has a comma)", example: "Jane Doe" },
+  { name: "patient_id", required: true, format: "Letters, digits, _ . - (unique)", example: "P-1001" },
+  { name: "patient_dob", required: true, format: "YYYY-MM-DD; the agent verifies it", example: "1950-03-15" },
+  { name: "operation_name", required: false, format: "Free text", example: "Total knee replacement" },
+  { name: "operation_date", required: false, format: "YYYY-MM-DD", example: "2026-07-22" },
+  { name: "is_diabetic", required: false, format: "true / yes / 1; anything else is no", example: "false" },
+  { name: "care_setting", required: false, format: "inpatient, outpatient (or in, out); blank: not given", example: "inpatient" },
+  { name: "language", required: false, format: "Code or English name; blank: English (US)", example: "es-US" },
+  { name: "call_in_english", required: false, format: "yes / no: call in English while the language is not available", example: "no" },
+  { name: "campaign_id", required: false, format: "A use-case id; blank: post-op check-in", example: "pre_op" },
+] as const satisfies readonly CsvColumnInfo[];
 
 /** Column order of the example CSV — also the canonical header set. */
-export const CSV_COLUMNS = [
-  "phone",
-  "patient_name",
-  "patient_id",
-  "patient_dob",
-  "operation_name",
-  "operation_date",
-  "is_diabetic",
-  "care_setting",
-  // Optional: a code or English name ("es-US", "Spanish"); blank is English (US).
-  "language",
-  // Optional: yes to call in English while the language is not available yet.
-  "call_in_english",
-] as const;
+export const CSV_COLUMNS = CSV_COLUMN_INFO.map((c) => c.name);
 
-const REQUIRED = ["phone", "patient_name", "patient_id", "patient_dob"] as const;
+const REQUIRED = CSV_COLUMN_INFO.filter((c) => c.required).map((c) => c.name);
 
 export const EXAMPLE_CSV = [
   CSV_COLUMNS.join(","),
-  "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false,inpatient,,",
-  "+12025550145,John Smith,P-1002,1962-11-04,Hip arthroplasty,2026-07-24,true,inpatient,en-US,no",
-  '+12025550111,"Ruiz, Maria",P-1003,1978-06-30,Rotator cuff repair,2026-07-25,false,outpatient,Spanish,yes',
-  "+12025550112,Nguyen An,P-1004,1955-01-09,Cataract surgery,2026-07-26,false,outpatient,vi-VN,",
+  "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false,inpatient,,,",
+  "+12025550145,John Smith,P-1002,1962-11-04,Hip arthroplasty,2026-07-24,true,inpatient,en-US,no,",
+  '+12025550111,"Ruiz, Maria",P-1003,1978-06-30,Rotator cuff repair,2026-07-25,false,outpatient,Spanish,yes,',
+  "+12025550112,Nguyen An,P-1004,1955-01-09,Cataract surgery,2026-07-26,false,outpatient,vi-VN,,",
+  "+12025550113,Sam Okafor,P-1005,1969-08-21,Gallbladder removal,2026-07-29,false,outpatient,,,pre_op",
 ].join("\n");
 
-export class CsvError extends Error {}
+export class CsvError extends Error {
+  /** The required columns the header lacks, when that is the problem. */
+  missingColumns: string[] = [];
+}
 
 /**
  * RFC-4180 scanner over the whole document, returning rows of fields.
@@ -149,6 +169,8 @@ export function previewCallListCsv(
   existingPatientIds: Iterable<string> = [],
   /** GET /api/languages' list, to read the language column; null = not loaded. */
   languages: LanguageInfo[] | null = null,
+  /** GET /api/campaigns' list, to read the campaign_id column; null = not loaded. */
+  campaigns: CampaignInfo[] | null = null,
 ): CsvPreview {
   // Excel and Google Sheets prefix UTF-8 exports with a BOM, which would
   // otherwise make the first header read "\ufeffphone" and fail the
@@ -160,10 +182,12 @@ export function previewCallListCsv(
   const header = rows[0].map((h) => h.toLowerCase());
   const missing = REQUIRED.filter((c) => !header.includes(c));
   if (missing.length) {
-    throw new CsvError(
+    const err = new CsvError(
       `Missing required column${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}. ` +
-        `Expected header: ${CSV_COLUMNS.join(",")}`
+        `The header must include ${REQUIRED.join(", ")}. See "CSV columns" for every column.`
     );
+    err.missingColumns = missing;
+    throw err;
   }
   if (rows.length === 1) throw new CsvError("The file has a header but no patient rows.");
 
@@ -239,6 +263,15 @@ export function previewCallListCsv(
       errors.push(`call_in_english must be yes, no or blank (got "${get("call_in_english")}").`);
     }
 
+    const rawCampaign = get("campaign_id");
+    const campaignId = rawCampaign ? normalizeCampaign(rawCampaign, campaigns ?? []) : null;
+    if (rawCampaign && !campaigns) {
+      errors.push("The use-case list could not be loaded, so the campaign_id column cannot be checked. Reload and try again.");
+    } else if (rawCampaign && !campaignId) {
+      const known = (campaigns ?? []).map((c) => c.id).join(", ");
+      errors.push(`campaign_id must be one of ${known} or blank (got "${rawCampaign}").`);
+    }
+
     out.push({
       row: rowNo,
       cells,
@@ -256,6 +289,7 @@ export function previewCallListCsv(
             ...(careSetting ? { care_setting: careSetting } : {}),
             ...(language ? { language } : {}),
             ...(callInEnglish ? { call_in_english: true } : {}),
+            ...(campaignId ? { campaign_id: campaignId } : {}),
           },
     });
   }
@@ -272,8 +306,12 @@ export function previewCallListCsv(
  * message on the first problem, so the user gets a fixable error rather
  * than a silently-truncated import.
  */
-export function parseCallListCsv(text: string, languages: LanguageInfo[] | null = null): CallListEntryInput[] {
-  const preview = previewCallListCsv(text, [], languages);
+export function parseCallListCsv(
+  text: string,
+  languages: LanguageInfo[] | null = null,
+  campaigns: CampaignInfo[] | null = null,
+): CallListEntryInput[] {
+  const preview = previewCallListCsv(text, [], languages, campaigns);
   const bad = preview.rows.find((r) => r.errors.length);
   if (bad) throw new CsvError(`Row ${bad.row}: ${bad.errors[0]}`);
   return preview.valid;

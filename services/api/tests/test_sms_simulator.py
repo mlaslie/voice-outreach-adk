@@ -171,7 +171,8 @@ def test_simulator_store_namespaces_everything_and_never_writes_real_config():
     assert run(view.get("sms_sessions", PHONE)) is None  # not the real session
     run(view.set("sms_sessions", PHONE, {"state": "sim"}))
     assert run(store.get("sms_sessions", PHONE)) == {"state": "real"}
-    assert run(store.get(NS + "sms_sessions", PHONE)) == {"state": "sim"}
+    stored = run(store.get(NS + "sms_sessions", PHONE))
+    assert stored["state"] == "sim" and "expire_at" in stored  # test_sms_simulator_expiry.py
     for coll in sms_simulator.READ_THROUGH:
         with pytest.raises(sms_simulator.SimulatorWriteRefused):
             run(view.delete(coll, PHONE))

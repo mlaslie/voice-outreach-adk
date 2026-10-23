@@ -354,6 +354,39 @@ resource "google_firestore_field" "sms_inbound_seen_ttl" {
   index_config {}
 }
 
+# "Test by text" (the SMS simulator) writes fictional test data into simulator__*
+# collections. Each document carries expire_at (now + sms.simulator_ttl_days,
+# default 7, set by SimulatorStore on every write), and these policies delete it.
+# A TTL policy is per collection group (no wildcard), so this is a list: it must
+# equal sms_simulator.WRITTEN_COLLECTIONS (services/api/tests/
+# test_sms_simulator_expiry.py checks it, and that the simulator writes nowhere else).
+locals {
+  simulator_ttl_collections = [
+    "calls",
+    "call_list",
+    "ehr_outbox",
+    "rate_limits",
+    "reports",
+    "scheduled_callbacks",
+    "sms_consents",
+    "sms_filings",
+    "sms_inbound_seen",
+    "sms_messages",
+    "sms_optouts",
+    "sms_sessions",
+  ]
+}
+
+resource "google_firestore_field" "simulator_ttl" {
+  for_each   = toset(local.simulator_ttl_collections)
+  project    = var.project_id
+  database   = module.firestore.database
+  collection = "simulator__${each.value}"
+  field      = "expire_at"
+  ttl_config {}
+  index_config {}
+}
+
 
 # --------------------------------------------------------------------------- nurse assistant (A2A for Gemini Enterprise)
 

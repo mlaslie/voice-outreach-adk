@@ -24,6 +24,7 @@ import {
 } from "./types";
 import type { SmsMessage } from "./followups";
 import type { LanguagesResponse } from "./languages";
+import type { CampaignsResponse } from "./campaigns";
 import type { AssetKind, BrandingPatch, BrandingResponse } from "./branding";
 import type {
   KnowledgeDoc,
@@ -192,6 +193,11 @@ export const api = {
   /** The 24 patient languages and which can be called today, per use case. */
   getLanguages(): Promise<LanguagesResponse> {
     return request<LanguagesResponse>("/languages");
+  },
+
+  /** The use cases a call-list entry may name (config/campaigns), and the default. */
+  getCampaigns(): Promise<CampaignsResponse> {
+    return request<CampaignsResponse>("/campaigns");
   },
 
   // ---- Call list ----------------------------------------------------------

@@ -159,7 +159,7 @@ for item in out["items"]:
 
 For a pilot, or when no feed exists yet, an administrator can load patients from a spreadsheet:
 1. Open **Admin console → Patients**.
-2. Click **Example CSV** to download a template with the right header and four fictional rows.
+2. Open **CSV columns** on the same page for every column, its format and an example, or click **Example CSV** to download a template with the right header and five fictional rows.
 3. Click **Import CSV** to load your file.
 
 **How the import works:**
@@ -179,6 +179,7 @@ For a pilot, or when no feed exists yet, an administrator can load patients from
 | `care_setting` | no | `inpatient`, `outpatient`, `in`, `out` or blank | `outpatient` |
 | `language` | no | one of the 24 supported languages, as a code or English name; blank is English (US) | `es-US` or `Spanish` |
 | `call_in_english` | no | `yes`, `no` or blank: call in English while the patient's language isn't available yet | `yes` |
+| `campaign_id` | no | the use case: an id from `GET /api/campaigns` (one per spec in `config/campaigns`, e.g. `post_op`, `pre_op`; any case, `-` for `_`); blank is the post-op check-in | `pre_op` |
 
 **Rules:**
 - The header row must contain the four required columns. Extra columns are ignored.
@@ -186,10 +187,10 @@ For a pilot, or when no feed exists yet, an administrator can load patients from
   - a required value is missing;
   - the format is wrong;
   - the phone number or `patient_id` appears twice in the file;
-  - the `patient_id` is already on the list.
+  - the `patient_id` is already on the list;
+  - the `campaign_id` isn't a known use case.
 
   The other rows still import.
-- **Use case:** the CSV has no column for it, so every row uses the post-op check-in. Use the scheduling API (`campaign`) for other use cases.
 
 ### Withdraw a batch
 

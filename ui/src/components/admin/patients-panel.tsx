@@ -14,6 +14,9 @@ import { EntryDialog } from "@/components/nurse/entry-dialog";
 import { CsvError, CsvPreview, downloadExampleCsv, previewCallListCsv } from "@/lib/call-list-csv";
 import { ImportDialog } from "./import-dialog";
 import { useLanguages } from "@/components/languages-provider";
+import { useCampaigns } from "@/components/campaigns-provider";
+import { campaignName } from "@/lib/campaigns";
+import { CsvColumnsHelp } from "./csv-columns-help";
 import { LanguageChip } from "@/components/language-chip";
 import { holdReason } from "@/lib/languages";
 
@@ -43,7 +46,11 @@ export function PatientsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const langs = useLanguages();
+  const campaigns = useCampaigns();
   const [imported, setImported] = useState<{ name: string; preview: CsvPreview } | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [missingColumns, setMissingColumns] = useState<string[]>([]);
+  const helpRef = useRef<HTMLDetailsElement>(null);
 
   // Read and check the whole file in the browser; nothing is sent until the
   // admin has seen every row (ImportDialog).
@@ -52,10 +59,22 @@ export function PatientsPanel({
     ev.target.value = ""; // so picking the same file again fires onChange
     if (!file) return;
     try {
-      const preview = previewCallListCsv(await file.text(), entries.map((e) => e.patient_id), langs?.languages ?? null);
+      const preview = previewCallListCsv(
+        await file.text(),
+        entries.map((e) => e.patient_id),
+        langs?.languages ?? null,
+        campaigns?.campaigns ?? null,
+      );
+      setMissingColumns([]);
       setImported({ name: file.name, preview });
     } catch (err) {
       toast.error(err instanceof CsvError ? err.message : "Could not read that file.");
+      if (err instanceof CsvError && err.missingColumns.length) {
+        // Open the column help with the missing ones marked.
+        setMissingColumns(err.missingColumns);
+        setHelpOpen(true);
+        requestAnimationFrame(() => helpRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }));
+      }
     }
   };
 
@@ -132,9 +151,19 @@ export function PatientsPanel({
         </div>
       </Panel>
 
+      <Panel className="px-5 py-3.5">
+        {missingColumns.length ? (
+          <p className="mb-2 rounded-xl bg-brand-red/10 px-3 py-2 text-[13px] text-brand-red-dark" role="alert">
+            The last file was not imported: it has no {missingColumns.join(", ")} column{missingColumns.length > 1 ? "s" : ""}.
+            The columns are below; the Example CSV has them all.
+          </p>
+        ) : null}
+        <CsvColumnsHelp ref={helpRef} open={helpOpen} onOpenChange={setHelpOpen} missing={missingColumns} />
+      </Panel>
+
       <Panel className="overflow-hidden">
         {sorted.length === 0 ? (
-          <EmptyState title="No patients on the list" hint="Add a patient with the details the agent needs and, optionally, a planned call time, or import a CSV. The example CSV shows the columns." />
+          <EmptyState title="No patients on the list" hint="Add a patient with the details the agent needs and, optionally, a planned call time, or import a CSV. CSV columns, above, lists every column; the example CSV has them all." />
         ) : (
           <table className="w-full text-left text-[13px]">
             <thead className="bg-mist/60 text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
@@ -159,6 +188,7 @@ export function PatientsPanel({
                       {e.patient_id} · <span className="tabular-nums">{formatPhone(e.phone)}</span>
                       {e.is_diabetic ? " · diabetic" : ""}
                       {e.care_setting === "inpatient" ? " · inpatient" : e.care_setting === "outpatient" ? " · outpatient" : ""}
+                      {e.campaign_id && e.campaign_id !== (campaigns?.default ?? "post_op") ? ` · ${campaignName(e.campaign_id, campaigns)}` : ""}
                     </div>
                   </td>
                   <td className="hidden px-3 py-3 text-ink-soft md:table-cell">
@@ -240,6 +270,7 @@ export function PatientsPanel({
         fileName={imported?.name ?? ""}
         preview={imported?.preview ?? null}
         actions={actions}
+        campaigns={campaigns}
         onClose={() => setImported(null)}
       />
     </>

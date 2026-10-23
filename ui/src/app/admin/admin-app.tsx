@@ -1,6 +1,7 @@
 "use client";
 
 import { LanguagesProvider } from "@/components/languages-provider";
+import { CampaignsProvider } from "@/components/campaigns-provider";
 import { useMounted } from "@/hooks/use-mounted";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -41,10 +42,13 @@ function Router({ nurseConsoleUrl }: { nurseConsoleUrl: string | null }) {
   const sample = useSearchParams().get("data") === "demo";
   const mounted = useMounted();
   if (sample && !mounted) return null; // sample data is built in the browser only
-  // Patient languages (GET /api/languages) for every form, list and chip below.
+  // Patient languages (GET /api/languages) and use cases (GET /api/campaigns)
+  // for every form, list and chip below.
   return (
     <LanguagesProvider mode={sample ? "demo" : "live"}>
-      {sample ? <Sample nurseConsoleUrl={nurseConsoleUrl} /> : <Live nurseConsoleUrl={nurseConsoleUrl} />}
+      <CampaignsProvider mode={sample ? "demo" : "live"}>
+        {sample ? <Sample nurseConsoleUrl={nurseConsoleUrl} /> : <Live nurseConsoleUrl={nurseConsoleUrl} />}
+      </CampaignsProvider>
     </LanguagesProvider>
   );
 }

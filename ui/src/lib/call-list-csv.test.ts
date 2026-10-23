@@ -1,25 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
-  BULK_LIMIT, CsvError, EXAMPLE_CSV, importInChunks, parseCallListCsv, parseCareSetting, previewCallListCsv,
+  BULK_LIMIT, CSV_COLUMNS, CSV_COLUMN_INFO, CsvError, EXAMPLE_CSV, importInChunks, parseCallListCsv, parseCareSetting,
+  previewCallListCsv,
 } from "./call-list-csv";
+import { CampaignsResponse } from "./campaigns";
+import campaignSample from "./campaigns-sample.json";
 import { LanguagesResponse } from "./languages";
 import sample from "./languages-sample.json";
 
 const LANGS = (sample as LanguagesResponse).languages;
+const CAMPAIGNS = (campaignSample as CampaignsResponse).campaigns;
 
 const HEADER = "phone,patient_name,patient_id,patient_dob,operation_name,operation_date,is_diabetic";
 const ROW = "+12025550123,Jane Doe,P-1001,1950-03-15,Total knee replacement,2026-07-22,false";
 
 describe("parseCallListCsv", () => {
   it("parses the example CSV we hand users", () => {
-    const rows = parseCallListCsv(EXAMPLE_CSV, LANGS);
-    expect(rows).toHaveLength(4);
+    const rows = parseCallListCsv(EXAMPLE_CSV, LANGS, CAMPAIGNS);
+    expect(rows).toHaveLength(5);
     expect(rows[2].patient_name).toBe("Ruiz, Maria"); // quoted comma survives
     expect(rows[1].is_diabetic).toBe(true);
     expect(rows[0].is_diabetic).toBe(false);
-    expect(rows.map((r) => r.care_setting)).toEqual(["inpatient", "inpatient", "outpatient", "outpatient"]);
-    expect(rows.map((r) => r.language)).toEqual([undefined, "en-US", "es-US", "vi-VN"]);
-    expect(rows.map((r) => r.call_in_english)).toEqual([undefined, undefined, true, undefined]);
+    expect(rows.map((r) => r.care_setting)).toEqual(["inpatient", "inpatient", "outpatient", "outpatient", "outpatient"]);
+    expect(rows.map((r) => r.language)).toEqual([undefined, "en-US", "es-US", "vi-VN", undefined]);
+    expect(rows.map((r) => r.call_in_english)).toEqual([undefined, undefined, true, undefined, undefined]);
+    expect(rows.map((r) => r.campaign_id)).toEqual([undefined, undefined, undefined, undefined, "pre_op"]);
   });
 
   it("accepts CRLF line endings", () => {
@@ -259,5 +264,62 @@ describe("the language columns", () => {
     const p = previewCallListCsv(`${H}\n${row("es")}`, [], null);
     expect(p.rows[0].errors.join()).toMatch(/could not be loaded/);
     expect(previewCallListCsv(`${H}\n${row("")}`, [], null).invalid).toBe(0);
+  });
+});
+
+describe("the campaign_id column (the use case)", () => {
+  const H = "phone,patient_name,patient_id,patient_dob,campaign_id";
+  const row = (c: string, n = 1) => `+1202555012${n},Ana Ruiz,P-${n},1950-03-15,${c}`;
+
+  it("accepts a listed id in any case, with - for _", () => {
+    for (const cell of ["pre_op", "PRE_OP", "pre-op", " Pre-Op "]) {
+      const p = previewCallListCsv(`${H}\n${row(cell)}`, [], null, CAMPAIGNS);
+      expect(p.rows[0].errors).toEqual([]);
+      expect(p.valid[0].campaign_id).toBe("pre_op");
+    }
+  });
+
+  it("blank is the default (post-op), sent as nothing", () => {
+    const p = previewCallListCsv(`${H}\n${row("")}`, [], null, CAMPAIGNS);
+    expect(p.valid[0]).not.toHaveProperty("campaign_id");
+    expect(previewCallListCsv(`${H}\n${row("")}`, [], null, null).invalid).toBe(0);
+  });
+
+  it("an unknown id is a row error naming the valid ones; the other rows still import", () => {
+    const p = previewCallListCsv(`${H}\n${row("discharge", 1)}\n${row("post_op", 2)}`, [], null, CAMPAIGNS);
+    expect(p.rows[0].errors.join()).toMatch(/campaign_id must be one of post_op, pre_op or blank \(got "discharge"\)/);
+    expect(p.invalid).toBe(1);
+    expect(p.valid.map((e) => e.campaign_id)).toEqual(["post_op"]);
+  });
+
+  it("a campaign_id cell without the list loaded is a row error, never sent unchecked", () => {
+    const p = previewCallListCsv(`${H}\n${row("pre_op")}`, [], null, null);
+    expect(p.rows[0].errors.join()).toMatch(/use-case list could not be loaded/);
+  });
+});
+
+describe("the column metadata", () => {
+  it("is the example header, with the 4 required columns first and an example for each", () => {
+    expect(EXAMPLE_CSV.split("\n")[0]).toBe(CSV_COLUMNS.join(","));
+    expect(CSV_COLUMN_INFO.filter((c) => c.required).map((c) => c.name))
+      .toEqual(["phone", "patient_name", "patient_id", "patient_dob"]);
+    for (const c of CSV_COLUMN_INFO) expect(c.example, c.name).not.toBe("");
+  });
+
+  it("a missing-column error names the columns and points to the help", () => {
+    try {
+      previewCallListCsv("phone,patient_name\n+12025550123,Jane");
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toBeInstanceOf(CsvError);
+      expect((e as CsvError).missingColumns).toEqual(["patient_id", "patient_dob"]);
+      expect((e as CsvError).message).toMatch(/See "CSV columns"/);
+    }
+  });
+
+  it("extra columns are ignored", () => {
+    const p = previewCallListCsv("phone,patient_name,patient_id,patient_dob,notes\n+12025550123,Jane,P-1,1950-03-15,hi");
+    expect(p.invalid).toBe(0);
+    expect(p.valid[0]).not.toHaveProperty("notes");
   });
 });

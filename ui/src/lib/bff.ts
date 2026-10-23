@@ -93,6 +93,8 @@ export const ALLOWED_ROUTES: ReadonlyArray<readonly [Method, RegExp, RouteScope]
   ["GET", /^call-settings$/, "both"],
   // Patient languages and which can be called today (docs/LANGUAGES-PLAN.md)
   ["GET", /^languages$/, "both"],
+  // The use cases an entry may name (config/campaigns): the CSV import and patient form
+  ["GET", /^campaigns$/, "both"],
   ["PUT", /^call-settings\/recall$/, "admin"],
   ["PUT", /^call-settings\/display$/, "admin"],
   ["PUT", /^call-settings\/organization$/, "admin"],

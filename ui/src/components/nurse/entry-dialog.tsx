@@ -118,7 +118,7 @@ export function EntryDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4 py-2">
-          <PatientFields form={form} errors={errors} idPrefix="nurse-" onChange={set} onBlur={blur} />
+          <PatientFields form={form} errors={errors} idPrefix="nurse-" showCampaign onChange={set} onBlur={blur} />
           {serverError ? <p className="rounded-xl bg-brand-red/10 p-2 text-sm text-brand-red-dark">{serverError}</p> : null}
           <DialogFooter className="gap-2 sm:gap-0">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

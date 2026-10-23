@@ -37,7 +37,7 @@ Each alert below is a log-based metric defined in `infra/modules/observability`.
 ### `dial_failures`: the provider refused the call or could not be reached
 
 - `dial.rejected` with a 21211-style code is a bad or unroutable number. The entry is parked as `blocked`, not retried.
-- `dial.error` is network or provider downtime. Cloud Tasks retries.
+- `dial.error` is network or provider downtime (any other exception from the provider call). It is NOT retried by Cloud Tasks: the dialer gives the hourly dial-budget token back and raises a 502 `DialError`, and `/tasks/dial` catches it and answers 200. The entry goes back to `pending` with `last_call_status: dispatch_failed` and `last_error` "Could not reach the telephony provider."; the run counts it as failed and lists it in its `errors`. The patient is dialled again only by a later run (a scheduled or due run, or a nurse's "Call again"). Cloud Tasks retries a dial task only when the handler itself fails (an unhandled exception, a 5xx).
 
 ### `invalid_reports`: a call report failed validation
 
@@ -74,7 +74,7 @@ While the verdict is pending, the agent cannot take any exit except the emergenc
 | Stop scheduled dialling | `gcloud scheduler jobs pause voa-dispatch-due --location <region>` |
 | Stop all dialling now | Set `VOA__DIALING__MAX_DIALS_PER_HOUR=0` is NOT a stop (0 = unlimited). Instead remove numbers from the allowlist, or pause the `voa-dial` queue: `gcloud tasks queues pause voa-dial --location <region>` |
 | Stop SMS sends | `gcloud tasks queues pause voa-sms --location <region>`, or set `VOA__SMS__DRY_RUN=true` and redeploy the API |
-| "Test by text" while texts are live | Nothing to do: the simulator always runs simulated (dry-run provider, no queue) in its own `simulator__*` collections, whatever `VOA__SMS__DRY_RUN` says. It stops only with `VOA__SMS__ENABLED=false`. Its collections hold fictional test data only and can be deleted at any time |
+| "Test by text" while texts are live | Nothing to do: the simulator always runs simulated (dry-run provider, no queue) in its own `simulator__*` collections, whatever `VOA__SMS__DRY_RUN` says. It stops only with `VOA__SMS__ENABLED=false`. Its collections hold fictional test data only and can be deleted at any time; each document expires `sms.simulator_ttl_days` (7) after its last write (Firestore TTL on `expire_at`; deletion can lag by up to a day) |
 | Cancel a manual run | Dashboard → Cancel run (sets `cancel_requested`; queued dial tasks then skip) |
 
 ## Check the number's webhooks
@@ -109,6 +109,8 @@ Simultaneous calls are capped by `dialing.max_concurrent_calls`: Terraform `max_
 `dial_concurrency` is NOT the call cap. It is how many `/tasks/dial` requests run at once. Keep it at 1. One at a time makes the free-slot check and the dial that follows it race-free, and a dial takes about a second, so it already matches Twilio's 1 call per second. Terraform refuses `dial_concurrency > max_concurrent_calls`.
 
 **A run that never finishes.** A dial task that Cloud Tasks gave up on (5 attempts within 15 minutes, after real errors only) would leave its patient uncounted. `/cron/dispatch-due` closes such a run once it has made no progress for about 1 h 40 min (the full slot wait, the error retries and one call) and none of its calls is still live. It logs `run.reconciled`; still-pending patients are deferred (a scheduled run carries them to the next opening). To end a stuck run sooner, cancel it from the dashboard.
+
+**A patient stuck on "calling".** A row stays `calling` when its call never gets a final status on the row: no terminal callback from Twilio, a gateway crash, a lost `/tasks/call-terminal` task, or a dial task that died after it claimed the row. Every tick, `/cron/dispatch-due` checks the `calling` rows (at most 50) against the call doc of their current attempt (`recover_stranded_entries`). A call with a terminal status that ended 5 minutes ago or more gives the row what that status implies (`completed` for success, otherwise `pending`). A call with no terminal status, or no call doc at all, older than the in-flight TTL (`max(dialing.call_timeout_s, voice.max_call_seconds + 120 s)`, 17 min by default) puts the row back to `pending` with `last_error` "call never finished: re-queued". A live call inside the TTL is never touched. Each fix logs `entry.stranded_recovered` (entry id, attempt, reason, call id, run id; no phone or name) and is recorded on the current run if that run claimed the row. Auto-recall and the missed-call text are not triggered by a recovery; the re-queued patient is dialled by the next run. Nothing to do by hand; to find them, filter the logs on `jsonPayload.event="entry.stranded_recovered"`.
 
 ## Known behaviours and traps
 

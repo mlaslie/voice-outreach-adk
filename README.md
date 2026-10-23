@@ -193,7 +193,7 @@ There are three integration points, each documented with examples.
 | You want to… | Guide |
 |---|---|
 | **Load call lists from your EHR** and check what happened to each patient (Python examples) | [Integrating with your environment §1–2](docs/INTEGRATION-GUIDE.md#1-calls-in-loading-call-lists) |
-| **Send results back to your EHR** (outbox exporter, FHIR or HL7) | [Integrating with your environment §3](docs/INTEGRATION-GUIDE.md#3-results-out-sending-results-to-your-ehr) |
+| **Send results back to your EHR** (outbox exporter, FHIR or HL7) | [Integrating with your environment §3](docs/INTEGRATION-GUIDE.md#3-results-out-sending-results-to-your-ehr), and the configurable mapping in [EHR export](docs/EHR-EXPORT-PLAN.md) |
 | **Use your own telephony or SMS provider** (Cisco, Avaya, Genesys or another PBX, SBC, CCaaS or SMS gateway) | [Telephony and SMS providers](docs/TELEPHONY-PROVIDERS.md) |
 
 **Example:** load tomorrow's morning list from Python, running as the ingest service account:

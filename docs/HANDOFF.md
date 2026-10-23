@@ -850,3 +850,130 @@ Two mutations were checked: sending the invite through the real `Api`, and remov
   - The API runs with `VOA__DIALING__MAX_CONCURRENT_CALLS=3`.
   - Smoke passes, and the English persona eval is 16/16.
 - **Live caveat:** demo sends real texts to allowlisted test numbers. Non-English texts to those numbers are now machine-translated and outside the carrier registration. Use the "Test by text" simulator for language demos where possible.
+
+## 23 Oct: CSV use-case column and column help
+
+**What changed.**
+- **CSV `campaign_id` column (optional).** The admin console's Patients import reads it; blank is the default (post-op). The valid ids come from the server, not the UI: new `GET /api/campaigns` → `{default, campaigns: [{id, name, status}]}`, one row per loadable spec in `config/campaigns` (READ in `auth.py` ROUTE_POLICY; BFF route for both builds). An unknown id is a row error naming the valid ones ("campaign_id must be one of post_op, pre_op or blank"); the other rows still import. A `campaign_id` cell while the list could not be loaded is a row error too (never sent unchecked), as for `language`. Any case and `-` for `_` are accepted. The example CSV has a fifth row with `pre_op`. The import preview has a "Use case" column; the patient list names a non-default use case.
+- **Patient form:** an optional "Use case" select in Add/Edit patient (admin only, `showCampaign` on `PatientFields`); default "Post-operative wellness check (default)". The entry request always sends `campaign_id` (null = default).
+- **"CSV columns" help** on Patients and in the import dialog (`components/admin/csv-columns-help.tsx`): name, required/optional, format, example for each column, built from `CSV_COLUMN_INFO` in `lib/call-list-csv.ts` (the one source of truth; `CSV_COLUMNS` and the required set derive from it), plus the rules. A file missing required columns opens the help with those columns marked and a red line above it; the toast says `See "CSV columns"`.
+- **Sample mode:** `lib/campaigns-sample.json` is the endpoint's answer, checked by `test_ui_sample_campaigns_match_the_endpoint` (regenerate it when a spec is added, renamed or changes status).
+- **Fix found on the way:** `PATCH /api/call-list/{id}` reset `campaign_id` to None whenever the body did not send it (the old form never did), so editing a pre-op patient silently made them post-op. `campaign_id` is now kept unless the edit sends it, like `language`.
+- Docs: `INTEGRATION-GUIDE.md` CSV table has the `campaign_id` row; the "CSV has no use-case column" line is gone.
+
+**Tests:** `services/api/tests/test_campaigns_api.py` (shape, every listed id accepted, READ policy, sample parity, PATCH keep/clear); `ui/src/lib/call-list-csv.test.ts` (campaign column, column metadata, missing-column error, extra columns); `bff.test.ts` (route in both builds; POST refused). `test_call_concurrency.py::test_a_patient_who_never_gets_a_slot_is_deferred_and_the_run_reconciled` failed during this work on `reconciled_at`, from the concurrent `routes_tasks.py` change, not this one.
+
+**Not done:** not committed or deployed. The nurse console's "call now" form does not offer a use case.
+
+## 23 Oct: stuck calling rows, simulator expiry, runbook (code; not deployed)
+
+**1. Call-list rows stuck in "calling".**
+- **Problem.** `compliance.claim_entry` (in `/tasks/dial`) sets a row to `calling`; only `/tasks/call-terminal` (via `reconcile_entry_patch` → `entry_status_after_call`) or a `DialError` in `/tasks/dial` takes it out. A row whose call never got a final status on the row stayed `calling` for good, and `can_claim_entry` refuses a `calling` row (`recover_stranded` is never passed by any caller), so the patient was never dialled again. Causes: no Twilio terminal callback, a gateway crash, a lost call-terminal task, a dial task that died between its claim and the call doc (its redelivery says "already claimed"). The 23 Oct stale-run check closes the run but records such a row as `skipped` and leaves it `calling`.
+- **Fix.** `routes_tasks.recover_stranded_entries`, run by `/cron/dispatch-due` every tick, BEFORE the stale-run check (so a re-queued row is then carried over as deferred, not skipped). The rule is the pure `compliance.stranded_entry_fix(entry, call)`, where `call` is the call doc whose `entry_attempt` equals the row's `attempts`:
+  - not `calling` → untouched;
+  - call with a terminal status that ended (`ended_at`, else `updated_at`) at least `TERMINAL_APPLY_GRACE_S` (300 s) ago → `entry_status_after_call(status)`: `completed` for success, else `pending`, `last_call_status` = the status;
+  - call without a terminal status, started (`initiated_at`) less than the in-flight TTL ago (`_call_timeout_s`: max(`call_timeout_s`, `max_call_seconds` + 120), 1020 s by default) → untouched; older → `pending`, `last_call_status: timeout`, `last_error` "call never finished: re-queued";
+  - no call doc: the same TTL measured from the claim (`last_attempt_at`) → untouched, then re-queued the same way;
+  - a missing or unparseable time counts as old.
+  - The write is a transaction that re-checks `calling` and the same `attempts`, so call-terminal, a parallel tick or a new claim wins; a second pass finds nothing. `attempts` is not changed (the next run claims attempt + 1). The row gets `stranded_recovered_at`. The call doc is not touched (a late Twilio status still settles the row through call-terminal; tested).
+  - **Run:** `/tasks/dial`'s claim now stamps `claimed_by_run` on the row. If that run (or the call's `run_id`) is the current running run: a call still in `in_flight` leaves it and counts succeeded/failed; a member never counted is counted (failed/succeeded with a call, `deferred` without one, so a scheduled run carries it over); a counted one is left alone. `_run_update` now accepts a mutator returning None (no write, no `updated_at` bump).
+  - Bounded: one `list_status == calling` query with `limit=STRANDED_BATCH` (50) and one `calls` query by `entry_id` per row (single-field indexes). A row whose call cannot be read is skipped (counted live). Each fix logs `entry.stranded_recovered` (entry_id, attempt, reason `terminal_unapplied` / `call_never_finished` / `no_call`, list_status, call_status, call_id, run_id, recorded_on_run; no phone or name).
+  - **Not triggered by a recovery:** auto-recall and the missed-call text. A call-terminal task lost hours ago would otherwise send "we missed you" hours late; the re-queued patient is simply dialled by the next run.
+- **Changed test:** `test_call_concurrency.py::test_a_patient_who_never_gets_a_slot_is_deferred_and_the_run_reconciled` expected `reconciled_at`. Its first patient's call is past the TTL by the time the run is stale, so the recovery now re-queues it, counts it failed and the run completes normally first. The assertion now checks completed, `in_flight == []` and both patients pending. (This is the failure the CSV agent saw above.) The stale-run path is still covered by `test_a_lost_dial_task_is_reconciled_and_the_patient_carried_over`.
+- **Tests:** `services/api/tests/test_stranded_entries.py` (no call doc: left alone inside the TTL, then re-queued, recorded deferred, run completes, the event logged; re-queued row dials attempt 2 on the next run; terminal never applied: left inside the grace, then `rna` → pending and `success` → completed with the run counted; three live calls within the TTL untouched; answered-but-not-ended untouched; old call with no status → pending, run failed +1, call doc untouched; a late terminal after the reset still completes the row; idempotent over several ticks with three kinds of stuck row; a racing new claim is not touched; an unreadable call counts as live; the batch bound). `packages/voa_core/tests/test_stranded_entry_fix.py` (the pure rule). Parity suite unchanged.
+
+**2. Simulator test data expiry.**
+- `SimulatorStore` stamps `expire_at` = clock + ttl on every `set`, `merge`, `create` and `transact` that writes (a transaction returning None stamps nothing). It is a `datetime`, which Firestore stores as a Timestamp (a TTL policy ignores strings). `simulator_api` passes the service clock and `timedelta(days=sms.simulator_ttl_days)`.
+- New config `sms.simulator_ttl_days` (default 7, 1 to 90; `VOA__SMS__SIMULATOR_TTL_DAYS`, not set by Terraform). CONFIG.md regenerated (one row).
+- **TTL list:** `sms_simulator.WRITTEN_COLLECTIONS` is the one list: `calls`, `call_list`, `ehr_outbox`, `rate_limits`, `reports`, `scheduled_callbacks`, `sms_consents`, `sms_filings`, `sms_inbound_seen`, `sms_messages`, `sms_optouts`, `sms_sessions`. All but `call_list` and `ehr_outbox` are what the whole API test suite actually writes under `simulator__` (found by recording MemoryStore writes); `call_list` and `ehr_outbox` are reachable from SMS code and named in the 22 Oct design, so they are covered. Terraform: `local.simulator_ttl_collections` and `google_firestore_field.simulator_ttl` (for_each, `simulator__${each.value}`, `expire_at`, `ttl_config {}`, `index_config {}`) in `infra/envs/demo/services.tf`. It has to be a list (a TTL policy is per collection group, no wildcard, and Terraform needs it before any write); `test_sms_simulator_expiry.py` fails if the Terraform list and the Python list differ, or if a full simulator run writes a collection outside it.
+- **Tests:** `services/api/tests/test_sms_simulator_expiry.py` (each write kind stamped; each write pushes the expiry out; a no-op transaction stamps nothing; the caller's dict is not mutated; TTL configurable; a full text run incl. STOP: every simulator doc expires at NOW + 7 d and no real doc carries `expire_at`; Terraform parity). `test_sms_simulator.py`'s namespace test now expects the extra field.
+- Existing simulator data written before this has no `expire_at` and is never deleted by TTL; delete `simulator__*` by hand once if wanted (it is fictional).
+
+**3. Runbook.** The `dial_failures` line said `dial.error` makes Cloud Tasks retry. It does not: `dialer.dial` releases the dial-budget token and raises `DialError(502)`, `/tasks/dial` catches it, answers 200, puts the row back to `pending` with `last_call_status: dispatch_failed`, and counts it failed on the run; only a later run dials the patient again. Corrected. Added "A patient stuck on 'calling'" under Scaling calls, and the simulator's TTL in the Stopping-things row.
+
+**Checks:** full suite 2296 passed, 12 skipped; ruff format and check clean; `terraform validate` passes; PII scan clean. Not applied, not committed.
+
+**To deploy:** the API image (recovery, simulator stamp, `claimed_by_run`) and `terraform apply` (12 new `google_firestore_field` TTL policies; no other change from this work). Firestore builds TTL policies one at a time and may answer 409 to parallel field operations: if the apply fails that way, rerun it (or `-parallelism=1`).
+
+**Watch out.**
+- A recovered row whose original call-terminal task was only slow (over 5 min) gets that task later as well: the row is unaffected (same status or completed), but the run can count the member twice.
+- The no-call re-queue assumes a dial task never runs longer than the TTL (17 min). Twilio's client timeout is far shorter, but the dial queue's dispatch deadline (Cloud Tasks default 10 min) is not set explicitly.
+- A dial that reached Twilio but whose call doc write failed rang the patient with no record; after the TTL the row is re-queued and the next run rings again.
+
+## 23 Oct: EHR export plan and mapping engine
+
+Step 1 of a configurable EHR exporter: plan, engine and tests only. No UI, no service, nothing deployed, and no real EHR called.
+
+**Why.** `ehr_outbox/{call_id}` has had a FHIR-shaped record since sign-off was built, but nothing reads it, and it is not valid FHIR:
+- no subject;
+- no `questionnaire` canonical;
+- untyped answers;
+- the app's question ids as linkIds.
+
+The user asked for the FHIR structure to be mappable by admins, through a simple web UI driving a YAML/JSON file.
+
+**What exists.**
+- **`docs/EHR-EXPORT-PLAN.md`:**
+  - goal and non-goals: not an alerting path; PHI is the deploying organisation's call;
+  - the profile model;
+  - where it runs: Cloud Run `voa-ehr-export`, Scheduler plus Eventarc, its own service account;
+  - the admin UI design for step 2;
+  - the testing strategy;
+  - the order of work;
+  - the open questions for the EHR team: Epic and Oracle Health write support, write scopes, whether a Questionnaire exists, identifier systems, Task semantics, PHI scope.
+- **`packages/voa_ehr`** (a new workspace member, added to the root dependencies and sources like the others; `uv.lock` updated):
+  - `profile.py`: the profile as pydantic models, `extra="forbid"` throughout. `profile_problems` checks the profile against the use-case spec through `load_campaign`: unknown question ids, a type that does not fit the question, code maps missing an answer.
+  - `transform.py`: pure mapping to a transaction Bundle with conditional requests, plus entered-in-error.
+  - `fhir_check.py`: `fhir.resources` R4B structure checks plus the required status codes.
+  - `client.py`: an injectable async `FhirClient`, the httpx `HttpFhirClient`, and `check_connection`.
+  - `fake_fhir.py`: an in-memory FHIR server, also usable as an httpx `MockTransport`.
+  - `exporter.py`: `run_once` (lease, patient lookup, send, transactional write-back, withdrawals) and `preview`.
+- **`config/ehr/profiles/post_op.example.yaml`:** the worked example. The EHR and its local codes are fictional; the LOINC and SNOMED codes are marked EXAMPLE - VERIFY.
+- **`config/ehr/samples/post_op.outbox.json`:** a fictional record, generated with `review.ehr_payload`.
+- **`scripts/ehr_export_preview.py <profile> <fixture>`:** prints the Bundle, skipped answers and problems, offline.
+
+**Decisions and their reasons.**
+- **Credentials are `secret://` references only.** The model refuses inline values. `base_url` must be https, with http allowed only for localhost.
+- **Idempotency is by business identifier,** `{system}|{call_id}[-task|-obs-<q>|-summary|-transcript]`, written with conditional update. A re-sign-off updates the same resources rather than duplicating them. Bundle fullUrls are uuid5 of the identifier, so the preview is byte-identical to the send.
+- **The patient is matched on MRN only.**
+  - The exporter never creates a patient, and never picks one of several matches: that is `failed`.
+  - Not found is `retry` by default, because the EHR may lag.
+  - A call with no MRN fails without a search: matching by phone is good enough inside the app (B-6), but never for an EHR.
+- **DOB and transcript stay out unless switched on.**
+  - The DOB is read from the call doc only when `search_with_birthdate` is on, and then goes only into the search.
+  - The transcript is not even read unless enabled.
+  - Summary and transcript need `phi_acknowledged: true`.
+  - Tests assert that the DOB never appears in any request.
+- **Write-back is a transaction that compares `status` and `created_at`.** The race this prevents: the API withdraws or re-signs a record while we are sending. Without the check our `exported` would overwrite their `withdrawn`, and the withdrawal would be lost. With it, the next run marks what we sent entered-in-error (tested).
+- **Withdrawal searches by identifier,** not just `ehr_refs`. The API re-signs with `set()`, which wipes `ehr_refs`, so identifiers are the only reliable record of what was sent.
+- **The exporter adds new statuses:** `exported`, `failed`, `skipped`, `withdrawn_done`, plus `export_*` fields. Nothing in the API reads the outbox status (checked), so the API is unaffected.
+- **`fhir.resources` 8.3 is a runtime dependency.**
+  - BSD-3, pure Python, about 2.3 MB, depending only on pydantic v2.
+  - Its R4B models are used because 8.x no longer ships 4.0.1, and R4B is structurally identical to R4 for the six types we emit.
+  - It does not check value-set codes, so `fhir_check` adds them.
+  - It caught `QuestionnaireResponse.identifier` being 0..1 in R4.
+
+**Not done / watch out.**
+- **`ehr_payload` does not carry `campaign_id` / `spec_version`.** The exporter reads them from the call doc and defaults to post_op. Plan step 4 is the small additive change to `review.py`, not made here.
+- **Two auth modes are in the schema but not built:** `client_credentials` and `smart_backend`. The client refuses them.
+- **No live HAPI test yet.** It is planned as opt-in under `VOA_RUN_LIVE`, with fictional data.
+- **Orphaned resources are not cleaned up.** If a re-sign-off removes an answer, its earlier Observation is not marked entered-in-error (plan step 8).
+- **The example codes must be verified** with the EHR team before any real use.
+
+**Checks.**
+- `uv run pytest -q -p no:warnings packages/voa_ehr`: 93 passed.
+- Full suite: 2389 passed, 12 skipped.
+- `ruff format` and `ruff check`: clean.
+- `scripts/pii_scan.py`: clean.
+
+## 23 Oct: owner decisions (demo)
+- **Translations:**
+  - **Request:** the owner asked to approve the Spanish wording for the demo.
+  - **Already the case on demo:** `languages_auto_approve` makes all 24 languages available, Spanish draft included.
+  - **What changed:** the sign-off is recorded in the notes of both `config/campaigns/i18n/*.es-US.yaml`. The **status stays `draft`**, so no other deployment of this code treats an unreviewed machine translation as approved by a qualified translator.
+- **Carrier registration:** not needed for the demo. The owner is the only recipient.
+- **Two 20 Oct call records corrected:** `scripts/fix_wrong_person_left_vmail.py --apply` was run on the demo project. Calls …2083 and …bb8d now have outcome `voicemail_left` again, and the re-check reports all left_vmail calls consistent.
+- **The previous system (GE-CX):**
+  - The owner considers it deprecated for this deployment; the number won't be shared.
+  - The shared-caller-ID item is closed.
+  - Its code stays in its own repo as a reference for future use cases.

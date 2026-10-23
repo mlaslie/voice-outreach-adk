@@ -6,6 +6,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ClinicDateTimeInput, INPUT_LOOK } from "@/components/nurse/clinic-time-input";
 import { CallListEntryInput, CareSetting, PlaceCallRequest } from "@/lib/types";
 import { useLanguages } from "@/components/languages-provider";
+import { useCampaigns } from "@/components/campaigns-provider";
+import { campaignLabel, campaignName } from "@/lib/campaigns";
 import { DEFAULT_LANGUAGE, callInEnglishHint, isAvailable, languageOptionSuffix, optionLabel } from "@/lib/languages";
 
 const DOB_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -26,7 +28,7 @@ export interface PatientFormState {
   language: string;
   /** Call in English while the language is not available (held otherwise). */
   call_in_english: boolean;
-  /** The entry's use case, for which languages are available ("" = default). */
+  /** The entry's use case (GET /api/campaigns); "" = the default (post-op). */
   campaign_id?: string;
   /** Planned call time as the browser's datetime-local string, or "". */
   scheduled_for: string;
@@ -43,6 +45,7 @@ export const INITIAL_PATIENT_FORM: PatientFormState = {
   care_setting: "",
   language: DEFAULT_LANGUAGE,
   call_in_english: false,
+  campaign_id: "",
   scheduled_for: "",
 };
 
@@ -111,6 +114,7 @@ export function patientFormToRequest(form: PatientFormState): PlaceCallRequest {
   // Always sent, so an edit can change it (the API keeps them only when absent).
   body.language = form.language || DEFAULT_LANGUAGE;
   body.call_in_english = form.call_in_english;
+  if (form.campaign_id?.trim()) body.campaign_id = form.campaign_id.trim();
   return body;
 }
 
@@ -122,6 +126,8 @@ export function entryFormToRequest(form: PatientFormState): CallListEntryInput {
   return {
     ...patientFormToRequest(form),
     care_setting: form.care_setting || null,
+    // Always sent, so an edit can set it back to the default (null).
+    campaign_id: form.campaign_id?.trim() || null,
     scheduled_for: localInputToIso(form.scheduled_for),
   };
 }
@@ -133,6 +139,8 @@ interface PatientFieldsProps {
   idPrefix?: string;
   /** Show the planned-call-time field (call-list entries only). */
   showSchedule?: boolean;
+  /** Show the use-case select (GET /api/campaigns; the admin console's patients). */
+  showCampaign?: boolean;
   onChange: (key: keyof PatientFormState, value: string | boolean) => void;
   onBlur: (key: keyof PatientFormState) => void;
 }
@@ -142,6 +150,7 @@ export function PatientFields({
   errors,
   idPrefix = "",
   showSchedule = false,
+  showCampaign = false,
   onChange,
   onBlur,
 }: PatientFieldsProps) {
@@ -149,6 +158,10 @@ export function PatientFields({
   const langs = useLanguages();
   const list = langs?.languages ?? [];
   const available = isAvailable(form.language, form.campaign_id, langs);
+  const campaigns = useCampaigns();
+  const defaultCampaign = campaigns?.default ?? "post_op";
+  // The default is the blank option, whether stored as null or by its id.
+  const campaignValue = form.campaign_id && form.campaign_id !== defaultCampaign ? form.campaign_id : "";
 
   return (
     <>
@@ -255,6 +268,32 @@ export function PatientFields({
         </select>
         <p className="text-xs text-ink-soft">Picks which clinic guidelines apply when the agent answers questions.</p>
       </div>
+      {showCampaign && (
+        <div className="space-y-1.5">
+          <Label htmlFor={id("campaign_id")}>Use case</Label>
+          <select
+            id={id("campaign_id")}
+            value={campaignValue}
+            onChange={(e) => {
+              onChange("campaign_id", e.target.value);
+              // Which languages can be called depends on the use case.
+              if (isAvailable(form.language, e.target.value, langs)) onChange("call_in_english", false);
+            }}
+            disabled={!campaigns}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="">{campaignName(defaultCampaign, campaigns)} (default)</option>
+            {/* Until the list loads, only the current value (so it is never lost). */}
+            {!campaigns && campaignValue ? <option value={campaignValue}>{campaignValue}</option> : null}
+            {(campaigns?.campaigns ?? [])
+              .filter((c) => c.id !== defaultCampaign)
+              .map((c) => (
+                <option key={c.id} value={c.id}>{campaignLabel(c)}</option>
+              ))}
+          </select>
+          <p className="text-xs text-ink-soft">Which call the patient gets: its questions and follow-up. Same as the CSV&apos;s campaign_id column.</p>
+        </div>
+      )}
       <div className="space-y-1.5">
         <Label htmlFor={id("language")}>Preferred language</Label>
         <select

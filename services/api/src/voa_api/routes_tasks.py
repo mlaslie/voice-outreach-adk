@@ -10,7 +10,8 @@
                        turns (and, with phone, its text messages); set language_used
                        (docs/LANGUAGES-PLAN.md step 2; translation.py)
 /cron/dispatch-due     every minute: dial scheduled runs and entries whose time has come;
-                       close browser test calls whose link was never opened
+                       close browser test calls whose link was never opened; put call-list
+                       rows stranded in "calling" back (recover_stranded_entries)
 
 Two rules from the old proxy's backlog are enforced here, at dial time:
 
@@ -168,6 +169,8 @@ async def _run_update(api: Api, run_id: str, fn) -> None:
         if not run or run.get("run_id") != run_id:
             return None
         new = fn(dict(run))
+        if new is None:
+            return None  # nothing to record
         new["updated_at"] = now_iso(api.now())  # last progress: the stale-run check
         if new["status"] == "running" and _done(new) >= new["total"]:
             new["status"] = "completed"
@@ -356,7 +359,12 @@ async def task_dial(payload: dict, request: Request):
         # above must not slip a held patient through.
         if cur is not None and languages.entry_hold_reason(cur, campaign_id):
             return None
-        return compliance.claim_entry(cur, attempt, now=api.now(), explicit=explicit)
+        new = compliance.claim_entry(cur, attempt, now=api.now(), explicit=explicit)
+        if new is not None:
+            # Which run claimed it, so the stranded-row recovery can record a row
+            # whose call never got a call doc on the right run.
+            new["claimed_by_run"] = run_id
+        return new
 
     claimed = await api.store.transact(CALL_LIST, entry_id, claim)
     if not claimed or claimed.get("attempts") != attempt or claimed.get("list_status") != "calling":
@@ -842,6 +850,162 @@ async def reconcile_stale_run(api: Api, run: dict) -> dict | None:
     return {"run_id": run_id, "lost": lost}
 
 
+#: A call with a terminal status whose result has not reached its row after this
+#: long is presumed to have lost its ``/tasks/call-terminal`` task (that task
+#: normally lands within seconds of the status callback).
+TERMINAL_APPLY_GRACE_S = 300
+#: At most this many "calling" rows are looked at per cron tick. Normally there
+#: are no more than ``dialing.max_concurrent_calls`` of them.
+STRANDED_BATCH = 50
+
+
+async def _attempt_call(api: Api, entry_id: str, attempt: int) -> dict | None:
+    """The call doc of this row's dial attempt ``attempt``, or None."""
+    for cid, c in await api.store.query(CALLS, [Where("entry_id", "==", entry_id)]):
+        try:
+            if c.get("entry_attempt") is not None and int(c["entry_attempt"]) == attempt:
+                return {**c, "call_sid": c.get("call_sid") or cid}
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+async def _record_stranded_on_run(
+    api: Api, run_id: str, entry_id: str, call_sid: str | None, call_status: str | None
+) -> bool:
+    """Account for a recovered row on the current run, once. A call still listed
+    in flight leaves it and counts as succeeded or failed; a member the run never
+    counted is counted (failed or succeeded if a call was placed, deferred if
+    not, so a scheduled run carries it over); one already counted is left alone.
+    Returns whether the run changed."""
+    changed: dict[str, bool] = {}
+    ok = call_status in compliance.CLEARING_STATUSES
+
+    def mark(r):
+        changed.clear()
+        if r.get("status") != "running":
+            return None
+        flights = r.get("in_flight") or []
+        if call_sid and any(x.get("call_sid") == call_sid for x in flights):
+            r["in_flight"] = [x for x in flights if x.get("call_sid") != call_sid]
+            r["succeeded" if ok else "failed"] = (
+                int(r.get("succeeded" if ok else "failed") or 0) + 1
+            )
+        elif entry_id in (r.get("dialled_ids") or []) or any(
+            entry_id in (r.get(k) or []) for k in NOT_DIALLED_KINDS
+        ):
+            return None  # already counted (call-terminal, or an earlier tick)
+        elif call_sid:
+            r["dialled_ids"] = [*(r.get("dialled_ids") or []), entry_id]
+            r["succeeded" if ok else "failed"] = (
+                int(r.get("succeeded" if ok else "failed") or 0) + 1
+            )
+        else:
+            r["deferred"] = [*(r.get("deferred") or []), entry_id]
+        changed["run"] = True
+        return r
+
+    await _run_update(api, run_id, mark)
+    return bool(changed.get("run"))
+
+
+async def recover_stranded_entries(api: Api) -> list[dict]:
+    """Put back call-list rows stranded in "calling" (run by the per-minute cron).
+
+    A row stays "calling" when its call never gets a final status on the row: no
+    terminal status callback from Twilio, a gateway crash, a lost
+    ``/tasks/call-terminal`` task, or a dial task that died after its claim. The
+    patient is then never dialled again. For each "calling" row (at most
+    ``STRANDED_BATCH`` per tick) and the call doc of its current attempt,
+    ``compliance.stranded_entry_fix`` decides:
+
+    * terminal status, ended ``TERMINAL_APPLY_GRACE_S`` ago or more: the row takes
+      what the status implies (``entry_status_after_call``);
+    * no terminal status, or no call doc, and older than the in-flight TTL
+      (``_call_timeout_s``: the longest allowed call + 2 min): back to pending with
+      ``last_error`` "call never finished: re-queued";
+    * anything younger: left alone (a live call, or a dial still being placed).
+
+    The write is a transaction that re-checks the row is still "calling" on the
+    same attempt, so a call-terminal task, a parallel tick or a new claim landing
+    meanwhile wins and a second pass changes nothing. A recovered row is recorded
+    on the current run when that run claimed it. Auto-recall and the missed-call
+    text are NOT triggered: the row is pending, so the next run dials it.
+    A row whose call cannot be read is skipped (counted live). Returns one summary
+    per row fixed."""
+    ttl = _call_timeout_s(api)
+    fixed: list[dict] = []
+    rows = await api.store.query(
+        CALL_LIST, [Where("list_status", "==", "calling")], limit=STRANDED_BATCH
+    )
+    for entry_id, entry in rows:
+        try:
+            summary = await _recover_stranded_entry(api, entry_id, entry, ttl)
+        except Exception:
+            log.exception(
+                "stranded-row check failed for one row",
+                extra={"event": "entry.stranded_recover_failed", "entry_id": entry_id},
+            )
+            continue
+        if summary:
+            fixed.append(summary)
+    return fixed
+
+
+async def _recover_stranded_entry(api: Api, entry_id: str, entry: dict, ttl: int) -> dict | None:
+    """One row of :func:`recover_stranded_entries`; None when left alone."""
+    attempt = int(entry.get("attempts") or 0)
+    call = await _attempt_call(api, entry_id, attempt)
+    fix = compliance.stranded_entry_fix(
+        entry,
+        call,
+        now=api.now(),
+        in_flight_ttl_s=ttl,
+        terminal_grace_s=TERMINAL_APPLY_GRACE_S,
+        terminal_statuses=lifecycle.TERMINAL_STATUSES,
+    )
+    if fix is None:
+        return None
+    applied: dict[str, bool] = {}
+
+    def apply(cur):
+        applied.clear()
+        if not cur or cur.get("list_status") != "calling":
+            return None
+        try:
+            if int(cur.get("attempts") or 0) != attempt:
+                return None  # a newer claim: not the row we judged
+        except (TypeError, ValueError):
+            return None
+        stamp = now_iso(api.now())
+        applied["yes"] = True
+        return {**cur, **fix.patch, "updated_at": stamp, "stranded_recovered_at": stamp}
+
+    await api.store.transact(CALL_LIST, entry_id, apply)
+    if not applied:
+        return None
+    call_sid = (call or {}).get("call_sid")
+    run_id = entry.get("claimed_by_run") or (call or {}).get("run_id")
+    recorded = False
+    if run_id:
+        recorded = await _record_stranded_on_run(api, run_id, entry_id, call_sid, fix.call_status)
+    summary = {
+        "entry_id": entry_id,
+        "attempt": attempt,
+        "reason": fix.reason,
+        "list_status": fix.patch["list_status"],
+        "call_status": fix.call_status,
+        "call_id": call_sid,
+        "run_id": run_id,
+        "recorded_on_run": recorded,
+    }
+    log.warning(
+        "stranded call-list row recovered",
+        extra={"event": "entry.stranded_recovered", **summary},
+    )
+    return summary
+
+
 @router.post("/cron/dispatch-due")
 async def cron_dispatch_due(request: Request):
     """Every minute (Cloud Scheduler). Claims due scheduled runs; always 200.
@@ -864,6 +1028,12 @@ async def cron_dispatch_due(request: Request):
         log.exception(
             "could not close unused test calls", extra={"event": "test_call.expire_failed"}
         )
+    # Before the stale-run check: a row put back to pending here is then carried
+    # over by that check instead of being skipped as "not pending".
+    try:
+        await recover_stranded_entries(api)
+    except Exception:
+        log.exception("stranded-row check failed", extra={"event": "entry.stranded_recover_failed"})
     current = await api.store.get(LIST_RUNS, CURRENT_RUN)
     if current and current.get("status") == "running":
         try:

@@ -88,6 +88,7 @@ In Cloud Run the env vars are set by Terraform (`infra/envs/<env>/services.tf`).
 | `sms.survey_enabled` | `VOA__SMS__SURVEY_ENABLED` | bool | `False` |  |
 | `sms.reply_to_compliance_keywords` | `VOA__SMS__REPLY_TO_COMPLIANCE_KEYWORDS` | bool | `False` |  |
 | `sms.llm_fallback` | `VOA__SMS__LLM_FALLBACK` | bool | `True` |  |
+| `sms.simulator_ttl_days` | `VOA__SMS__SIMULATOR_TTL_DAYS` | int | `7` |  |
 | `debug.enabled` | `VOA__DEBUG__ENABLED` | bool | `False` |  |
 | `debug.log_tool_args` | `VOA__DEBUG__LOG_TOOL_ARGS` | bool | `False` |  |
 | `debug.save_audio` | `VOA__DEBUG__SAVE_AUDIO` | bool | `False` |  |

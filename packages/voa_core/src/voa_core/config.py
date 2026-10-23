@@ -171,6 +171,9 @@ class SmsConfig(_Strict):
     survey_enabled: bool = False  # option 3; register the copy with the carrier first
     reply_to_compliance_keywords: bool = False  # False when the provider answers STOP/HELP itself
     llm_fallback: bool = True  # Gemini interprets free text the parsers could not (never decides)
+    # "Test by text" data (simulator__* collections) carries expire_at this far out;
+    # Firestore TTL policies (infra/envs/demo/services.tf) delete it after that.
+    simulator_ttl_days: int = Field(default=7, ge=1, le=90)
 
 
 class SoftphoneConfig(_Strict):

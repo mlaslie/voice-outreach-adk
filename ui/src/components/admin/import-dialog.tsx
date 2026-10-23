@@ -15,6 +15,8 @@ import { AdminActions } from "@/lib/nurse/actions";
 import { BULK_LIMIT, CsvPreview, ImportResult } from "@/lib/call-list-csv";
 import { formatPhone } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { CampaignsResponse, campaignName } from "@/lib/campaigns";
+import { CsvColumnsHelp } from "./csv-columns-help";
 
 /**
  * Admin → Patients → Import CSV: the parsed file, row by row, with every
@@ -26,14 +28,18 @@ export function ImportDialog({
   fileName,
   preview,
   actions,
+  campaigns = null,
   onClose,
 }: {
   fileName: string;
   /** null closes the dialog. */
   preview: CsvPreview | null;
   actions: Pick<AdminActions, "live" | "importEntries">;
+  /** GET /api/campaigns, to name each row's use case. */
+  campaigns?: CampaignsResponse | null;
   onClose: () => void;
 }) {
+  const [helpOpen, setHelpOpen] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [result, setResult] = useState<ImportResult | null>(null);
   const sending = progress !== null && result === null;
@@ -42,6 +48,7 @@ export function ImportDialog({
     if (sending) return; // the requests are already on their way
     setProgress(null);
     setResult(null);
+    setHelpOpen(false);
     onClose();
   };
 
@@ -58,7 +65,7 @@ export function ImportDialog({
 
   return (
     <Dialog open={!!preview} onOpenChange={(o) => { if (!o) close(); }}>
-      <DialogContent className="max-h-[90vh] overflow-hidden rounded-[24px] sm:max-w-3xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto rounded-[24px] sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle className="font-display">{result ? "Import finished" : "Import patients"}</DialogTitle>
           <DialogDescription>
@@ -105,7 +112,7 @@ export function ImportDialog({
                 </span>
               ) : null}
             </div>
-            <div className="max-h-[50vh] overflow-auto rounded-2xl ring-1 ring-black/[0.06]">
+            <div className="max-h-[45vh] overflow-auto rounded-2xl ring-1 ring-black/[0.06]">
               <table className="w-full text-left text-[13px]">
                 <thead className="sticky top-0 bg-mist text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
                   <tr>
@@ -113,6 +120,7 @@ export function ImportDialog({
                     <th className="px-3 py-2">Patient</th>
                     <th className="px-3 py-2">Phone</th>
                     <th className="px-3 py-2">DOB</th>
+                    <th className="px-3 py-2">Use case</th>
                     <th className="px-3 py-2">Check</th>
                   </tr>
                 </thead>
@@ -130,6 +138,11 @@ export function ImportDialog({
                           {/^\+[1-9]\d{6,14}$/.test(r.cells.phone ?? "") ? formatPhone(r.cells.phone) : r.cells.phone || "—"}
                         </td>
                         <td className="px-3 py-2 tabular-nums text-ink-soft">{r.cells.patient_dob || "—"}</td>
+                        <td className="px-3 py-2 text-ink-soft">
+                          {r.entry
+                            ? <>{campaignName(r.entry.campaign_id, campaigns)}{r.entry.campaign_id ? null : <span className="text-ink-muted"> (default)</span>}</>
+                            : r.cells.campaign_id || <span className="text-ink-muted">default</span>}
+                        </td>
                         <td className="px-3 py-2">
                           {bad ? (
                             <ul className="space-y-0.5 text-[12px] text-brand-red-dark">
@@ -153,9 +166,13 @@ export function ImportDialog({
                 Rows with errors are skipped. Import the ready rows now, or cancel, fix the file and choose it again.
               </p>
             ) : null}
+            <p className="text-[12px] text-ink-soft">
+              Importing adds the patients to the list. It does not start any calls: start or schedule a run under Schedules.
+            </p>
             {!actions.live ? (
               <p className="text-[12px] text-ink-muted">Sample data: importing adds the rows to this tab only. Nothing is sent.</p>
             ) : null}
+            <CsvColumnsHelp open={helpOpen} onOpenChange={setHelpOpen} className="rounded-2xl bg-mist/50 px-3 py-2.5" />
           </div>
         ) : null}
 
