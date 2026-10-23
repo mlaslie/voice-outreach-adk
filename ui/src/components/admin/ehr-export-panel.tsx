@@ -270,6 +270,10 @@ export function EhrExportPanel({ live }: { live: boolean }) {
           <FlaskConical className="h-4 w-4 shrink-0" /> {DEMO_NOTE}. The example profile and a fictional call; the preview is computed in this browser.
         </div>
       ) : null}
+      <Note tone="info">
+        <strong className="font-semibold text-ink">Mapping only: nothing is sent to an EHR yet.</strong> The mapping, preview and
+        simulate work on real call results, but the service that sends them to your EHR is not built, so Test connection is off.
+      </Note>
       {loadError ? (
         <Note tone="error">
           {loadError}{" "}

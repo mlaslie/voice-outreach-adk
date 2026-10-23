@@ -563,9 +563,9 @@ function PatientCard({ profile, problems, edit }: { profile: EhrProfile; problem
           <TextInput value={str(getIn(profile, ["identifiers", "system"]))} onChange={(v) => set(["identifiers", "system"], v)} invalid={!str(getIn(profile, ["identifiers", "system"]))} spellCheck={false} />
         </Field>
       </div>
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 flex flex-col items-start gap-2">
         <Toggle checked={bool(pt.search_with_birthdate, false)} onChange={(v) => set(["patient", "search_with_birthdate"], v)} label="Also match on date of birth" />
-        {bool(pt.search_with_birthdate, false) ? <Note tone="warn">The exporter then reads the patient&apos;s date of birth and sends it in the search (never in a resource). It is PHI the default does not send.</Note> : null}
+        {bool(pt.search_with_birthdate, false) ? <div className="self-stretch"><Note tone="warn">The exporter then reads the patient&apos;s date of birth and sends it in the search (never in a resource). It is PHI the default does not send.</Note></div> : null}
         <Toggle checked={bool(pt.include_display_name, false)} onChange={(v) => set(["patient", "include_display_name"], v)} label="Put the patient's name in references" />
         <Toggle checked={bool(profile.validate_output, true)} onChange={(v) => set(["validate_output"], v)} label="Check every bundle's FHIR R4 structure before sending" />
       </div>

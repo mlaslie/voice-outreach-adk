@@ -1066,3 +1066,13 @@ Admin → **EHR export** (new nav entry after Knowledge base; the section blurb 
 
 **Watch out.**
 - **Don't run the two dev servers at once.** `dashboard-adk` and `dashboard-adk-admin` share `ui/.next`, and running both corrupts it ("Cannot find module './vendor-chunks/…'", HTTP 500). Stop one, `rm -rf ui/.next`, then start the other.
+
+## 23 Oct 2026: EHR export, toggle layout and "not sent yet" call-out
+
+- **Toggle fix:** the three toggles at the bottom of Patient and identifiers ran into each other. `Toggle` is `inline-flex`, and the wrapper was a plain block with `space-y-2`, which doesn't space inline items, so the toggles flowed onto one line and wrapped. The wrapper is now `flex flex-col items-start gap-2`. The other toggles sit in flex rows and were fine.
+- **Call-out:** the mapping is real but nothing sends to an EHR, and that was only stated in the plan's status line. It is now also stated in:
+  - an info note at the top of the EHR export page;
+  - INTEGRATION-GUIDE §3 (a status block);
+  - the README (the admin bullet and the integration table);
+  - ARCHITECTURE (the extension table).
+- **Still cramped:** at about 1,280 px, the form column next to the fixed 440 px preview truncates long select labels ("Retry (stays pending), then fail"). The full value shows when the select is opened.

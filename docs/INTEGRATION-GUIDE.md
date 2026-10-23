@@ -262,6 +262,10 @@ Every write by the feed is in the audit log, with the `X-Acting-User` you sent, 
 
 ## 3. Results out: sending results to your EHR
 
+> **Status: the mapping is built; sending to an EHR is not.**
+> - **Built and deployed:** every signed-off call becomes a FHIR-shaped record in the outbox. The admin console's **EHR export** page maps the app's answers to your EHR's FHIR fields (a JSON/YAML profile), previews the result side by side, and simulates a run against a fake FHIR server.
+> - **Not built:** the service that reads the outbox and sends to a real EHR (`voa-ehr-export`, [EHR export plan](EHR-EXPORT-PLAN.md) step 5). No real EHR has ever been called, and Test connection is disabled. Until then, build your own exporter (below), or wait for that service, which will use the same profile.
+
 ### What exists for every call
 
 | Data | Where | Contents |

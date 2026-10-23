@@ -235,5 +235,5 @@ sequenceDiagram
 | Change calling hours, auto-recall, time format, company name, branding | Admin console |
 | Use a different telephony provider | `packages/voa_providers` plus a gateway route (`docs/TELEPHONY-PROVIDERS.md`) |
 | Feed patients from an EHR | The ingest API (`docs/INTEGRATION-GUIDE.md`, §1–2) |
-| Send results to an EHR | An `ehr_outbox` exporter (`docs/INTEGRATION-GUIDE.md`, §3) |
+| Send results to an EHR | An `ehr_outbox` exporter (`docs/INTEGRATION-GUIDE.md`, §3). The FHIR mapping (`packages/voa_ehr`, admin EHR export page) is built; the sending service (`voa-ehr-export`) is not. |
 | Stand up another environment | A new `infra/envs/<env>` from the same modules (`docs/DEPLOY.md`) |
