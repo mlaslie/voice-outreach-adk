@@ -141,7 +141,7 @@ export function AdminConsole({
   return (
     <div className="relative min-h-[calc(100vh-37px)] overflow-clip bg-console font-sans text-ink">
       <Backdrop />
-      <div className="relative mx-auto flex max-w-[1500px] gap-6 p-4 lg:p-6">
+      <div className="relative mx-auto flex max-w-[2400px] gap-6 p-4 lg:p-6 2xl:px-8">
         <SidebarShell
           subtitle="Admin console"
           basePath="/admin"

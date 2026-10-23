@@ -1054,3 +1054,15 @@ Admin → **EHR export** (new nav entry after Knowledge base; the section blurb 
     - Simulate: run 1 created 4; run 2 created 0 and updated 4.
     - The nurse identity gets 403.
   - **No real calls to preview yet:** the outbox holds no signed-off calls, so only the sample is available as a source. Signing off a call in the nurse console adds one.
+
+## 23 Oct 2026: wider pages
+
+**Asked:** use more of the browser width.
+
+**Done.**
+- **Nurse and admin consoles:** the page cap is now 2,400 px instead of 1,500 px (`nurse-console.tsx`, `admin-console.tsx`), with a little more side padding at 2xl. At a 2,200 px window, the main area grows from about 1,200 px to about 1,840 px. Below 1,500 px nothing changes.
+- **EHR export page:** the preview column was fixed at 440 px, so on wide screens all the extra space went to the form. At 2xl (≥ 1,536 px) the form and preview now split 1.2 : 1 (`ehr-mapping.tsx`). At 2,200 px the preview is about 820 px, enough for the source and mapped trees side by side.
+- **Checked in the preview:** 2,200 px and 375 px wide, no sideways scroll on either console.
+
+**Watch out.**
+- **Don't run the two dev servers at once.** `dashboard-adk` and `dashboard-adk-admin` share `ui/.next`, and running both corrupts it ("Cannot find module './vendor-chunks/…'", HTTP 500). Stop one, `rm -rf ui/.next`, then start the other.

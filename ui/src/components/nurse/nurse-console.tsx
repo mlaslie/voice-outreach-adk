@@ -153,7 +153,7 @@ export function NurseConsole({
   return (
     <div className="relative min-h-[calc(100vh-37px)] overflow-hidden bg-console font-sans text-ink">
       <Backdrop />
-      <div className="relative mx-auto flex max-w-[1500px] gap-6 p-4 lg:p-6">
+      <div className="relative mx-auto flex max-w-[2400px] gap-6 p-4 lg:p-6 2xl:px-8">
         <Sidebar view={view} onView={setView} counts={counts} mode={mode} emergencies={emergencies.length} adminConsoleUrl={adminConsoleUrl} />
 
         <main className="min-w-0 flex-1 space-y-6 pb-24 lg:pb-6">

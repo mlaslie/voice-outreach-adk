@@ -753,7 +753,7 @@ export function MappingTab({
   const advanced = useMemo(() => advancedFields(profile), [profile]);
   const versions = Array.isArray(current?.spec_versions) ? (current.spec_versions as Json[]).join(", ") : "";
   return (
-    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)]">
+    <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,440px)] 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <div className="min-w-0 space-y-4">
         <ProfileCard profile={profile} edit={edit} />
         <ConnectionCard profile={profile} problems={problems} edit={edit} />
