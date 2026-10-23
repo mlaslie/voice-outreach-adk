@@ -1047,3 +1047,10 @@ Admin → **EHR export** (new nav entry after Knowledge base; the section blurb 
 - **YAML upload in sample mode** is refused with a note (no YAML parser in the browser); JSON works. Sample-mode "YAML" downloads are JSON files (JSON is YAML).
 - **The demo port is abridged:** no date transform beyond ISO dates, no transcript (the sample has none). These only affect `?data=demo`.
 - **Review fix (23 Oct):** in the EHR export Preview, a selected node's counterpart was highlighted but not scrolled into view. Both panes call a smooth `scrollIntoView` at the same moment, and Chrome runs only one smooth scrollIntoView at a time, so the second pane never moved. `json-tree.tsx` now scrolls each pane's own container (`revealInScroller`), which also never scrolls the page.
+- **Deployed 23 Oct and verified on demo:**
+  - **API calls:**
+    - `/api/ehr-export` works on real Firestore, including the nested `settings/ehr_export/versions` path. The example profile was saved as draft v1, with 0 errors.
+    - Preview of the post_op sample: 4 entries, 46 source-map links, no errors.
+    - Simulate: run 1 created 4; run 2 created 0 and updated 4.
+    - The nurse identity gets 403.
+  - **No real calls to preview yet:** the outbox holds no signed-off calls, so only the sample is available as a source. Signing off a call in the nurse console adds one.
