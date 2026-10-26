@@ -1076,3 +1076,22 @@ Admin → **EHR export** (new nav entry after Knowledge base; the section blurb 
   - the README (the admin bullet and the integration table);
   - ARCHITECTURE (the extension table).
 - **Still cramped:** at about 1,280 px, the form column next to the fixed 440 px preview truncates long select labels ("Retry (stays pending), then fail"). The full value shows when the select is opened.
+
+## 26 Oct 2026: README screenshots, and a sample transcript and recording
+
+**Asked:** screenshots in the README of scheduled calls, completed calls, a transcript and the recording, with no real PII.
+
+**Done.**
+- **Four screenshots** in `docs/images/screenshots/`, taken from the nurse console in sample mode (`?data=demo`):
+  - `call-queue.jpg`, `call-status.jpg` and `transcript.jpg` are 1600×1000 at 2× scale;
+  - `recording.jpg` is cropped to the drawer.
+
+  They are in a new README section, "Screenshots".
+- **Why not live data:** the demo project's real calls are with the owner, so they would show real PII. Sample mode had no English transcript and no recording at all, so both were added:
+  - **Vivian Ashcombe (P-2054):** an English transcript that matches her sample answers.
+  - **The recording** (`ui/public/samples/post-op-call-sample.m4a`, 87 s, 86 KB AAC): macOS `say` voices, with the patient on the left channel and the agent on the right, like real recordings.
+  - **One source:** both come from `scripts/demo/make_sample_recording.py`. It writes the audio and `ui/src/lib/nurse/sample-call.json` (the turns with their start times), so the transcript and the audio stay in sync. The sample call's duration comes from the same file.
+  - **The drawer:** the Recording tab plays the sample in sample mode, with a note that it is synthesized.
+- **How the shots were taken:** a Playwright script, with Playwright's cached Chromium and the Next.js dev badge hidden. The script isn't committed; rerun by hand if the UI changes.
+
+**Watch out.** The public repo gets this only if the owner approves that one push. Pushing to it is disabled locally by default.

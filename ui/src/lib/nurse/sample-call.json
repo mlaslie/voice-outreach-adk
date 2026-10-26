@@ -1,0 +1,125 @@
+{
+  "duration_s": 87.3,
+  "turns": [
+    {
+      "role": "agent",
+      "s": 1.0,
+      "text": "Hi, this is Sara calling from the clinic about your recent knee surgery. Am I speaking with Vivian?"
+    },
+    {
+      "role": "patient",
+      "s": 7.3,
+      "text": "Yes, this is Vivian."
+    },
+    {
+      "role": "agent",
+      "s": 9.4,
+      "text": "Thanks, Vivian. To confirm your identity, can you tell me your date of birth?"
+    },
+    {
+      "role": "patient",
+      "s": 14.9,
+      "text": "March third, nineteen fifty-eight."
+    },
+    {
+      "role": "agent",
+      "s": 17.9,
+      "text": "Thank you. Are you having any pain today?"
+    },
+    {
+      "role": "patient",
+      "s": 21.0,
+      "text": "Yes, some."
+    },
+    {
+      "role": "agent",
+      "s": 22.8,
+      "text": "On a scale from zero to ten, how bad is it?"
+    },
+    {
+      "role": "patient",
+      "s": 26.1,
+      "text": "About a five. It's a tight, aching feeling in my calf, below the new knee."
+    },
+    {
+      "role": "agent",
+      "s": 31.7,
+      "text": "Is it better, worse, or about the same as yesterday?"
+    },
+    {
+      "role": "patient",
+      "s": 35.4,
+      "text": "About the same."
+    },
+    {
+      "role": "agent",
+      "s": 36.9,
+      "text": "Have you had a fever, a temperature over one hundred point four, since you went home?"
+    },
+    {
+      "role": "patient",
+      "s": 42.3,
+      "text": "No."
+    },
+    {
+      "role": "agent",
+      "s": 43.2,
+      "text": "How does your incision look? Any redness, drainage, or opening?"
+    },
+    {
+      "role": "patient",
+      "s": 48.1,
+      "text": "It looks fine."
+    },
+    {
+      "role": "agent",
+      "s": 49.6,
+      "text": "Is either of your legs swollen?"
+    },
+    {
+      "role": "patient",
+      "s": 51.7,
+      "text": "Just the left leg. The calf is puffier than yesterday, and it's tender."
+    },
+    {
+      "role": "agent",
+      "s": 56.6,
+      "text": "Thank you for telling me. Swelling in one calf is something a nurse should look at today, so I'm flagging it now. Are you sleeping well?"
+    },
+    {
+      "role": "patient",
+      "s": 64.7,
+      "text": "Pretty well, yes."
+    },
+    {
+      "role": "agent",
+      "s": 66.7,
+      "text": "And overall, how are you feeling?"
+    },
+    {
+      "role": "patient",
+      "s": 69.3,
+      "text": "Okay."
+    },
+    {
+      "role": "agent",
+      "s": 70.5,
+      "text": "Do you have any questions for your care team?"
+    },
+    {
+      "role": "patient",
+      "s": 73.4,
+      "text": "No, I don't think so."
+    },
+    {
+      "role": "agent",
+      "s": 75.7,
+      "text": "A nurse will call you back today about the swelling. If you get chest pain or trouble breathing, call nine one one right away. Take care, Vivian."
+    },
+    {
+      "role": "patient",
+      "s": 84.7,
+      "text": "Okay. Thank you. Bye."
+    }
+  ]
+}

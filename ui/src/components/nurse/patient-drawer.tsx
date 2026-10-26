@@ -12,7 +12,7 @@ import { formatDuration, formatPhone } from "@/lib/format";
 import { getFollowUpLabel, getStatusLabel } from "@/lib/status";
 import { FOLLOW_UP_OPTIONS, NurseActions } from "@/lib/nurse/actions";
 import { useCallDetail } from "@/hooks/use-call-detail";
-import { sampleTranscript } from "@/lib/nurse/demo";
+import { sampleRecordingUrl, sampleTranscript } from "@/lib/nurse/demo";
 import { TranscriptViewer } from "@/components/transcript-viewer";
 import { RecordingPlayer } from "@/components/recording-player";
 import { CallTexts } from "@/components/call-texts";
@@ -317,6 +317,11 @@ function Body({
             <Evidence sid={sid} call={call} tab={tab} />
           ) : tab === "transcript" && sampleTranscript(call) ? (
             <SampleTranscript call={call} />
+          ) : tab === "recording" && sampleRecordingUrl(call) ? (
+            <Section title="Call recording">
+              <audio controls preload="metadata" src={sampleRecordingUrl(call)!} className="w-full" />
+              <p className="mt-2 text-[12px] text-ink-muted">Sample recording: synthesized voices reading a fictional call. Patient on the left channel, agent on the right.</p>
+            </Section>
           ) : (
             <p className="rounded-2xl bg-mist/60 p-4 text-[13px] text-ink-soft">
               Sample data has no {tab === "texts" ? "text thread" : tab}. Switch to live data to see the real one.

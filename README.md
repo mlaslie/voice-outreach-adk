@@ -15,6 +15,7 @@ Out of the box it ships a **post-operative check-in**. Pre-operative readiness a
 
 ## Contents
 - [What it does](#what-it-does)
+- [Screenshots](#screenshots)
 - [What it connects to](#what-it-connects-to)
 - [Google Cloud services and what each is for](#google-cloud-services-and-what-each-is-for)
 - [Components](#components)
@@ -97,6 +98,28 @@ Out of the box it ships a **post-operative check-in**. Pre-operative readiness a
 - An EHR scheduling API to load the day's call lists automatically
 - A FHIR-shaped record of every nurse-signed result, ready for your exporter
 - A provider interface, so calls and texts can use a provider other than Twilio
+
+---
+
+## Screenshots
+
+These are taken from the nurse console's sample mode (`?data=demo`). Every patient, phone number and answer is fictional, and the recording is synthesized speech reading a fictional call.
+
+**Call queue: calls scheduled for today.** Who is due a call and when, the call in progress, and the day's totals. Calls can be placed now, one at a time or all together.
+
+![Nurse console call queue: four summary tiles (calls due, reached, immediate follow-up, overdue), an emergency banner, one call in progress and calls scheduled for 11:30.](docs/images/screenshots/call-queue.jpg)
+
+**Call status: completed calls.** What happened on each call and what it needs from a nurse, with each call's follow-up tier, outcome and language.
+
+![Nurse console call status: filters by follow-up tier and outcome, and a list of completed calls with urgent, emergency and no-follow-up badges.](docs/images/screenshots/call-status.jpg)
+
+**Transcript.** The full conversation, time-stamped by turn. It can be downloaded, and translated calls show the original and English side by side.
+
+![A completed call's transcript: the agent confirms the patient's identity, then asks about pain, fever, the incision and swelling.](docs/images/screenshots/transcript.jpg)
+
+**Call recording.** The stereo recording of the call, played in the browser, with the patient on the left channel and the agent on the right.
+
+![The call recording player in the patient drawer.](docs/images/screenshots/recording.jpg)
 
 ---
 

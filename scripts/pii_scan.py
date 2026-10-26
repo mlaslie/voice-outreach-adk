@@ -40,7 +40,19 @@ DENYLIST_FILE = ROOT / "config" / "pii-denylist.txt"
 ALLOW_MARKER = "pii-scan: allow"
 MAX_BYTES = 2_000_000
 
-SKIP_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".pdf", ".ulaw", ".wav", ".lock"}
+SKIP_SUFFIXES = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".ico",
+    ".webp",
+    ".pdf",
+    ".ulaw",
+    ".wav",
+    ".m4a",
+    ".lock",
+}
 SKIP_NAMES = {"pii-denylist.example.txt"}
 # The scanner's own tests contain realistic-looking fakes on purpose; denylist still applies.
 GENERIC_EXEMPT_PATHS = {"scripts/tests/test_pii_scan.py"}

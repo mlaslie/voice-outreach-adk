@@ -13,6 +13,7 @@ import { AllowlistEntry, AllowlistResponse, CallDoc, CallRun, TranscriptResponse
 import { FollowUpSession, ScheduledCallback } from "../followups";
 import { PlannedEntry } from "./model";
 import { DEFAULT_CALLING_HOURS, DEFAULT_CLINIC_TZ, nextCallingSlot } from "./window";
+import sampleCall from "./sample-call.json";
 
 export interface NurseData {
   entries: PlannedEntry[];
@@ -192,7 +193,7 @@ export function demoData(now: Date = new Date()): NurseData {
         incision_concerns: "no", overall_feeling: "good" },
     }),
     call({
-      name: "Vivian Ashcombe", pid: "P-2054", op: "Total knee replacement", endedH: -0.9, mins: 6,
+      name: "Vivian Ashcombe", pid: "P-2054", op: "Total knee replacement", endedH: -0.9, mins: sampleCall.duration_s / 60,
       call_status: "success", outcome: "questionnaire_completed",
       follow_up: "urgent_same_day",
       follow_up_reason: "Patient reports swelling in one leg, getting worse.",
@@ -391,6 +392,14 @@ export function sampleTranscript(call: CallDoc): TranscriptResponse | null {
       language: "en-US", language_used: "es-US", title: "Post-op check",
     };
   }
+  if (call.patient_id === "P-2054") {
+    // The words of the sample recording (scripts/demo/make_sample_recording.py).
+    const rows: Row[] = sampleCall.turns.map((t) => [t.role as "agent" | "patient", t.s, t.text]);
+    return {
+      available: true, conversation_id: call.doc_id, turns: build(rows, false),
+      translation: null, language: "en-US", language_used: "en-US", title: "Post-op check",
+    };
+  }
   if (call.patient_id === "P-2052") {
     const rows: Row[] = [
       ["agent", 2, "Hi, this is Sara calling from the clinic about your recent surgery. Is this a good time?"],
@@ -403,4 +412,9 @@ export function sampleTranscript(call: CallDoc): TranscriptResponse | null {
     };
   }
   return null;
+}
+
+/** Sample mode: the one call with a (synthesized, fictional) recording. */
+export function sampleRecordingUrl(call: CallDoc): string | null {
+  return call.patient_id === "P-2054" ? "/samples/post-op-call-sample.m4a" : null;
 }
